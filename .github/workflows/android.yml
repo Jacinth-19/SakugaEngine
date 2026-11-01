@@ -48,6 +48,15 @@ jobs:
           export SAKUGA_ANDROID_KEY_ALIAS=ci-only SAKUGA_ANDROID_STORE_PASSWORD=ci-test-password SAKUGA_ANDROID_KEY_PASSWORD=ci-test-password
           bash android/sign-apk.sh android/output/Sakuga-Android-animation-preview-debug.apk "$RUNNER_TEMP/owner-test.apk"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$RUNNER_TEMP/owner-test.apk" | grep -F 'CN=Sakuga CI only'
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -p 4 "$RUNNER_TEMP/owner-test.apk"
+          # A bad password must fail without replacing the last verified APK.
+          cp "$RUNNER_TEMP/owner-test.apk" "$RUNNER_TEMP/expected.apk"
+          export SAKUGA_ANDROID_KEY_PASSWORD=wrong-ci-password
+          if bash android/sign-apk.sh android/output/Sakuga-Android-animation-preview-debug.apk "$RUNNER_TEMP/owner-test.apk"; then
+            echo '::error::Signing unexpectedly succeeded with an incorrect key password.'; exit 1
+          fi
+          cmp "$RUNNER_TEMP/owner-test.apk" "$RUNNER_TEMP/expected.apk"
+          rm -f "$RUNNER_TEMP/expected.apk"
           rm -f "$RUNNER_TEMP/ci-only.keystore" "$RUNNER_TEMP/owner-test.apk"
       - name: Upload installable debug preview
         uses: actions/upload-artifact@v4

@@ -47,6 +47,7 @@ case "${SAKUGA_ANDROID_SIGNING_MODE:-debug}" in
   *) echo 'SAKUGA_ANDROID_SIGNING_MODE must be debug or owner.' >&2; exit 2 ;;
 esac
 bash "$ROOT/android/sign-apk.sh" "$WORK/aligned.apk" "$APK"
+"$BT/zipalign" -c -p 4 "$APK"
 unzip -tq "$APK"
 "$BT/aapt" dump badging "$APK" > "$WORK/badging.txt"
 grep -F "package: name='com.sakuga.preview'" "$WORK/badging.txt"
