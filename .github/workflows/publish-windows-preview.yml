@@ -1,0 +1,78 @@
+name: Publish Windows preview
+
+# One-time publication of the already successful Windows CI build. Restrict triggering to a change to this workflow on
+# this session branch: normal pushes must not publish or overwrite releases. The fixed run and commit are checked below.
+on:
+  push:
+    branches: [arena/a13c5e34-sakugaengine]
+    paths: [.github/workflows/publish-windows-preview.yml]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BUILD_RUN: '41299861039'
+      BUILD_SHA: fc40181bc6ae66d5c0e852ccf20740dfe2023203
+      RELEASE_TAG: v0.1.0-preview
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify the source build
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN" > run.json
+          python3 - <<'PY'
+          import json, os
+          with open('run.json', encoding='utf-8') as f:
+              run = json.load(f)
+          assert run['head_sha'] == os.environ['BUILD_SHA'], 'unexpected build commit'
+          assert run['head_branch'] == 'arena/a13c5e34-sakugaengine', 'unexpected source branch'
+          assert run['conclusion'] == 'success', 'source build did not pass'
+          assert run['path'] == '.github/workflows/windows.yml', 'unexpected workflow'
+          PY
+
+      - name: Download the verified Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: sakuga-windows-x64
+          path: release-files
+          github-token: ${{ github.token }}
+          run-id: '41299861039'
+
+      - name: Validate files and create checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-files
+          installer=Sakuga-Engine-0.1.0-win64.exe
+          portable=Sakuga-Engine-0.1.0-win64-portable.zip
+          test -s "$installer"
+          test -s "$portable"
+          unzip -tq "$portable"
+          unzip -Z1 "$portable" > /tmp/sakuga-portable-files.txt
+          grep -Fqx 'sandbox.exe' /tmp/sakuga-portable-files.txt
+          grep -Eq '^shaders/.+\.spv$' /tmp/sakuga-portable-files.txt
+          sha256sum "$installer" "$portable" > SHA256SUMS.txt
+
+      - name: Publish preview release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; refusing to replace its files." >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            release-files/Sakuga-Engine-0.1.0-win64.exe \
+            release-files/Sakuga-Engine-0.1.0-win64-portable.zip \
+            release-files/SHA256SUMS.txt \
+            --target "$BUILD_SHA" --prerelease \
+            --title 'Sakuga Engine 0.1.0 — Windows preview' \
+            --notes-file .github/release-notes/windows-preview.md
