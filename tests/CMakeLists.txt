@@ -1,49 +1,84 @@
-cmake_minimum_required(VERSION 3.15)
-project(SakugaTests CXX)
+# GPU-free test suite.
+#
+# The engine's tests only need the parts that do not touch Vulkan (animation, asset parsing, world, shadow/face math), so the
+# suite builds and runs in a container with no GPU, no driver and no window server:
+#
+#   cmake -S tests -B build-tests && cmake --build build-tests && ctest --test-dir build-tests --output-on-failure
+#
+# It is also added as a subdirectory by the top-level CMakeLists.txt (option SAKUGA_BUILD_TESTS).
+# For a machine without an installed glm, pass -DSAKUGA_GLM_INCLUDE_DIR=/path/to/glm.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  cmake_minimum_required(VERSION 3.20)
+  project(SakugaTests LANGUAGES CXX)
+endif()
 
-# Include engine source
-include_directories(${CMAKE_SOURCE_DIR}/engine ${CMAKE_SOURCE_DIR}/shaders ${CMAKE_SOURCE_DIR}/apps/sandbox)
+get_filename_component(SAKUGA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 
-# Add test executables
-add_executable(loader_test tests/loader_test.cpp)
-target_link_libraries(loader_test sakuga)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(mm_search_test tests/mm_search_test.cpp)
-target_link_libraries(mm_search_test sakuga)
+# ---------------------------------------------------------------- glm
+if(TARGET glm::glm)
+  add_library(sakuga_test_glm INTERFACE)
+  target_link_libraries(sakuga_test_glm INTERFACE glm::glm)
+elseif(SAKUGA_GLM_INCLUDE_DIR)
+  add_library(sakuga_test_glm INTERFACE)
+  target_include_directories(sakuga_test_glm INTERFACE ${SAKUGA_GLM_INCLUDE_DIR})
+else()
+  find_package(glm REQUIRED)
+  add_library(sakuga_test_glm INTERFACE)
+  target_link_libraries(sakuga_test_glm INTERFACE glm::glm)
+endif()
 
-add_executable(lut_parsing_test tests/lut_parsing_test.cpp)
-target_link_libraries(lut_parsing_test sakuga)
+# ---------------------------------------------------------------- headless engine subset
+# Only sources with no Vulkan / GLFW / ImGui dependency may appear here (checked by the compiler).
+add_library(sakuga_headless STATIC
+  ${SAKUGA_ROOT}/engine/core/FileUtil.cpp
+  ${SAKUGA_ROOT}/engine/core/Json.cpp
+  ${SAKUGA_ROOT}/engine/anim/Bvh.cpp
+  ${SAKUGA_ROOT}/engine/anim/Rig.cpp
+  ${SAKUGA_ROOT}/engine/anim/MotionMatching.cpp
+  ${SAKUGA_ROOT}/engine/asset/Lut.cpp
+  ${SAKUGA_ROOT}/engine/world/World.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/stb_impl.cpp)
+target_include_directories(sakuga_headless PUBLIC
+  ${SAKUGA_ROOT}/engine
+  ${SAKUGA_ROOT}/third_party
+  ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(sakuga_headless PUBLIC
+  GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RADIANS GLM_ENABLE_EXPERIMENTAL)
+target_link_libraries(sakuga_headless PUBLIC sakuga_test_glm)
+find_package(Threads REQUIRED)
+target_link_libraries(sakuga_headless PUBLIC Threads::Threads)
+if(NOT MSVC)
+  target_compile_options(sakuga_headless PRIVATE -Wall -Wextra -Wno-unused-parameter)
+endif()
 
-add_executable(blink_curve_test tests/blink_curve_test.cpp)
-target_link_libraries(blink_curve_test sakuga)
+# ---------------------------------------------------------------- tests
+set(SAKUGA_TESTS
+  loader_test
+  mm_search_test
+  lut_parsing_test
+  blink_curve_test
+  posture_clamp_test
+  shadow_fit_test
+  headless_smoke_test
+  pixel_diff_test
+  debug_lines_test
+  face_hair_test)
 
-add_executable(posture_clamp_test tests/posture_clamp_test.cpp)
-target_link_libraries(posture_clamp_test sakuga)
-
-add_executable(shadow_fit_test tests/shadow_fit_test.cpp)
-target_link_libraries(shadow_fit_test sakuga)
-
-add_executable(headless_smoke_test tests/headless_smoke_test.cpp)
-target_link_libraries(headless_smoke_test sakuga)
-
-add_executable(pixel_diff_test tests/pixel_diff_test.cpp)
-target_link_libraries(pixel_diff_test sakuga)
-
-add_executable(debug_lines_test tests/debug_lines_test.cpp)
-target_link_libraries(debug_lines_test sakuga)
-
-add_executable(face_hair_test tests/face_hair_test.cpp)
-target_link_libraries(face_hair_test sakuga)
-
-# Enable CTest
 enable_testing()
-add_test(NAME loader_test COMMAND loader_test)
-add_test(NAME mm_search_test COMMAND mm_search_test)
-add_test(NAME lut_parsing_test COMMAND lut_parsing_test)
-add_test(NAME blink_curve_test COMMAND blink_curve_test)
-add_test(NAME posture_clamp_test COMMAND posture_clamp_test)
-add_test(NAME shadow_fit_test COMMAND shadow_fit_test)
-add_test(NAME headless_smoke_test COMMAND headless_smoke_test)
-add_test(NAME pixel_diff_test COMMAND pixel_diff_test)
-add_test(NAME debug_lines_test COMMAND debug_lines_test)
-add_test(NAME face_hair_test COMMAND face_hair_test)
+foreach(test_name ${SAKUGA_TESTS})
+  add_executable(${test_name} ${CMAKE_CURRENT_SOURCE_DIR}/${test_name}.cpp)
+  target_link_libraries(${test_name} PRIVATE sakuga_headless)
+  target_compile_definitions(${test_name} PRIVATE
+    SAKUGA_ROOT="${SAKUGA_ROOT}"
+    SAKUGA_ASSET_DIR="${SAKUGA_ROOT}/assets")
+  add_test(NAME ${test_name} COMMAND ${test_name})
+endforeach()
+
+# A single aggregate target: `cmake --build . --target quality` then `ctest`.
+add_custom_target(quality COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+  COMMENT "Sakuga: running the GPU-free test suite"
+  USES_TERMINAL)
