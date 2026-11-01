@@ -57,10 +57,26 @@ jobs:
 
       # The job log is not always reachable from outside, so a failure repeats the tail of the output one line per
       # annotation (multi-line annotation messages get cut, one annotation per line survives).
+      - name: Toolchain
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = if (Test-Path $vswhere) { & $vswhere -latest -products * -property installationPath } else { "(vswhere missing)" }
+          Write-Host "::notice::Visual Studio: $vs"
+          Write-Host "::notice::$(cmake --version | Select-Object -First 1)"
+          Write-Host "::notice::$(ninja --version | ForEach-Object { "ninja $_" })"
+
+      # The Visual Studio generator is not always discoverable on the hosted images, so the build uses the MSVC
+      # environment that msvc-dev-cmd exports plus Ninja (both are preinstalled on windows-latest).
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Configure
         shell: pwsh
         run: |
-          $log = cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DSAKUGA_BUILD_TESTS=OFF 2>&1 | Out-String
+          $log = cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSAKUGA_BUILD_TESTS=OFF 2>&1 | Out-String
           Write-Host $log
           if ($LASTEXITCODE -ne 0) {
             foreach ($l in ($log -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -Last 20)) {
@@ -73,7 +89,7 @@ jobs:
       - name: Build (Release)
         shell: pwsh
         run: |
-          $log = cmake --build build --config Release --parallel 2>&1 | Out-String
+          $log = cmake --build build --parallel 2>&1 | Out-String
           Write-Host $log
           if ($LASTEXITCODE -ne 0) {
             foreach ($l in ($log -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -Last 20)) {
@@ -87,13 +103,13 @@ jobs:
         shell: pwsh
         run: |
           # --help and --dump-ui-theme exit before any Vulkan device is created, so they run on a GPU-less runner.
-          .\build\bin\Release\sandbox.exe --help | Select-Object -First 5
-          .\build\bin\Release\sandbox.exe --dump-ui-theme theme_check.json
+          .\build\bin\sandbox.exe --help | Select-Object -First 5
+          .\build\bin\sandbox.exe --dump-ui-theme theme_check.json
           if (-not (Test-Path theme_check.json)) { throw "the executable did not write theme_check.json" }
           Get-Content theme_check.json -TotalCount 3
 
       - name: Stage the install tree
-        run: cmake --install build --config Release --prefix stage
+        run: cmake --install build --prefix stage
 
       - name: Portable zip
         shell: pwsh
