@@ -127,7 +127,8 @@ jobs:
           # The wizard style directives are version-gated; record which Inno compiled this, so the log says which
           # appearance (PNG + DynamicDark + background art, or the BMP fallback) actually went into the installer.
           $ver = (Get-Item $iscc.FullName).VersionInfo.ProductVersion
-          Write-Host "::notice::Inno Setup $ver ($($iscc.FullName))"
+          $pkg = (choco list --local-only --limit-output innosetup 2>$null) -join " "
+          Write-Host "::notice::Inno Setup $ver $pkg ($($iscc.FullName))"
 
       - name: Generate the installer art
         shell: pwsh
