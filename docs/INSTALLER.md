@@ -69,3 +69,12 @@ dist\Sakuga-Engine-dev-win64.exe                        :: run it and look at th
 `.github/workflows/windows.yml` builds the app, stages `cmake --install`, regenerates the art, finds `ISCC.exe` (installing
 Inno through chocolatey when the image has none), compiles the installer and uploads `Sakuga-Engine-<version>-win64.exe`
 plus a portable zip as the `sakuga-windows-x64` artifact.
+
+The job logs the Inno version it found; the last run used **Inno Setup 6.7.1** (chocolatey `innosetup` 6.7.1), so the
+full appearance path is the one that ships: `modern dynamic hidebevels`, PNG wizard images with `DynamicDark` variants and
+the blended background. On a machine with 6.0-6.5 the same script compiles with the BMP images and the plain modern
+wizard instead.
+
+One honest limitation: the artwork is checked by looking at the generated PNGs, and the script is checked by compiling it -
+the wizard as Windows finally draws it (font metrics, DPI scaling, where the side image lands) can only be confirmed by
+running the produced setup once on a Windows desktop.
