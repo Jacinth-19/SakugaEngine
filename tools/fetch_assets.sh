@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Re-downloads the sample assets used by the sandbox (they are already vendored in assets/ in this checkout).
+# NOTE: libraries are NOT fetched by this script - GLM, GLFW, the Vulkan headers, ImGui, Recast/Detour, cgltf and stb are
+# vendored in third_party/ and the compiled shaders are committed in shaders/spv/. See third_party/README.md.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p assets/models assets/motion

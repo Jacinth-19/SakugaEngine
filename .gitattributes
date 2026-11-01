@@ -1,0 +1,10 @@
+# Keep binary assets binary (no EOL conversion, no text diffing).
+*.spv   binary
+*.png   binary
+*.hdr   binary
+*.vrm   binary
+*.glb   binary
+*.mp4   binary
+*.cube  text eol=lf
+*.3dl   text eol=lf
+*.bvh   text eol=lf

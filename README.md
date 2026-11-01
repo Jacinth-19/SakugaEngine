@@ -29,7 +29,9 @@ All of these are captures of the sandbox in `docs/screenshots/`:
 
 ## Build
 
-Requires a Vulkan SDK (headers + `glslangValidator`), GLFW, GLM, and CMake >= 3.20.
+No downloads: GLM, GLFW, the Vulkan **headers**, ImGui, Recast/Detour, cgltf and stb are vendored in `third_party/`
+(built from source or header-only), and the compiled shaders are committed in `shaders/spv/`. See
+`third_party/README.md` for versions and licences.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -37,14 +39,24 @@ cmake --build build -j
 ./build/bin/sandbox --help
 ```
 
-Assets are vendored in `assets/`; `tools/fetch_assets.sh` re-downloads them and can pull the full 77-clip LAFAN1 set.
+Still needed from the machine (nothing this repo can carry):
+
+* a **Vulkan loader + GPU driver** at runtime, and
+* on Linux, the **X11 or Wayland development headers** that GLFW is built against (`libx11-dev libxrandr-dev
+  libxinerama-dev libxcursor-dev libxi-dev`). On a headless box, configure with
+  `-DGLFW_BUILD_X11=OFF -DGLFW_BUILD_WAYLAND=OFF` to build the engine and the tests without a window backend.
+* optional: `glslangValidator` (from the Vulkan SDK) if you want the shaders recompiled from source. Without it the build
+  uses `shaders/spv/`; run `./tools/build_shaders.sh` after editing a shader.
+
+Sample assets (models, mocap, LUTs, HDRIs) are vendored in `assets/` too; `tools/fetch_assets.sh` only matters if you want
+to re-fetch them or pull the full 77-clip LAFAN1 set.
 
 ## Tests
 
 The test suite is **GPU-free** (no device, no window server) and runs in CI:
 
 ```sh
-cmake -S tests -B build-tests
+cmake -S tests -B build-tests          # picks up the vendored glm automatically
 cmake --build build-tests -j
 ctest --test-dir build-tests --output-on-failure
 ```

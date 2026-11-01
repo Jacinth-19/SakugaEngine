@@ -11,29 +11,113 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(SAKUGA_BUILD_TESTS "Build the GPU-free test suite (tests/)" ON)
 
-find_package(Vulkan REQUIRED)
-find_package(Threads REQUIRED)
-find_package(glfw3 REQUIRED)
-find_package(glm REQUIRED)
-find_program(GLSLANG glslangValidator HINTS $ENV{VULKAN_SDK}/bin REQUIRED)
+# ================================================================ dependencies
+# Every third-party library the engine links against is vendored in third_party/ (glm, GLFW, Vulkan headers,
+# Dear ImGui, Recast/Detour, cgltf, stb), so a fresh clone builds without downloading anything. A system
+# installation is preferred when CMake can find one; otherwise the vendored copy is used automatically.
+# Still required from the machine: a Vulkan *loader* + GPU driver at runtime, and - only if you want to
+# recompile the shaders - glslangValidator (the precompiled SPIR-V in shaders/spv/ is used otherwise).
 
-# ---------------------------------------------------------------- shaders
+# ---------------------------------------------------------------- Vulkan
+find_package(Vulkan QUIET)
+if(Vulkan_FOUND)
+  message(STATUS "Sakuga: system Vulkan ${Vulkan_VERSION} (${Vulkan_INCLUDE_DIR})")
+else()
+  set(SAKUGA_VULKAN_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/vulkan/include)
+  if(NOT EXISTS ${SAKUGA_VULKAN_INCLUDE}/vulkan/vulkan.h)
+    message(FATAL_ERROR "Vulkan headers not found. Install the Vulkan SDK/headers, or vendor them in third_party/vulkan/include.")
+  endif()
+  # Headers are vendored; the loader is a system component. Look for it under its usual names (the versioned
+  # .so.1 ships with the driver even when the -dev symlink does not).
+  find_library(SAKUGA_VULKAN_LOADER
+    NAMES vulkan vulkan-1 libvulkan.so.1 libvulkan.so
+    HINTS /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu /usr/local/lib)
+  add_library(sakuga_vulkan INTERFACE)
+  target_include_directories(sakuga_vulkan INTERFACE ${SAKUGA_VULKAN_INCLUDE})
+  if(SAKUGA_VULKAN_LOADER)
+    target_link_libraries(sakuga_vulkan INTERFACE ${SAKUGA_VULKAN_LOADER})
+    message(STATUS "Sakuga: vendored Vulkan headers, loader ${SAKUGA_VULKAN_LOADER}")
+  else()
+    message(FATAL_ERROR "Vulkan loader not found (headers are vendored in third_party/vulkan). "
+                        "Install your GPU driver's Vulkan runtime / the Vulkan SDK, e.g. 'vulkan-icd-loader' or vendor 'vulkan-1.dll'.")
+  endif()
+  add_library(Vulkan::Vulkan ALIAS sakuga_vulkan)
+endif()
+
+# ---------------------------------------------------------------- GLM (header only)
+find_package(glm QUIET)
+if(NOT TARGET glm::glm)
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glm/glm/glm.hpp)
+    add_library(sakuga_glm INTERFACE)
+    target_include_directories(sakuga_glm INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glm)
+    add_library(glm::glm ALIAS sakuga_glm)
+    message(STATUS "Sakuga: vendored glm (third_party/glm)")
+  else()
+    message(FATAL_ERROR "glm not found (install glm or vendor it in third_party/glm).")
+  endif()
+endif()
+
+# ---------------------------------------------------------------- GLFW
+find_package(glfw3 QUIET)
+if(NOT TARGET glfw)
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw/CMakeLists.txt)
+    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+    add_subdirectory(third_party/glfw EXCLUDE_FROM_ALL)
+    message(STATUS "Sakuga: vendored GLFW (third_party/glfw, built from source)")
+  else()
+    message(FATAL_ERROR "GLFW not found (install glfw3 or vendor it in third_party/glfw).")
+  endif()
+endif()
+
+find_package(Threads REQUIRED)
+
+# ================================================================ shaders
+# glslangValidator is only needed to (re)compile shaders. Without it the SPIR-V committed in shaders/spv/ is used,
+# so a clone can build and run with no Vulkan SDK present.
 file(GLOB SHADER_SRC CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/shaders/*.vert ${CMAKE_SOURCE_DIR}/shaders/*.frag)
 file(GLOB SHADER_INC CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/shaders/*.glsl)
-set(SPV_OUT "")
-foreach(S ${SHADER_SRC})
-  get_filename_component(N ${S} NAME)
-  set(O ${CMAKE_BINARY_DIR}/shaders/${N}.spv)
-  add_custom_command(OUTPUT ${O}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
-    COMMAND ${GLSLANG} -V --target-env vulkan1.3 -I${CMAKE_SOURCE_DIR}/shaders ${S} -o ${O}
-    DEPENDS ${S} ${SHADER_INC}
-    COMMENT "glslang ${N}" VERBATIM)
-  list(APPEND SPV_OUT ${O})
-endforeach()
-add_custom_target(SakugaShaders ALL DEPENDS ${SPV_OUT})
+find_program(GLSLANG glslangValidator
+  HINTS $ENV{VULKAN_SDK}/bin ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glslang/bin)
 
-# ---------------------------------------------------------------- imgui
+if(GLSLANG)
+  set(SPV_OUT "")
+  foreach(S ${SHADER_SRC})
+    get_filename_component(N ${S} NAME)
+    set(O ${CMAKE_BINARY_DIR}/shaders/${N}.spv)
+    add_custom_command(OUTPUT ${O}
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
+      COMMAND ${GLSLANG} -V --target-env vulkan1.3 -I${CMAKE_SOURCE_DIR}/shaders ${S} -o ${O}
+      DEPENDS ${S} ${SHADER_INC}
+      COMMENT "glslang ${N}" VERBATIM)
+    list(APPEND SPV_OUT ${O})
+  endforeach()
+  add_custom_target(SakugaShaders ALL DEPENDS ${SPV_OUT})
+  message(STATUS "Sakuga: glslangValidator ${GLSLANG} (shaders compiled from source)")
+else()
+  message(WARNING "glslangValidator not found: using the precompiled SPIR-V in shaders/spv/. "
+                  "Install the Vulkan SDK (or run tools/build_shaders.sh) after editing any shader.")
+  file(GLOB PREBUILT_SPV CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/shaders/spv/*.spv)
+  if(NOT PREBUILT_SPV)
+    message(FATAL_ERROR "No glslangValidator and no precompiled shaders in shaders/spv/.")
+  endif()
+  # Warn when a shader source is newer than its committed SPIR-V (i.e. the prebuilt file is stale).
+  foreach(S ${SHADER_SRC})
+    get_filename_component(N ${S} NAME)
+    set(O ${CMAKE_SOURCE_DIR}/shaders/spv/${N}.spv)
+    if(EXISTS ${O} AND ${S} IS_NEWER_THAN ${O})
+      message(WARNING "shaders/spv/${N}.spv is older than shaders/${N}: run tools/build_shaders.sh")
+    endif()
+  endforeach()
+  add_custom_target(SakugaShaders ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/shaders/spv ${CMAKE_BINARY_DIR}/shaders
+    COMMENT "Sakuga: copying precompiled SPIR-V")
+endif()
+
+# ================================================================ imgui
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
 add_library(imgui STATIC
   ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_tables.cpp ${IMGUI_DIR}/imgui_widgets.cpp
@@ -74,8 +158,7 @@ add_custom_target(SakugaCopyShaders ALL
 add_dependencies(SakugaCopyShaders sandbox)
 
 # ---------------------------------------------------------------- tests (GPU-free, CTest)
-# Kept out of the default build when the engine is configured without a compiler that supports C++20, and always
-# configureable on its own: cmake -S tests -B build-tests
+# Always configureable on its own as well: cmake -S tests -B build-tests
 if(SAKUGA_BUILD_TESTS)
   enable_testing()          # so `ctest --test-dir build` works from the top-level build tree
   add_subdirectory(tests)

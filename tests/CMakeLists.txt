@@ -18,15 +18,16 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ---------------------------------------------------------------- glm
-if(TARGET glm::glm)
-  add_library(sakuga_test_glm INTERFACE)
+# Vendored copy first (nothing to download), then a system glm, then -DSAKUGA_GLM_INCLUDE_DIR for odd setups.
+add_library(sakuga_test_glm INTERFACE)
+if(EXISTS ${SAKUGA_ROOT}/third_party/glm/glm/glm.hpp)
+  target_include_directories(sakuga_test_glm INTERFACE ${SAKUGA_ROOT}/third_party/glm)
+elseif(TARGET glm::glm)
   target_link_libraries(sakuga_test_glm INTERFACE glm::glm)
 elseif(SAKUGA_GLM_INCLUDE_DIR)
-  add_library(sakuga_test_glm INTERFACE)
   target_include_directories(sakuga_test_glm INTERFACE ${SAKUGA_GLM_INCLUDE_DIR})
 else()
   find_package(glm REQUIRED)
-  add_library(sakuga_test_glm INTERFACE)
   target_link_libraries(sakuga_test_glm INTERFACE glm::glm)
 endif()
 
