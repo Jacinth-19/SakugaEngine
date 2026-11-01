@@ -1,0 +1,71 @@
+name: Android animation preview
+
+# This builds a native animation-only preview, NOT the full GLFW/Vulkan desktop sandbox.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${ANDROID_HOME:?Android SDK must be installed on the runner}"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          if [[ ! -f "$ANDROID_HOME/platforms/android-35/android.jar" || ! -x "$ANDROID_HOME/build-tools/35.0.0/aapt" || ! -f "$ANDROID_HOME/ndk/27.2.12479018/build/cmake/android.toolchain.cmake" ]]; then
+            sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.2.12479018'
+          fi
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Build and validate debug APK
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! bash android/build-apk.sh android/output 2>&1 | tee android-build.log; then
+            while IFS= read -r line; do
+              line=${line//'%'/'%25'}; line=${line//$'\r'/'%0D'}
+              echo "::error::$line"
+            done < <(grep -E 'error:|FAILED:|Missing |not found|Error|error ' android-build.log | tail -12)
+            echo '::error::Android build or package validation failed.'
+            exit 1
+          fi
+      - name: Upload installable debug preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: sakuga-android-animation-preview-debug
+          path: |
+            android/output/Sakuga-Android-animation-preview-debug.apk
+            android/output/SHA256SUMS.txt
+          if-no-files-found: error
+
+  emulator-smoke:
+    needs: build-preview
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sakuga-android-animation-preview-debug
+          path: apk
+      - name: Enable emulator acceleration
+        shell: bash
+        run: |
+          if [[ -e /dev/kvm ]]; then sudo chmod a+rw /dev/kvm; fi
+      - name: Install and run preview on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: bash android/emulator-smoke.sh

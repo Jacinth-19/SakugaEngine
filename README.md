@@ -67,7 +67,7 @@ On Windows, use a Bash environment such as Git Bash. The script belongs to the *
 | Platform | Status |
 | :--- | :--- |
 | **Windows x64** | Preview installer and portable archive; CI build and GPU-free smoke tests pass. Real-device visual testing remains. |
-| **Android** | **Not available yet.** The touch PNGs are concepts, not integrated mobile controls; there is no APK. A window/input/Vulkan and packaging port is still needed. |
+| **Android** | An **experimental animation-only debug APK** is built by GitHub Actions; see the [Android notes](docs/ANDROID_AND_DIAGNOSTICS.md). It is not the full Vulkan/VRM desktop sandbox and is not a production release. |
 | **Linux** | Source build exists; no release package is provided yet. |
 | **macOS** | No release package or verified build is provided yet. |
 
@@ -85,7 +85,7 @@ cmake --build build-tests --parallel
 ctest --test-dir build-tests --output-on-failure
 ```
 
-The full-motion tests skip if the separately downloaded clip library is absent. Passing GPU-free tests does **not** replace visual testing on a real device.
+The Android preview build is available as an artifact on successful **Android animation preview** workflow runs. The full-motion tests skip if the separately downloaded clip library is absent. Passing GPU-free tests does **not** replace visual testing on a real device.
 
 ## More information
 

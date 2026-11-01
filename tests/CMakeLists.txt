@@ -102,6 +102,13 @@ foreach(test_name ${SAKUGA_TESTS})
   add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
 
+# The Android preview uses the production motion engine on a simple rig; exercise it on the host without a GPU.
+add_executable(mobile_session_test ${CMAKE_CURRENT_SOURCE_DIR}/mobile_session_test.cpp ${SAKUGA_ROOT}/android/native/MobileSession.cpp)
+target_include_directories(mobile_session_test PRIVATE ${SAKUGA_ROOT}/android/native)
+target_link_libraries(mobile_session_test PRIVATE sakuga_headless)
+target_compile_definitions(mobile_session_test PRIVATE SAKUGA_ROOT="${SAKUGA_ROOT}")
+add_test(NAME mobile_session_test COMMAND mobile_session_test)
+
 # The UI theme test needs the vendored ImGui core (see above); it is skipped when imgui/ is not there.
 if(TARGET sakuga_imgui_core)
   add_executable(ui_theme_test ${CMAKE_CURRENT_SOURCE_DIR}/ui_theme_test.cpp)

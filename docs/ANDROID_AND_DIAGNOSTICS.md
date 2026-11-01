@@ -2,9 +2,13 @@
 
 ## Current status
 
-**Android is not yet a supported build target.** This change adds touch-control PNG concepts in `assets/ui/touch/` (stick base and knob, jump, attack, interact, crouch and sprint). They are not yet wired to the renderer. The existing `TouchControls` overlay is drawn using ImGui primitives and can be tried with a mouse on desktop; it accepts injected touch IDs, but the current GLFW window code does not receive Android multi-touch events. Images alone do not make an APK.
+**The full desktop sandbox is not yet ported to Android.** GitHub Actions now builds a separate, experimental **animation-only debug APK** using a small Android Activity and the native C++ motion matcher. It packages the two repository BVH clips, retargets them to a synthetic debug rig and draws a skeleton on Android Canvas. The on-screen stick (using the bundled joystick PNGs) drives the matcher; **NEXT CLIP** browses the two clips. It is not the Vulkan renderer, a VRM character viewer, or the full 77-clip library. It needs Android 8 (API 26) or newer and supports arm64-v8a and x86_64.
 
-An Android port must replace or adapt desktop window creation and ImGui input, connect Android pointer IDs including cancellation to `injectTouch`, support lifecycle events and surface recreation, access packaged assets, integrate Vulkan surface creation and device requirements, and set up an Android NDK/Gradle package and CI. It needs testing on real devices, including multiple screen sizes and simultaneous touches. The current renderer requests Vulkan 1.3, so device compatibility needs investigation. Linux/macOS are not added by this change.
+The `Android animation preview` workflow builds, validates and uploads `sakuga-android-animation-preview-debug`, then installs the x86_64 build in an Android emulator and checks that both native clips load. Download the `.apk` from a successful workflow run's artifacts; GitHub may require sign-in. The APK is signed with an ephemeral debug key: it is **not** a Play Store build and builds from different runs may not upgrade one another. Uninstall the previous preview before installing a new one if signing keys differ. No real Android device has been validated yet.
+
+To build locally, install Android SDK platform 35, build-tools 35.0.0, NDK 27.2.12479018, JDK, CMake, Ninja and zip; set `ANDROID_HOME`, then run `bash android/build-apk.sh`. Android SDK/NDK and Java are platform build tools, not bundled runtime libraries. Output is in `android/output/`.
+
+A full Android port still needs native Vulkan surface/window lifecycle, Android input and ImGui backends, packaged desktop assets, device compatibility and real-device testing. The desktop `TouchControls` overlay and other touch PNGs are not yet integrated into this preview. Linux/macOS packages remain future work.
 
 The AI-generated files in `assets/branding/` are **concept artwork**, not screenshots or the actual in-app character. The 512px PNG is an icon draft; it is not yet wired into the installer, Windows executable or an Android adaptive icon. The wide banner should be labelled concept art when shown to users.
 
