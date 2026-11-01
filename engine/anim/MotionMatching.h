@@ -91,6 +91,10 @@ public:
     void playClip(int clip, const glm::vec3& pos, float yaw);
     bool browsing() const { return browse_; }
     float currentFrame() const { return frameF_; }
+    // Brute-force nearest neighbour over the current database, using the exact cost function of search() (minus the
+    // idle bias and the context mask) and `categoryMask`. Returns -1 when the mask admits no frame. Used by the
+    // motion-matching test and by tooling; search() itself calls the same helper.
+    int nearestFrame(const float* queryFeatures, uint32_t categoryMask) const;
 
 private:
     float jumpRequest_ = 0.f;

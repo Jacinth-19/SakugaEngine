@@ -1,4 +1,5 @@
 #include "anim/MotionMatching.h"
+#include "anim/MotionFeatures.h"
 #include "core/Log.h"
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -411,10 +412,10 @@ void MotionMatcher::search(const vec3& pos, float yaw, const vec3& desiredVel, b
     bool standing = moving < 0.05f && glm::length(vel_) < 0.3f;
     if (standing && idleScore_.empty()) buildIdleScores();
     const bool idleBias = standing && !idleScore_.empty() && settings.idlePoseWeight > 0.f;
+    // The per-dimension weighted squared error (with early-out) lives in anim/MotionFeatures.h so tests can drive it directly.
     auto cost = [&](int f, float limit) {
-        const float* x = db.feat(f); float c = idleBias ? settings.idlePoseWeight * idleScore_[f] : 0.f;
-        for (int d = 0; d < kFeatureDim; ++d) { float e = q[d] - x[d]; c += w[d] * e * e; if (c > limit) return c; }
-        return c;
+        float base = idleBias ? settings.idlePoseWeight * idleScore_[f] : 0.f;
+        return weightedFeatureCost<kFeatureDim>(q, db.feat(f), w, limit, base);
     };
     uint32_t mask = settings.categoryMask;
     if (settings.contextMask) {                      // context: jumps only on request; gentle speeds only search the Walk family
@@ -434,6 +435,20 @@ void MotionMatcher::search(const vec3& pos, float yaw, const vec3& desiredVel, b
     debug.matchPos = pos; debug.matchYaw = yaw; debug.hasSearch = true;
     bool sameRegion = db.frameClip[bestF] == db.frameClip[cur] && std::abs(bestF - cur) < 4;
     if ((force || best + settings.switchMargin < curCost) && !sameRegion) { transitionTo(bestF); }
+}
+
+int MotionMatcher::nearestFrame(const float* queryFeatures, uint32_t categoryMask) const {
+    const MotionDatabase& db = *db_;
+    if (!queryFeatures || db.frameCount <= 0 || (int)db.features.size() < db.frameCount * kFeatureDim) return -1;
+    float w[kFeatureDim];
+    for (int d = 0; d < kFeatureDim; ++d) w[d] = settings.weights[MotionDatabase::groupOfDim(d)];
+    float best = 1e30f; int bestF = -1;
+    for (int f = 0; f < db.frameCount; ++f) {
+        if (!db.valid[f] || !((categoryMask >> db.frameCat[f]) & 1u)) continue;
+        float c = weightedFeatureCost<kFeatureDim>(queryFeatures, db.feat(f), w, best);
+        if (c < best) { best = c; bestF = f; }
+    }
+    return bestF;
 }
 
 void MotionMatcher::buildIdleScores() {

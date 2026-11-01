@@ -9,6 +9,7 @@
 #include <cgltf/cgltf.h>
 
 #include "asset/GltfLoader.h"
+#include "asset/GltfBinary.h"
 #include "core/FileUtil.h"
 #include "core/Json.h"
 #include "core/Log.h"
@@ -20,6 +21,7 @@
 #include <algorithm>
 #include <unordered_map>
 #include <cstring>
+#include <cctype>
 #include <functional>
 
 namespace sk {
@@ -126,7 +128,23 @@ bool contains(const std::string& s, const char* sub) {
 }
 }  // namespace
 
+namespace {
+// GLB/VRM container pre-flight: cgltf reports a truncated or corrupt binary deep inside its own parse, far away from
+// the file that caused it. Validating the header/chunks here gives a precise message (and is unit tested directly).
+bool validateGlbFile(const std::string& path) {
+    std::string ext = std::filesystem::path(path).extension().string();
+    for (auto& c : ext) c = (char)std::tolower((unsigned char)c);
+    if (ext != ".glb" && ext != ".vrm") return true;                 // .gltf is JSON, nothing to check
+    std::vector<uint8_t> bytes;
+    if (!readFile(path, bytes)) { SK_ERR("gltf: cannot read %s", path.c_str()); return false; }
+    GlbChunks chunks; std::string err;
+    if (!parseGlbContainer(bytes.data(), bytes.size(), chunks, &err)) { SK_ERR("gltf: %s: %s", path.c_str(), err.c_str()); return false; }
+    return true;
+}
+}  // namespace
+
 std::unique_ptr<Model> loadGltfModel(Renderer& R, const StyleTextures& style, const std::string& path, const GltfOptions& opt) {
+    if (!validateGlbFile(path)) return nullptr;
     cgltf_options co{};
     cgltf_data* data = nullptr;
     if (cgltf_parse_file(&co, path.c_str(), &data) != cgltf_result_success) { SK_ERR("gltf: cannot parse %s", path.c_str()); return nullptr; }

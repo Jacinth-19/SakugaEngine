@@ -1,5 +1,6 @@
 #pragma once
 #include "gfx/Context.h"
+#include "gfx/LineBatch.h"
 #include "gfx/Material.h"
 #include "gfx/Mesh.h"
 #include "asset/Lut.h"
@@ -65,12 +66,6 @@ struct DrawItem {
     uint32_t morphWeightOffset = 0, morphCount = 0;   // index/count into FrameInput::morphWeights (count 0 = no morph targets)
     bool faceFrame = false;                       // use FrameInput::faceForward/faceRight (head bone) instead of the material's object-space axes
 };
-
-struct LineVertex { glm::vec3 pos; uint32_t rgba; };
-inline uint32_t packColor(float r, float g, float b, float a = 1.f) {
-    auto c = [](float v) { return (uint32_t)(glm::clamp(v, 0.f, 1.f) * 255.f + 0.5f); };
-    return c(r) | (c(g) << 8) | (c(b) << 16) | (c(a) << 24);
-}
 
 struct FrameInput {
     glm::mat4 view{1.f}, proj{1.f};               // proj must come from Renderer::perspective()

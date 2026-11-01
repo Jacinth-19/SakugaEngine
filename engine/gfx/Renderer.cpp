@@ -1,4 +1,5 @@
 #include "gfx/Renderer.h"
+#include "gfx/ShadowFit.h"
 #include "core/Log.h"
 #include <GLFW/glfw3.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -649,38 +650,21 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     const LightingSettings& L = in.light;
     if (!envHDR_) updateProceduralEnvironment(L);
     glm::vec3 ld = glm::normalize(L.direction);
-    {   // two directional shadow cascades, snapped to shadow texels.
+    {   // two directional shadow cascades, snapped to shadow texels (gfx/ShadowFit.h).
         // Far: the whole arena around the focus. Near: a bounding sphere of the *camera frustum slice* [zNear, split], grown to
         // also contain the focus (hero), so the crisp cascade is spent on what is actually on screen instead of a fixed box around the hero.
-        auto fit = [&](glm::vec3 centre, float r) {
-            float ts = 2.f * r / (float)kShadowRes;
-            glm::vec3 fwd = -ld, up = std::fabs(ld.y) > 0.95f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
-            glm::vec3 right = glm::normalize(glm::cross(fwd, up)), u = glm::cross(right, fwd);
-            float a = std::round(glm::dot(centre, right) / ts) * ts, b = std::round(glm::dot(centre, u) / ts) * ts;
-            glm::vec3 c = right * a + u * b + fwd * glm::dot(centre, fwd);
-            glm::mat4 lv = glm::lookAt(c + ld * r * 2.f, c, up);
-            glm::mat4 lp = glm::ortho(-r, r, -r, r, 0.1f, r * 4.f); lp[1][1] *= -1.f;
-            return lp * lv;
-        };
+        float rNear = L.shadowRadius;
+        glm::vec3 nearC = in.shadowFocus;
         float rFar = std::max(L.shadowFarRadius, L.shadowRadius * 1.5f);
-        glm::vec3 nearC = in.shadowFocus; float rNear = L.shadowRadius;
         if (L.fitCascadeToCamera) {
-            float tanY = 1.f / std::max(std::fabs(in.proj[1][1]), 1e-3f), tanX = 1.f / std::max(std::fabs(in.proj[0][0]), 1e-3f);
             float zn = 0.3f, zf = std::max(L.shadowRadius * 2.2f, 4.f);
-            glm::vec3 cf = -glm::normalize(glm::vec3(in.view[0][2], in.view[1][2], in.view[2][2]));
-            float k2 = tanX * tanX + tanY * tanY;
-            float zc = std::min(0.5f * (zn + zf) * (1.f + k2), zf);
-            float rr = std::sqrt((zf - zc) * (zf - zc) + k2 * zf * zf);
-            glm::vec3 c = in.cameraPos + cf * zc;
-            float d = glm::length(in.shadowFocus - c);
-            if (d + 1.2f > rr) {                               // focus sticks out of the slice sphere: smallest sphere containing both
-                float R = 0.5f * (d + 1.2f + rr);
-                c += (in.shadowFocus - c) / d * (R - rr); rr = R;
-            }
-            rr = std::min(std::ceil(rr * 2.f) / 2.f, L.shadowFarRadius * 0.8f);   // quantised radius: stable texel size
-            nearC = c; rNear = rr;
+            ShadowSphere s = cameraSliceSphere(in.proj, in.view, in.cameraPos, zn, zf);
+            s = growSphereToInclude(s, in.shadowFocus, 1.2f);          // the hero must stay inside the crisp cascade
+            s.radius = quantiseShadowRadius(s.radius, L.shadowFarRadius * 0.8f);
+            nearC = s.centre; rNear = s.radius;
         }
-        g.lightViewProj = fit(nearC, rNear); g.lightViewProj1 = fit(in.shadowFocus, rFar);
+        g.lightViewProj = fitShadowMatrix(nearC, rNear, ld, kShadowRes);
+        g.lightViewProj1 = fitShadowMatrix(in.shadowFocus, rFar, ld, kShadowRes);
         g.shadowCascade = glm::vec4(rNear, rFar, 0.f, 2.f);
     }
     for (int i = 0; i < kMaxContacts; ++i) g.contactPos[i] = L.contacts[i];
@@ -688,18 +672,17 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     int pointSlotLight[kMaxPointShadows] = {-1, -1}; int nSlots = 0;
     for (int i = 0; i < 4; ++i) g.pointShadow[i] = glm::vec4(-1.f, 0.f, 0.f, 0.f);
     if (L.pointShadows) {
-        int order[4] = {0, 1, 2, 3}; float dist[4];
-        for (int i = 0; i < 4; ++i) dist[i] = L.points[i].intensity > 0.f ? glm::length(L.points[i].position - in.shadowFocus) - L.points[i].range : 1e9f;
-        std::sort(order, order + 4, [&](int a, int b) { return dist[a] < dist[b]; });
-        for (int k = 0; k < 4 && nSlots < kMaxPointShadows; ++k) {
-            int i = order[k]; if (dist[i] > 8.f) break;                           // out of reach of anything we are looking at
-            const PointLight& pl = L.points[i]; int slot = nSlots++;
+        glm::vec3 pos[4]; float intensity[4], range[4];
+        for (int i = 0; i < 4; ++i) { pos[i] = L.points[i].position; intensity[i] = L.points[i].intensity; range[i] = L.points[i].range; }
+        int slotOfLight[4];
+        // the (up to) 2 lights nearest to the focus that can reach it get a cube atlas (gfx/ShadowFit.h)
+        nSlots = choosePointShadowLights(pos, intensity, range, in.shadowFocus, kMaxPointShadows, 8.f, slotOfLight);
+        for (int i = 0; i < 4; ++i) {
+            if (slotOfLight[i] < 0) continue;
+            int slot = slotOfLight[i];
             pointSlotLight[slot] = i;
             g.pointShadow[i] = glm::vec4((float)slot, 0.035f, 0.0006f, 0.f);
-            static const glm::vec3 dirs[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
-            static const glm::vec3 ups[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, -1}, {0, 1, 0}, {0, 1, 0}};
-            glm::mat4 proj = glm::perspective(glm::half_pi<float>() + 0.02f, 1.f, 0.08f, std::max(pl.range * 1.15f, 1.f)); proj[1][1] *= -1.f;
-            for (int f = 0; f < 6; ++f) g.pointViewProj[slot * 6 + f] = proj * glm::lookAt(pl.position, pl.position + dirs[f], ups[f]);
+            for (int f = 0; f < kPointShadowFaces; ++f) g.pointViewProj[slot * 6 + f] = pointShadowFaceMatrix(pos[i], range[i], f);
         }
     }
     stats.pointShadowLights = (uint32_t)nSlots;

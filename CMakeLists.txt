@@ -9,6 +9,8 @@ endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+option(SAKUGA_BUILD_TESTS "Build the GPU-free test suite (tests/)" ON)
+
 find_package(Vulkan REQUIRED)
 find_package(Threads REQUIRED)
 find_package(glfw3 REQUIRED)
@@ -37,6 +39,9 @@ add_library(imgui STATIC
   ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_tables.cpp ${IMGUI_DIR}/imgui_widgets.cpp
   ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp)
 target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
+# The engine includes <GLFW/glfw3.h> next to Vulkan; without this GLFW pulls in the OpenGL headers, which a Vulkan-only
+# (headless / CI) toolchain may not ship.
+target_compile_definitions(imgui PUBLIC GLFW_INCLUDE_NONE)
 target_link_libraries(imgui PUBLIC Vulkan::Vulkan glfw)
 
 # ---------------------------------------------------------------- recast / detour
@@ -67,3 +72,11 @@ add_custom_target(SakugaCopyShaders ALL
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_BINARY_DIR}/shaders $<TARGET_FILE_DIR:sandbox>/shaders
   DEPENDS SakugaShaders VERBATIM)
 add_dependencies(SakugaCopyShaders sandbox)
+
+# ---------------------------------------------------------------- tests (GPU-free, CTest)
+# Kept out of the default build when the engine is configured without a compiler that supports C++20, and always
+# configureable on its own: cmake -S tests -B build-tests
+if(SAKUGA_BUILD_TESTS)
+  enable_testing()          # so `ctest --test-dir build` works from the top-level build tree
+  add_subdirectory(tests)
+endif()
