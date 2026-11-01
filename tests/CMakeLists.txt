@@ -60,6 +60,7 @@ set(SAKUGA_TESTS
   loader_test
   bvh_parse_test
   mm_search_test
+  motion_library_test
   lut_parsing_test
   blink_curve_test
   posture_clamp_test
@@ -78,6 +79,10 @@ foreach(test_name ${SAKUGA_TESTS})
     SAKUGA_ASSET_DIR="${SAKUGA_ROOT}/assets")
   add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
+
+# The full-library run is the same binary with --full: it builds all 77 clips (~3 s) and asserts that every LAFAN1 clip
+# family is searchable. Both skip cleanly when the clips have not been fetched (tools/fetch_assets.sh --motion-only).
+add_test(NAME motion_library_full_test COMMAND motion_library_test --full)
 
 # A single aggregate target: `cmake --build . --target quality` then `ctest`.
 add_custom_target(quality COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure

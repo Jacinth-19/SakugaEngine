@@ -52,6 +52,37 @@ Still needed from the machine (nothing this repo can carry):
 Sample assets (models, mocap, LUTs, HDRIs) are vendored in `assets/` too; `tools/fetch_assets.sh` only matters if you want
 to re-fetch them or pull the full 77-clip LAFAN1 set.
 
+## Motion matching: the whole library, every character
+
+`assets/motion/` carries only two clips (`walk1_subject1`, `run1_subject2`) because the full LAFAN1 set is 333 MB and
+CC BY-NC-ND -- it cannot be vendored. One command puts all 77 clips in `~/.cache/lafan1`, where the sandbox picks them up
+automatically (or point it at any folder with `--motion-dir DIR` / `SAKUGA_MOTION_DIR`):
+
+```sh
+./tools/fetch_assets.sh --motion-only      # 77 clips, ~333 MB, each validated to start with `HIERARCHY`
+./build/bin/sandbox --help                 # [--motion-dir DIR] [--mm-clips N] [--mm-categories all|bitmask] [--no-mm-context]
+```
+
+The hero avatar *and* every NPC in the motion lab share one `MotionDatabase` built from those files, so all of them search
+the entire library -- not the two vendored clips. The startup log says what was actually loaded:
+
+```
+[sakuga] mm: 77 BVH files found
+[sakuga] mm: 77 clips / 496672 frames in use -> Walk x12, Run / sprint x6, Obstacles x17, Jumps x3,
+         Interaction (push, multi-action) x10, Dance x8, Fight / sports x5, Aiming x5, Ground / fall-and-get-up x11
+```
+
+(and warns when it finds <= 2 clips). What each character may *pick* is then gated per frame by
+`anim::resolveCategoryMask()` -- walking/running only reach locomotion families while moving, standing still opens up
+dance/fight/aiming/interaction, a jump request unlocks the jump family, and Ground only comes back after a fall -- so the
+whole library is reachable without the matcher answering "sit still" to a walk request. `--no-mm-context` turns the gating
+off and searches the raw `--mm-categories` mask on every frame (slower, and it can pick anything at any time), and
+`--mm-categories all` is the same thing without the mask restriction.
+
+Cost: the full database is 496,672 frames / 473,683 searchable, ~167 MB of poses + 51 MB of features, ~3.3 s to build
+(cached afterwards in `~/.cache/sakuga`), and ~6.4 ms per search -- about 31 % of one core for a hero searching at 10 Hz,
+so the NPCs search at 0.18 s intervals instead of every frame.
+
 ## Tests
 
 The test suite is **GPU-free** (no device, no window server) and runs in CI:
@@ -68,7 +99,8 @@ Eleven CTest targets, each asserting real behaviour:
 |------|--------|
 | `loader_test` | GLB container validation (magic/version/length/chunk bounds), cgltf parse of all vendored `.glb`/`.vrm` files, VRM humanoid map |
 | `bvh_parse_test` | BVH parsing against the reference importer's tolerance (case-insensitive keywords, spaced joint names, scientific notation, ms frame times) and rejection of truncated/corrupt files; FK rotation order |
-| `mm_search_test` | Motion-matching feature layout, weighted cost + early-out, `MotionMatcher::nearestFrame` against a synthetic database, FK of the vendored mocap |
+| `mm_search_test` | Motion-matching feature layout, weighted cost + early-out, `MotionMatcher::nearestFrame` against a synthetic database, the movement-context category gating (`resolveCategoryMask`), FK of the vendored mocap |
+| `motion_library_test` | Builds a real database from the clips on disk (12 spread over all nine families; `--full` builds all 77), checks every family is reachable, features are normalised, and one search over the whole library stays inside the frame budget. Skips cleanly when the clips have not been fetched |
 | `lut_parsing_test` | `.cube`, `.3dl`, LUT PNG parsing; strip layout; malformed files rejected |
 | `blink_curve_test` | Mepachi blink curve shape/timing, 3-6 s intervals, seeded determinism |
 | `posture_clamp_test` | Posture limits, NaN rejection, hunch chain distribution |
@@ -107,6 +139,8 @@ The Round 7 report claimed things the code did not do, and listed verification t
   compile to SPIR-V with `glslangValidator -V --target-env vulkan1.3`, and the GPU-free suite passes - but frame-level
   visual verification still has to happen on a machine with a Vulkan device.
 * No SSAO, no local reflection probes; the near cascade is a single sphere fit (no per-cascade split tuning UI).
+* `docs/UNITY_REPO_AUDIT.md` records what the reference Unity project (`Jacinth-19/MotionMatchingInUnity`) contains and which
+  of its scripts are dead code.
 * `docs/SHADER_PORT.md` lists the remaining differences from the Unity reference shader.
 
 ## Licences

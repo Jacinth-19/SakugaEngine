@@ -52,7 +52,7 @@ struct Options {
     float springTuningStiffness = 1.f, springTuningDrag = 1.f, springTuningGravity = 1.f, springTuningColliderRadius = 0.f;
     float timeStart = 0.f;
     std::vector<ScriptKey> script;
-    std::vector<std::string> motionDirs; int mmClips = 0; long mmMask = -1; bool mmCache = true; std::string playClip, env; float envIntensity = 1.f; bool ik = true, lightSet = false;
+    std::vector<std::string> motionDirs; int mmClips = 0; long mmMask = -1; bool mmCache = true, mmContext = true; std::string playClip, env; float envIntensity = 1.f; bool ik = true, lightSet = false;
     std::string lut = "Anime Shinkai"; float lutStrength = 0.7f; bool hdriSun = false;
 };
 
@@ -94,7 +94,8 @@ static Options parseArgs(int argc, char** argv) {
         else if (a == "--script") parseScript(next(), o);
         else if (a == "--motion-dir") o.motionDirs.push_back(next());
         else if (a == "--mm-clips") o.mmClips = std::atoi(next());
-        else if (a == "--mm-categories") { std::string v = next(); o.mmMask = v == "all" ? 0x1FF : std::atol(v.c_str()); }
+        else if (a == "--mm-categories") { std::string v = next(); o.mmMask = v == "all" ? (long)((1u << kMotionCategoryCount) - 1) : std::atol(v.c_str()); }
+        else if (a == "--no-mm-context") o.mmContext = false;
         else if (a == "--no-mm-cache") o.mmCache = false;
         else if (a == "--env") o.env = next();
         else if (a == "--env-intensity") o.envIntensity = (float)std::atof(next());
@@ -135,7 +136,7 @@ static Options parseArgs(int argc, char** argv) {
                         "        [--debug-mode 0..13] [--wet 0..1] [--camera yawDeg,pitchDeg,dist] [--light azDeg,elDeg]\n"
                         "        [--script \"t:x,y[,sprint];...\"] [--record dir --record-every N] [--no-ui] [--no-outline] [--no-mm]\n"
                         "        [--skeleton] [--trajectory] [--split pxOffset] [--tonemap] [--validation]\n"
-                        "        [--motion-dir DIR]... [--mm-clips N] [--mm-categories all|bitmask] [--no-mm-cache] [--play-clip clipName]\n"
+                        "        [--motion-dir DIR]... [--mm-clips N] [--mm-categories all|bitmask] [--no-mm-context] [--no-mm-cache] [--play-clip clipName]\n"
                         "        [--env file.hdr|none] [--env-intensity X] [--no-ik] [--no-hand-ik] [--no-look-at] [--no-springs] [--no-npcs]\n"
                         "        [--time HOURS] [--time-auto] [--time-speed H/s] [--cloud 0..1] [--exposure X] [--npr] [--nav-debug] [--mm-debug] [--no-post]\n"
                         "        [--lut \"Anime Shinkai\"|none|file.cube] [--lut-strength 0..1] [--hdri-sun]\n");
@@ -310,8 +311,18 @@ void Sandbox::loadAssets() {
                 std::string cacheDir = opt_.mmCache ? (home ? std::string(home) + "/.cache/sakuga" : root_ + "/.cache") : "";
                 auto db = std::make_shared<MotionDatabase>(); std::string err;
                 if (!files.empty() && db->buildFromFiles(m->rig, files, cacheDir, opt_.mmClips, &err)) {
+                    {   // report the library so it is obvious when only a subset was found
+                        std::string cats;
+                        for (int c = 0; c < kMotionCategoryCount; ++c) {
+                            int n = db->clipsInCategory(c);
+                            if (n) { if (!cats.empty()) cats += ", "; cats += std::string(kMotionCategoryNames[c]) + " x" + std::to_string(n); }
+                        }
+                        SK_LOG("mm: %zu clips / %d frames in use -> %s", db->clipNames.size(), db->frameCount, cats.c_str());
+                        if (db->clipNames.size() <= 2) SK_WARN("mm: only %zu clip(s) found - run tools/fetch_assets.sh for the full 77-clip LAFAN1 set", db->clipNames.size());
+                    }
                     vrm_->mmDb = db; vrm_->mm = std::make_unique<MotionMatcher>(); vrm_->mm->init(&m->rig, db.get());
                     if (opt_.mmMask >= 0) vrm_->mm->settings.categoryMask = (uint32_t)opt_.mmMask;
+                    vrm_->mm->settings.contextMask = opt_.mmContext;
                     if (!opt_.playClip.empty()) {
                         for (size_t c = 0; c < db->clipNames.size(); ++c) if (db->clipNames[c] == opt_.playClip) vrm_->mm->playClip((int)c, vrm_->pos, vrm_->yaw);
                     }
@@ -408,6 +419,9 @@ void Sandbox::buildMotionLab() {
             Entity* e = add(mdl, sp.name);
             e->mmModel = vrm_->model; e->mmDb = vrm_->mmDb;
             e->mm = std::make_unique<MotionMatcher>(); e->mm->init(&vrm_->model->rig, vrm_->mmDb.get()); e->mm->settings = vrm_->mm->settings;
+            // Every character animates from the same database (all clip families it contains), but the crowd searches
+            // less often than the player: one search is a full pass over the whole library (~6 ms for 77 clips).
+            e->mm->settings.searchInterval = std::max(e->mm->settings.searchInterval, 0.18f);
             e->world = &lab_.world; e->collide = true; e->ik.enabled = opt_.ik; e->hands.enabled = opt_.hands; e->look.enabled = opt_.lookAt; e->spring.enabled = opt_.springs;
             lab_.addNpc(e, sp.mode, sp.pos, sp.side);
             e->mm->reset(e->pos, e->yaw);

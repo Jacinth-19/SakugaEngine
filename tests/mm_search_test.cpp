@@ -134,6 +134,52 @@ int main() {
         }
     }
 
+    // ------------------------------------------------------------------ movement-context gating
+    // Regression: characters behaved as if only the two vendored clips existed, because MMSettings::categoryMask was
+    // hard-wired to (walk | run) and nothing could reach the other clip families.
+    {
+        MMSettings st;
+        CHECK_MSG(st.categoryMask == (1u << kMotionCategoryCount) - 1, "every clip family is eligible by default");
+        const float walk = 1.4f, run = 4.0f;
+        const uint32_t walkOnly = 1u << 0, runOnly = 1u << 1, obstacles = 1u << 2, jumps = 1u << 3, dance = 1u << 5, ground = 1u << 8;
+
+        // moving: locomotion families only, run gated by speed
+        uint32_t movingSlow = resolveCategoryMask(st, true, walk, false);
+        CHECK((movingSlow & walkOnly) != 0);
+        CHECK((movingSlow & obstacles) != 0);
+        CHECK_MSG((movingSlow & runOnly) == 0, "no jogging when strolling");
+        CHECK((movingSlow & dance) == 0);
+        CHECK((movingSlow & jumps) == 0);
+        uint32_t movingFast = resolveCategoryMask(st, true, run, false);
+        CHECK((movingFast & runOnly) != 0);
+
+        // standing: everything except the triggered families
+        uint32_t idle = resolveCategoryMask(st, false, 0.f, false);
+        CHECK_MSG((idle & dance) != 0, "idle characters can use dance / fight / aiming / interaction");
+        CHECK_MSG((idle & jumps) == 0, "no jumping while standing still");
+        CHECK_MSG((idle & ground) == 0, "no lying down on their own");
+        CHECK((idle & walkOnly) != 0);
+
+        // a jump request unlocks Jumps even while standing
+        uint32_t jumping = resolveCategoryMask(st, false, 0.f, true);
+        CHECK_MSG((jumping & jumps) != 0, "requested jumps are reachable");
+        CHECK((resolveCategoryMask(st, true, walk, true) & jumps) != 0);
+
+        // the base mask is a hard limit: a walk-only configuration never yields dance
+        MMSettings walkCfg = st; walkCfg.categoryMask = walkOnly | runOnly;
+        CHECK((resolveCategoryMask(walkCfg, false, 0.f, false) & dance) == 0);
+        CHECK((resolveCategoryMask(walkCfg, false, 0.f, true) & jumps) == 0);   // jumps are not in the base mask
+
+        // context gating can be switched off entirely
+        MMSettings noCtx = st; noCtx.contextMask = false;
+        CHECK_NEAR((double)resolveCategoryMask(noCtx, true, walk, false), (double)noCtx.categoryMask, 0);
+        CHECK_NEAR((double)resolveCategoryMask(noCtx, false, 0.f, false), (double)noCtx.categoryMask, 0);
+
+        // a database without walk clips (strolling) yields an empty mask; search() falls back to the base mask
+        MMSettings runOnlyCfg = st; runOnlyCfg.categoryMask = runOnly;
+        CHECK_NEAR((double)resolveCategoryMask(runOnlyCfg, true, walk, false), 0.0, 0);
+    }
+
     // ------------------------------------------------------------------ the real BVH files
     {
         const std::string dir = SAKUGA_ASSET_DIR "/motion/";

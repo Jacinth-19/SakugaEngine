@@ -61,8 +61,12 @@ struct MMSettings {
     float weights[FG_Count] = {0.8f, 1.0f, 1.0f, 1.3f, 1.4f};
     float walkSpeed = 1.6f, runSpeed = 3.8f, slowSpeed = 0.9f;
     float turnHalflife = 0.15f;            // facing smoothing
-    uint32_t categoryMask = (1u << 0) | (1u << 1);   // LAFAN1 families the search may always pick (walk, run). Jumps are added only while a jump is requested.
-    bool contextMask = true;               // below runGateSpeed only Walk clips are searched (no jog / hop clips when strolling), Jumps only after requestJump()
+    // Clip families the search may pick. Every library family is eligible by default - a database with 77 LAFAN1 clips
+    // used to be searched as if it only contained walk + run because this mask was hard-wired to (walk | run).
+    uint32_t categoryMask = (1u << kMotionCategoryCount) - 1;
+    // Narrows the mask to what makes sense for the current movement context (see resolveCategoryMask). Off = search
+    // everything, always.
+    bool contextMask = true;
     float runGateSpeed = 2.4f;
     float idlePoseWeight = 0.45f;          // when standing still: cost per radian away from the typical upright standing pose (no hands-on-knees / bowing idles)
 };
@@ -75,6 +79,33 @@ struct MMDebug {
     float queryRaw[kFeatureDim] = {}, matchRaw[kFeatureDim] = {}, currentRaw[kFeatureDim] = {};
     glm::vec3 matchPos{0}; float matchYaw = 0.f; bool hasSearch = false;
 };
+
+// ------------------------------------------------------------------ context gates
+// Which clip families a search may use right now:
+//   * `MMSettings::categoryMask` is the hard limit - nothing outside it is ever picked;
+//   * while moving, only the locomotion families (walk, run/sprint, obstacles) are eligible, and Run/Sprint only at or
+//     above `runGateSpeed` (no jogging when strolling);
+//   * while standing, the triggered families (Jumps, Ground/fall-and-get-up) stay locked - a character does not lie down
+//     on its own - but dance / fight / aiming / interaction poses are eligible, which is what gives idle characters the
+//     variety of the whole library instead of two locomotion clips;
+//   * a jump request unlocks Jumps.
+// May return 0 (e.g. a database with no walk clips, queried while strolling); search() then falls back to the
+// unrestricted mask, so such a database still animates.
+inline uint32_t resolveCategoryMask(const MMSettings& s, bool moving, float speed, bool jumpRequested) {
+    const uint32_t kLocomotion = (1u << 0) | (1u << 1) | (1u << 2);      // walk, run/sprint, obstacles
+    const uint32_t kTriggered = (1u << 3) | (1u << 8);                   // jumps, ground/fall-and-get-up
+    uint32_t mask = s.categoryMask;
+    if (s.contextMask) {
+        if (moving) {
+            mask &= kLocomotion;
+            if (speed < s.runGateSpeed) mask &= ~(1u << 1);
+        } else {
+            mask &= ~kTriggered;
+        }
+    }
+    if (jumpRequested) mask |= (s.categoryMask & (1u << 3));
+    return mask;
+}
 
 class MotionMatcher {
 public:

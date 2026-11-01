@@ -421,11 +421,10 @@ void MotionMatcher::search(const vec3& pos, float yaw, const vec3& desiredVel, b
         float base = idleBias ? settings.idlePoseWeight * idleScore_[f] : 0.f;
         return weightedFeatureCost<kFeatureDim>(q, db.feat(f), w, limit, base);
     };
-    uint32_t mask = settings.categoryMask;
-    if (settings.contextMask) {                      // context: jumps only on request; gentle speeds only search the Walk family
-        if (jumpRequest_ > 0.f) mask |= 1u << 3;
-        if (moving < settings.runGateSpeed && (mask & 1u)) mask &= ~(1u << 1);
-    }
+    // Movement-context gating (anim/MotionMatching.h: resolveCategoryMask). Falls back to the unrestricted mask when the
+    // context admits nothing at all, so a partial library still animates.
+    uint32_t mask = resolveCategoryMask(settings, moving > 0.05f, moving, jumpRequest_ > 0.f);
+    if (mask == 0) mask = settings.categoryMask;
     float curCost = (db.valid[cur] && ((mask >> db.frameCat[cur]) & 1u)) ? cost(cur, 1e30f) : 1e30f;
     float best = 1e30f; int bestF = cur;
     for (int f = 0; f < db.frameCount; ++f) { if (!db.valid[f] || !((mask >> db.frameCat[f]) & 1u)) continue; float c = cost(f, best); if (c < best) { best = c; bestF = f; } }
