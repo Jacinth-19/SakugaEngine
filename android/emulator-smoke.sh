@@ -57,3 +57,21 @@ if ! grep -q 'next clip requested' /tmp/sakuga-android-log.txt; then
   echo '::error::The NEXT CLIP touch did not reach the native matcher.'; exit 1
 fi
 echo 'Android emulator loaded two clips and dispatched a NEXT CLIP touch.'
+
+# Background and resume: verify a newly-created surface can be probed again and the preview survives.
+adb logcat -c
+adb shell input keyevent KEYCODE_HOME
+sleep 3
+adb shell am start -W -n com.sakuga.preview/.MainActivity
+reprobed=0
+for i in $(seq 1 30); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  if grep -q 'surface probe finished:' /tmp/sakuga-android-log.txt; then reprobed=1; break; fi
+  sleep 2
+done
+if [[ $reprobed != 1 ]]; then
+  adb logcat -d -s SakugaPreview:V AndroidRuntime:E '*:S' | tail -80
+  echo '::error::Surface probe did not complete after resume.'; exit 1
+fi
+adb shell pidof com.sakuga.preview
+echo 'Android preview resumed and probed its recreated surface.'

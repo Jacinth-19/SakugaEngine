@@ -31,6 +31,8 @@ public final class MainActivity extends Activity {
     private static native String nativeProbeSurface(Surface surface);
     private volatile boolean destroyed;
     private int surfaceGeneration;
+    private boolean surfaceLive;
+    private final Object surfaceLock = new Object();
     private PreviewView preview;
 
     @Override public void onCreate(Bundle saved) {
@@ -42,11 +44,18 @@ public final class MainActivity extends Activity {
         SurfaceView surfaceView = new SurfaceView(this);
         surfaceView.getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override public void surfaceCreated(SurfaceHolder holder) {
-                final int generation = ++surfaceGeneration;
+                final int generation;
+                synchronized (surfaceLock) { surfaceLive = true; generation = ++surfaceGeneration; }
                 final Surface surface = holder.getSurface();
                 preview.setSurfaceStatus("Checking Android Vulkan surface...");
                 new Thread(new Runnable() { @Override public void run() {
-                    final String status = surface.isValid() ? nativeProbeSurface(surface) : "Android surface unavailable";
+                    final String status;
+                    // SurfaceHolder requires all surface work to finish before surfaceDestroyed returns. This lock
+                    // makes destruction wait for an in-flight probe and prevents late workers using a dead surface.
+                    synchronized (surfaceLock) {
+                        if (!surfaceLive || generation != surfaceGeneration) return;
+                        status = surface.isValid() ? nativeProbeSurface(surface) : "Android surface unavailable";
+                    }
                     runOnUiThread(new Runnable() { @Override public void run() {
                         if (!destroyed && generation == surfaceGeneration) preview.setSurfaceStatus(status);
                     }});
@@ -54,7 +63,7 @@ public final class MainActivity extends Activity {
             }
             @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) { }
             @Override public void surfaceDestroyed(SurfaceHolder holder) {
-                ++surfaceGeneration;
+                synchronized (surfaceLock) { surfaceLive = false; ++surfaceGeneration; }
                 if (!destroyed) preview.setSurfaceStatus("Android surface inactive");
             }
         });
