@@ -53,7 +53,7 @@ jobs:
           $sdk = Split-Path (Split-Path $lib -Parent) -Parent
           "VULKAN_SDK=$sdk" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           Write-Host "VULKAN_SDK=$sdk"
-          exit 0
+          # NB: no `exit 0` here - GitHub appends `exit $LASTEXITCODE`, which such a line would override with 1.
 
       # The job log is not always reachable from outside, so a failure repeats the tail of the output one line per
       # annotation (multi-line annotation messages get cut, one annotation per line survives).
