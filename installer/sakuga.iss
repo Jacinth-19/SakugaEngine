@@ -3,9 +3,9 @@
 ; It packs the relocatable tree produced by `cmake --install`, i.e. sandbox.exe next to assets/, config/ and shaders/
 ; (the layout findRoot() in engine/core/FileUtil.cpp expects). Build it with:
 ;
-;   cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-;   cmake --build build --config Release --parallel
-;   cmake --install build --config Release --prefix stage
+;   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+;   cmake --build build --parallel
+;   cmake --install build --prefix stage
 ;   iscc /DAppVersion=0.1.0 /DSourceDir=stage /DOutputDir=dist installer\sakuga.iss
 ;
 ; which is exactly what .github/workflows/windows.yml does; the result is uploaded as a workflow artifact.

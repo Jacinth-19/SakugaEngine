@@ -9,7 +9,7 @@ never produced. It now records what the code does, what was actually verified an
 |------|----------|
 | The engine and sandbox compile | every `engine/**.cpp` and `apps/sandbox/*.cpp` compiles under `g++ -std=c++20` (Vulkan-Headers, GLFW, GLM headers) |
 | All shaders are valid SPIR-V | `glslangValidator -V --target-env vulkan1.3` on all 15 `.vert`/`.frag` files |
-| GPU-free test suite passes | `ctest` - 13 tests (12 binaries + the `--full` motion-library run), see the README table; `tests/run_quality.sh` runs the same thing |
+| GPU-free test suite passes | `ctest` - 14 tests (13 binaries + the `--full` motion-library run), see the README table; `tests/run_quality.sh` runs the same thing |
 
 Everything below that is visual (blink timing, shadow quality, face shading look) is covered by unit-tested *math* and
 shader compilation, **not** by a rendered frame: no Vulkan device exists in the development sandbox.
