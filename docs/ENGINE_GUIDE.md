@@ -154,7 +154,7 @@ cmake --build build-tests -j
 ctest --test-dir build-tests --output-on-failure
 ```
 
-Fifteen CTest entries, each asserting real behaviour (the full-library entry skips when its clips are unavailable):
+GPU-free CTest entries, each asserting real behaviour (the full-library entry skips when its clips are unavailable):
 
 | Test | Covers |
 |------|--------|
@@ -163,6 +163,7 @@ Fifteen CTest entries, each asserting real behaviour (the full-library entry ski
 | `bvh_parse_test` | BVH parsing against the reference importer's tolerance (case-insensitive keywords, spaced joint names, scientific notation, ms frame times) and rejection of truncated/corrupt files; FK rotation order |
 | `mm_search_test` | Motion-matching feature layout, weighted cost + early-out, `MotionMatcher::nearestFrame` against a synthetic database, the movement-context category gating (`resolveCategoryMask`), FK of the vendored mocap |
 | `ui_theme_test` | UI theme presets are complete and in range, JSON round-trips, a partial file overrides only what it names, hostile values are clamped, unknown roles ignored, `config/ui_theme.json` matches the built-in preset, and `applyUiTheme` really writes into `ImGuiStyle` (ImGui core is linked without a backend, so still no device) |
+| `mobile_session_test` | Android preview's native motion session loads and samples both bundled clips on a synthetic rig |
 | `motion_library_test` | Builds a real database from the clips on disk (12 spread over all nine families; `--full` builds all 77), checks every family is reachable, features are normalised, and one search over the whole library stays inside the frame budget. Skips cleanly when the clips have not been fetched |
 | `lut_parsing_test` | `.cube`, `.3dl`, LUT PNG parsing; strip layout; malformed files rejected |
 | `blink_curve_test` | Mepachi blink curve shape/timing, 3-6 s intervals, seeded determinism |

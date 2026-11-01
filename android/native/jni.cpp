@@ -29,7 +29,9 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeCr
 }
 extern "C" JNIEXPORT void JNICALL Java_com_sakuga_preview_MainActivity_nativeDestroy(JNIEnv*, jclass, jlong h) { delete session(h); }
 extern "C" JNIEXPORT void JNICALL Java_com_sakuga_preview_MainActivity_nativeUpdate(JNIEnv*, jclass, jlong h, jfloat dt, jfloat x, jfloat y) { if (h) session(h)->update(dt, x, y); }
-extern "C" JNIEXPORT void JNICALL Java_com_sakuga_preview_MainActivity_nativeNext(JNIEnv*, jclass, jlong h) { if (h) session(h)->nextClip(); }
+extern "C" JNIEXPORT void JNICALL Java_com_sakuga_preview_MainActivity_nativeNext(JNIEnv*, jclass, jlong h) {
+    if (h) { session(h)->nextClip(); __android_log_print(ANDROID_LOG_INFO, tag, "next clip requested"); }
+}
 extern "C" JNIEXPORT jfloatArray JNICALL Java_com_sakuga_preview_MainActivity_nativeJoints(JNIEnv* env, jclass, jlong h) {
     if (!h) return nullptr;
     auto joints = session(h)->joints();

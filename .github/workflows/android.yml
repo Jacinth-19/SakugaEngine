@@ -69,3 +69,9 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: bash android/emulator-smoke.sh
+      - name: Upload emulator screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: sakuga-android-emulator-screenshot
+          path: apk/android-preview.png
+          if-no-files-found: error
