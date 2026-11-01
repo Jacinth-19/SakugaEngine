@@ -10,7 +10,7 @@ To build locally, install Android SDK platform 35, build-tools 35.0.0, NDK 27.2.
 
 A full Android port still needs native Vulkan surface/window lifecycle, Android input and ImGui backends, packaged desktop assets, device compatibility and real-device testing. The desktop `TouchControls` overlay and other touch PNGs are not yet integrated into this preview. Linux/macOS packages remain future work.
 
-The AI-generated files in `assets/branding/` are **concept artwork**, not screenshots or the actual in-app character. The 512px PNG is an icon draft; it is not yet wired into the installer, Windows executable or an Android adaptive icon. The wide banner should be labelled concept art when shown to users.
+The AI-generated files in `assets/branding/` are **concept artwork**, not screenshots or the actual in-app character. The 512px PNG is used as the Android preview launcher icon, but it is not yet wired into the Windows executable or an Android adaptive icon. The wide banner should be labelled concept art when shown to users.
 
 ## Device and performance panel
 

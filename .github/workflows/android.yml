@@ -48,6 +48,9 @@ jobs:
 
   emulator-smoke:
     needs: build-preview
+    permissions:
+      contents: write
+      actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -69,9 +72,33 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: bash android/emulator-smoke.sh
-      - name: Upload emulator screenshot
+      - name: Upload emulator screenshot and video
         uses: actions/upload-artifact@v4
         with:
-          name: sakuga-android-emulator-screenshot
-          path: apk/android-preview.png
+          name: sakuga-android-emulator-media
+          path: |
+            apk/android-preview.png
+            apk/android-preview.mp4
           if-no-files-found: error
+      # Git blob upload makes these actual emulator captures retrievable from the GitHub API in environments that
+      # cannot access Actions' external artifact storage. This does not update a ref or create a commit.
+      - name: Export capture blob IDs
+        if: github.event_name == 'push' && github.ref == 'refs/heads/arena/a13c5e34-sakugaengine' && contains(github.event.head_commit.message, '[capture media]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for format in png mp4; do
+            python3 - "$format" <<'PYCODE'
+          import base64, json, pathlib, sys
+          fmt = sys.argv[1]
+          data = pathlib.Path('apk/android-preview.' + fmt).read_bytes()
+          if not data or len(data) > 5 * 1024 * 1024:
+              raise SystemExit('Unexpected emulator media size')
+          pathlib.Path('/tmp/capture.json').write_text(json.dumps({'content': base64.b64encode(data).decode('ascii'), 'encoding': 'base64'}))
+          PYCODE
+            sha=$(gh api --method POST "repos/$GH_REPO/git/blobs" --input /tmp/capture.json --jq .sha)
+            echo "::notice title=android-preview-$format::$sha"
+          done

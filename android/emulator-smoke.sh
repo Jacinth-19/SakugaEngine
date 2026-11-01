@@ -29,8 +29,17 @@ if w <= h: raise SystemExit('Expected landscape screenshot')
 print(w, h)
 PYCODE
 )
+# Capture actual emulator output while exercising the on-screen preview controls.
+adb shell rm -f /sdcard/sakuga-preview.mp4
+adb shell screenrecord --time-limit 8 --size 1280x720 --bit-rate 1000000 /sdcard/sakuga-preview.mp4 &
+record_pid=$!
+sleep 1
 adb shell input tap "$((width * 85 / 100))" "$((height * 80 / 100))"
-sleep 2
+adb shell input swipe "$((width * 12 / 100))" "$((height * 75 / 100))" "$((width * 19 / 100))" "$((height * 63 / 100))" 1000
+wait "$record_pid"
+adb pull /sdcard/sakuga-preview.mp4 apk/android-preview.mp4 >/dev/null
+test -s apk/android-preview.mp4
+sleep 1
 adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
 if ! grep -q 'next clip requested' /tmp/sakuga-android-log.txt; then
   echo '::error::The NEXT CLIP touch did not reach the native matcher.'; exit 1
