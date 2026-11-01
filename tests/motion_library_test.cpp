@@ -162,6 +162,26 @@ int main(int argc, char** argv) {
     }
     CHECK_NEAR((double)reachable, (double)presentCategories, 0);
 
+    // Exercise actual clip browsing for every loaded clip on a synthetic humanoid rig, without a GPU.
+    // This verifies sampled poses/root motion are finite, not visual retargeting quality on every model.
+    {
+        glm::vec3 pos(0.f); float yaw = 0.f;
+        Pose pose = rig.restPose(); mm.reset(pos, yaw);
+        for (size_t c = 0; c < db.clipNames.size(); ++c) {
+            mm.playClip(static_cast<int>(c), pos, yaw);
+            for (int i = 0; i < 12; ++i) {
+                mm.update(1.f / 30.f, glm::vec3(0.f), pos, yaw, pose);
+                CHECK_MSG(mm.debug.clip == static_cast<int>(c), db.clipNames[c]);
+                CHECK_FINITE(pos.x); CHECK_FINITE(pos.y); CHECK_FINITE(pos.z); CHECK_FINITE(yaw);
+                for (int b = 0; b < kHumanBoneCount; ++b) {
+                    const auto &q = pose.r[rig.human[b]];
+                    CHECK_FINITE(q.x); CHECK_FINITE(q.y); CHECK_FINITE(q.z); CHECK_FINITE(q.w);
+                }
+            }
+        }
+        std::cout << "  browsed " << db.clipNames.size() << " clips for 12 frames each\n";
+    }
+
     // with the whole library: all nine LAFAN1 families, and the default mask admits every one of them
     if (full && files.size() >= 70) {
         CHECK_MSG(presentCategories == kMotionCategoryCount, "the full library covers all 9 clip families");

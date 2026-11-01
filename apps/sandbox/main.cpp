@@ -11,6 +11,7 @@
 #include "editor/MaterialInspector.h"
 #include "gfx/Renderer.h"
 #include "platform/Input.h"
+#include "platform/SysInfo.h"
 #include "platform/Window.h"
 #include "platform/TouchControls.h"
 #include "scene/Scene.h"
@@ -874,6 +875,32 @@ void Sandbox::drawUI() {
     ImGui::Begin("Sakuga Engine");
     ImGui::Text("%s | %.0f fps | %u draws | %u tris", ctx_.props.deviceName, fps_, renderer_.stats.drawCalls, renderer_.stats.triangles);
     ImGui::TextDisabled("Tab: mouse-look | F1: hide UI | F2: screenshot | F3: FPS | Esc: quit");
+    if (ImGui::CollapsingHeader("Device and performance")) {
+        // Refresh slowly: filesystem and OS queries do not belong in the per-frame hot path.
+        static SysInfo device;
+        static double nextRefresh = 0;
+        if (ImGui::GetTime() >= nextRefresh) {
+            device = collectSysInfo(root_);
+            nextRefresh = ImGui::GetTime() + 2.0;
+        }
+        constexpr double GiB = 1024.0 * 1024.0 * 1024.0;
+        ImGui::TextWrapped("CPU: %s (%u logical threads)", device.cpu.empty() ? "unknown" : device.cpu.c_str(), device.logicalCores);
+        if (device.totalMemory) ImGui::Text("System RAM: %.2f GiB total, %.2f GiB available", device.totalMemory / GiB, device.availableMemory / GiB);
+        else ImGui::TextUnformatted("System RAM: unavailable");
+        ImGui::TextWrapped("Storage for %s", device.storagePath.c_str());
+        if (device.storageTotal) ImGui::Text("%.1f GiB total, %.1f GiB available; medium: %s", device.storageTotal / GiB, device.storageAvailable / GiB, device.storageType.c_str());
+        else ImGui::TextUnformatted("Storage capacity: unavailable");
+        ImGui::TextWrapped("GPU: %s", ctx_.props.deviceName);
+        ImGui::Text("Vulkan: %u.%u.%u", VK_VERSION_MAJOR(ctx_.props.apiVersion), VK_VERSION_MINOR(ctx_.props.apiVersion), VK_VERSION_PATCH(ctx_.props.apiVersion));
+        VkPhysicalDeviceMemoryProperties heaps{}; vkGetPhysicalDeviceMemoryProperties(ctx_.phys, &heaps);
+        VkDeviceSize local = 0;
+        for (uint32_t i = 0; i < heaps.memoryHeapCount; ++i) if (heaps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) local += heaps.memoryHeaps[i].size;
+        ImGui::Text("Device-local memory heaps: %.2f GiB (may be shared)", double(local) / GiB);
+        int fw = 0, fh = 0; if (window_.handle()) window_.framebufferSize(fw, fh);
+        ImGui::Text("Framebuffer: %d x %d | FPS: %.1f | frame: %.2f ms", fw, fh, ImGui::GetIO().Framerate, ImGui::GetIO().Framerate > 0 ? 1000.f / ImGui::GetIO().Framerate : 0.f);
+        ImGui::Text("Renderer CPU: %.2f ms | Draws: %u | Triangles: %u", renderer_.stats.cpuMs, renderer_.stats.drawCalls, renderer_.stats.triangles);
+        ImGui::TextDisabled("No GPU timing or storage-medium detection is available yet.");
+    }
     if (ImGui::CollapsingHeader("Showcase", ImGuiTreeNodeFlags_DefaultOpen)) {
         for (int i = 0; i < (int)showcases_.size(); ++i) if (ImGui::RadioButton(showcases_[i].name.c_str(), showcase_ == i)) setShowcase(i);
         Entity* h = showcases_[showcase_].hero;
@@ -942,7 +969,10 @@ void Sandbox::drawUI() {
     }
     if (vrm_ && vrm_->mm && ImGui::CollapsingHeader("Motion matching")) {
         auto& mm = *vrm_->mm; auto& s = mm.settings; auto& d = mm.debug; const MotionDatabase* db = mm.database();
-        ImGui::Text("clip %s  frame %d  transitions %d", d.clip >= 0 ? db->clipNames[d.clip].c_str() : "-", d.frame, d.transitions);
+        const bool validClip = db && d.clip >= 0 && d.clip < (int)db->clipNames.size();
+        ImGui::Text("Animation %d / %d: %s", validClip ? d.clip + 1 : 0, db ? (int)db->clipNames.size() : 0,
+                    validClip ? db->clipNames[d.clip].c_str() : "none");
+        ImGui::Text("Frame %d  |  Matcher transitions %d  |  Mode: %s", d.frame, d.transitions, mm.browsing() ? "clip browser" : "matching");
         ImGui::Text("cost best %.3f  current %.3f  speed %.2f m/s", d.cost, d.currentCost, glm::length(d.velocity));
         ImGui::SliderFloat("Search interval", &s.searchInterval, 0.02f, 0.5f); ImGui::SliderFloat("Switch margin", &s.switchMargin, 0, 1);
         ImGui::SliderFloat("Inertialization half-life", &s.inertHalflife, 0.02f, 0.4f);

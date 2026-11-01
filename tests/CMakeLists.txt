@@ -34,6 +34,7 @@ endif()
 # ---------------------------------------------------------------- headless engine subset
 # Only sources with no Vulkan / GLFW / ImGui dependency may appear here (checked by the compiler).
 add_library(sakuga_headless STATIC
+  ${SAKUGA_ROOT}/engine/platform/SysInfo.cpp
   ${SAKUGA_ROOT}/engine/core/FileUtil.cpp
   ${SAKUGA_ROOT}/engine/core/Json.cpp
   ${SAKUGA_ROOT}/engine/anim/Bvh.cpp
@@ -51,6 +52,9 @@ target_compile_definitions(sakuga_headless PUBLIC
 target_link_libraries(sakuga_headless PUBLIC sakuga_test_glm)
 find_package(Threads REQUIRED)
 target_link_libraries(sakuga_headless PUBLIC Threads::Threads)
+if(WIN32)
+  target_link_libraries(sakuga_headless PUBLIC advapi32)
+endif()
 if(NOT MSVC)
   target_compile_options(sakuga_headless PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
@@ -74,6 +78,7 @@ endif()
 
 # ---------------------------------------------------------------- tests
 set(SAKUGA_TESTS
+  sys_info_test
   loader_test
   bvh_parse_test
   mm_search_test
@@ -104,6 +109,12 @@ if(TARGET sakuga_imgui_core)
   target_compile_definitions(ui_theme_test PRIVATE SAKUGA_ROOT="${SAKUGA_ROOT}")
   add_test(NAME ui_theme_test COMMAND ui_theme_test)
 endif()
+
+# GPU-free tooling that reuses the same engine subset as the tests: it records what the matcher does frame by frame
+# (tools/gen_motion_debug_video.py renders that into the demo video). Not a test - `cmake --build . --target mm_playback_dump`.
+add_executable(mm_playback_dump ${SAKUGA_ROOT}/tools/mm_playback_dump.cpp)
+target_link_libraries(mm_playback_dump PRIVATE sakuga_headless)
+target_compile_definitions(mm_playback_dump PRIVATE SAKUGA_ROOT="${SAKUGA_ROOT}")
 
 # The full-library run is the same binary with --full: it builds all 77 clips (~3 s) and asserts that every LAFAN1 clip
 # family is searchable. Both skip cleanly when the clips have not been fetched (tools/fetch_assets.sh --motion-only).
