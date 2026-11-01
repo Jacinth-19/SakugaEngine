@@ -55,13 +55,27 @@ jobs:
           Write-Host "VULKAN_SDK=$sdk"
           exit 0
 
+      # The job log is not always reachable from outside, so a failure repeats the tail of the output as an annotation
+      # (readable through the checks API).
       - name: Configure
         shell: pwsh
         run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DSAKUGA_BUILD_TESTS=OFF
+          $log = cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DSAKUGA_BUILD_TESTS=OFF 2>&1 | Out-String
+          Write-Host $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host ("::error::configure failed:`n" + ($log -split "`r?`n" | Select-Object -Last 30 | Out-String))
+            exit 1
+          }
 
       - name: Build (Release)
-        run: cmake --build build --config Release --parallel
+        shell: pwsh
+        run: |
+          $log = cmake --build build --config Release --parallel 2>&1 | Out-String
+          Write-Host $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host ("::error::build failed:`n" + ($log -split "`r?`n" | Select-Object -Last 30 | Out-String))
+            exit 1
+          }
 
       - name: Smoke test the executable
         shell: pwsh
@@ -93,8 +107,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          & $env:ISCC "/DAppVersion=$env:SAKUGA_VERSION" "/DSourceDir=$PWD\stage" "/DOutputDir=$PWD\dist" installer\sakuga.iss
-          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+          $log = & $env:ISCC "/DAppVersion=$env:SAKUGA_VERSION" "/DSourceDir=$PWD\stage" "/DOutputDir=$PWD\dist" installer\sakuga.iss 2>&1 | Out-String
+          Write-Host $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host ("::error::ISCC failed:`n" + ($log -split "`r?`n" | Select-Object -Last 25 | Out-String))
+            exit 1
+          }
           Get-ChildItem dist
 
       - name: Upload the installer and the portable zip
