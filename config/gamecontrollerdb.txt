@@ -1,0 +1,4 @@
+# Extra gamepad mappings in SDL_GameControllerDB format (one per line), loaded at start-up with glfwUpdateGamepadMappings.
+# GLFW already ships mappings for common pads (Xbox / PlayStation / Switch Pro). Add the line for any other pad here:
+#   run `jstest-gtk` / SDL2's `controllermap` or look it up at https://github.com/mdqinc/SDL_GameControllerDB
+# Format: GUID,Name,a:b0,b:b1,...,platform:Linux,
