@@ -43,18 +43,25 @@ cmake --build build -j
 ### Windows build and installer
 
 The same CMake project builds with MSVC; `.github/workflows/windows.yml` does it on `windows-latest` on every push:
-configure with the Visual Studio generator, build Release, smoke-test the executable, stage the install tree
-(`cmake --install`), and package it with [Inno Setup](https://jrsoftware.org/isinfo.php) into
-`Sakuga-Engine-<version>-win64.exe` (plus a portable zip), both uploaded as artifacts.
+set up the MSVC environment, configure with Ninja, build Release, smoke-test the executable (`--help` and
+`--dump-ui-theme`, both of which exit before any Vulkan device is created), stage the install tree (`cmake --install`) and
+package it with [Inno Setup](https://jrsoftware.org/isinfo.php) into `Sakuga-Engine-<version>-win64.exe`, plus a portable
+zip - both are uploaded as the `sakuga-windows-x64` artifact (~53 MB).
 
 ```powershell
-# what the CI job runs, by hand
-choco install vulkan-sdk -y                                   # provides vulkan-1.lib + glslangValidator
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DSAKUGA_BUILD_TESTS=OFF
-cmake --build build --config Release --parallel
-cmake --install build --config Release --prefix stage         # stage\sandbox.exe + assets\ config\ shaders\
-iscc /DAppVersion=0.1.0 /DSourceDir=stage /DOutputDir=dist installer\sakuga.iss
+# what the CI job runs, by hand (from a "x64 Native Tools Command Prompt", or after vcvars64.bat)
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSAKUGA_BUILD_TESTS=OFF
+cmake --build build --parallel
+cmake --install build --prefix stage                          # stage: sandbox.exe + assets + config + shaders
+iscc /DAppVersion=0.1.0 /DSourceDir=stage /DOutputDir=dist installer/sakuga.iss
 ```
+
+Two things the job had to work around, both now handled in the workflow: `vulkan-1.lib` (the loader import library)
+comes from the Vulkan SDK, which the job looks for on the image and installs through chocolatey - or LunarG's installer -
+only if it is absent; and the build uses Ninja inside the environment exported by `ilammy/msvc-dev-cmd` instead of
+`-G "Visual Studio 17 2022"`, because the hosted images now carry Visual Studio 18 and a pinned generator name fails to
+configure ("could not find any instance of Visual Studio"). The GPU-free test suite stays in the Linux `tests` workflow:
+several of those tests write to POSIX temp paths.
 
 The installer (`installer/sakuga.iss`) puts the app in `Program Files`, adds Start Menu/desktop shortcuts and an
 uninstaller, and warns during setup when no Vulkan runtime (`vulkan-1.dll`) is present. The staged tree is relocatable -
