@@ -23,9 +23,13 @@ cp "$ROOT/assets/branding/sakuga_icon_512.png" "$WORK/res/drawable-nodpi/sakuga_
 cp "$ROOT/assets/motion/walk1_subject1.bvh" "$ROOT/assets/motion/run1_subject2.bvh" "$WORK/assets/motion/"
 cp "$ROOT/assets/ui/touch/joystick_base.png" "$ROOT/assets/ui/touch/joystick_knob.png" "$WORK/assets/controls/"
 for abi in arm64-v8a x86_64; do
+  # Porting check: compile (but do not link or run) desktop engine sources once for ARM.
+  compilecheck=OFF
+  if [[ "$abi" == arm64-v8a ]]; then compilecheck=ON; fi
   cmake -S "$ROOT/android/native" -B "$WORK/build-$abi" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
-    -DANDROID_ABI="$abi" -DANDROID_PLATFORM=android-26 -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release
+    -DANDROID_ABI="$abi" -DANDROID_PLATFORM=android-26 -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release \
+    -DSAKUGA_ANDROID_COMPILE_DESKTOP_SOURCES="$compilecheck"
   cmake --build "$WORK/build-$abi" --parallel 2
   mkdir -p "$WORK/stage/lib/$abi"
   cp "$WORK/build-$abi/libsakuga_mobile.so" "$WORK/stage/lib/$abi/"

@@ -22,7 +22,7 @@
 2. Run the installer, or extract the **whole** portable archive to a folder you can write to. Launch **Sakuga Engine** or `sandbox.exe`.
 3. You need a **Vulkan 1.3-capable GPU and a current graphics driver**. The installer does not include the Vulkan runtime or driver.
 
-> **Preview:** the Windows executable is built and smoke-tested in GitHub Actions, but actual rendering and the installer UI still need validation on a real Windows GPU. The build is not an Android release.
+> **Preview:** the Windows executable is built and command-line smoke-tested in GitHub Actions, but gameplay, rendering and the installer UI still need validation on a real Windows GPU. The release is **unsigned** and Windows may warn about an unknown publisher. [Signing and hardware test details](docs/WINDOWS_SIGNING_AND_TESTING.md).
 
 ### Find your way around
 
@@ -37,13 +37,23 @@ Open **Motion matching** to see the current animation and loaded clip count. Ope
 
 ## See the sandbox
 
-These are captures from the sandbox, not the illustrative banner above.
+These are existing desktop sandbox captures, not the illustrative banner above. Their original capture environment was not recorded, so they do **not** prove that the current Windows release passed a gameplay test.
 
 | Day | Night |
 | :---: | :---: |
 | ![Motion lab in daylight](docs/screenshots/lab_day.png) | ![Motion lab at night](docs/screenshots/lab_night.png) |
 | **Character** | **Editor** |
 | ![VRM character in the sandbox](docs/screenshots/vrm_standing.png) | ![Sandbox editor interface](docs/screenshots/editor_ui.png) |
+
+**Earlier desktop demos:** [Motion lab video](docs/demo_motion_lab.mp4) · [Motion matching video](docs/demo_motion_matching.mp4). These are previously committed footage, not new verification of the current Windows build.
+
+### Android emulator — animation preview
+
+![Android emulator screenshot of the skeleton animation preview](docs/media/android_preview.png)
+
+[Watch the Android emulator preview](docs/media/android_preview.mp4) · [Build and emulator test run](https://github.com/Jacinth-19/SakugaEngine/actions/runs/41331384579)
+
+Captured from the Android emulator on 1 November 2026. It shows the **two-clip synthetic-rig preview**, not the full mobile game or Vulkan renderer. The run checked startup and a touch on **Next Clip**; a physical Android device has not yet been tested. See [media provenance](docs/media/README.md).
 
 ## Explore
 
@@ -91,7 +101,8 @@ The Android preview build is available as an artifact on successful **Android an
 
 - [Developer guide](docs/ENGINE_GUIDE.md) — source builds, themes, animation and test details
 - [Installer guide](docs/INSTALLER.md) — Inno Setup styling and iteration
-- [Android & diagnostics](docs/ANDROID_AND_DIAGNOSTICS.md) — mobile status, device stats and debug-video reproduction
+- [Android & diagnostics](docs/ANDROID_AND_DIAGNOSTICS.md) · [Full Android port plan](docs/ANDROID_PORT_PLAN.md)
+- [Windows signing & gameplay testing](docs/WINDOWS_SIGNING_AND_TESTING.md) — what has and has not been verified
 - [Shader port notes](docs/SHADER_PORT.md) · [Script audit](docs/SCRIPT_AUDIT.md) · [Third-party dependencies](third_party/README.md)
 
 ## Licences
