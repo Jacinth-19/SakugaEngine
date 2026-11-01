@@ -92,7 +92,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() { destroyed = true; if (preview != null) preview.close(); super.onDestroy(); }
 
     private final class PreviewView extends View {
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final android.text.TextPaint paint = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
         private final int[][] bones = {{0,1},{1,2},{2,3},{3,4},{4,5},{3,6},{6,7},{7,8},{8,9},
                 {3,10},{10,11},{11,12},{12,13},{0,14},{14,15},{15,16},{16,17},{0,18},{18,19},{19,20},{20,21}};
         private final Bitmap base, knob;
