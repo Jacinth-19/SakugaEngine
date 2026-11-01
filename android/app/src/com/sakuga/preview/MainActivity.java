@@ -30,7 +30,7 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
         preview = new PreviewView(); setContentView(preview);
-        new Thread(() -> {
+        new Thread(new Runnable() { @Override public void run() {
             long handle = 0; String error = null;
             try {
                 String[] names = {"walk1_subject1.bvh", "run1_subject2.bvh"};
@@ -50,11 +50,11 @@ public final class MainActivity extends Activity {
                 if (handle == 0) error = "Could not load motion data. See Android logcat.";
             } catch (Exception e) { error = "Could not start preview: " + e.getMessage(); }
             final long result = handle; final String message = error;
-            runOnUiThread(() -> {
+            runOnUiThread(new Runnable() { @Override public void run() {
                 if (destroyed) { if (result != 0) nativeDestroy(result); return; }
                 preview.setSession(result, message);
-            });
-        }, "motion-loader").start();
+            }});
+        }}, "motion-loader").start();
     }
     @Override protected void onResume() { super.onResume(); if (preview != null) preview.setRunning(true); }
     @Override protected void onPause() { if (preview != null) preview.setRunning(false); super.onPause(); }
