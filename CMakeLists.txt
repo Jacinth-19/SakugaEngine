@@ -31,7 +31,8 @@ else()
   # .so.1 ships with the driver even when the -dev symlink does not).
   find_library(SAKUGA_VULKAN_LOADER
     NAMES vulkan vulkan-1 libvulkan.so.1 libvulkan.so
-    HINTS /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu /usr/local/lib)
+    HINTS $ENV{VULKAN_SDK}/Lib $ENV{VULKAN_SDK}/lib
+          /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu /usr/local/lib)
   add_library(sakuga_vulkan INTERFACE)
   target_include_directories(sakuga_vulkan INTERFACE ${SAKUGA_VULKAN_INCLUDE})
   if(SAKUGA_VULKAN_LOADER)
@@ -119,8 +120,11 @@ endif()
 
 # ================================================================ imgui
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
+# imgui_demo.cpp is only here for ImGui::ShowStyleEditor() (F12 in the sandbox: live UI theme editing) and
+# ShowDemoWindow() (F1); it is dead weight in the binary otherwise.
 add_library(imgui STATIC
   ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_tables.cpp ${IMGUI_DIR}/imgui_widgets.cpp
+  ${IMGUI_DIR}/imgui_demo.cpp
   ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp)
 target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
 # The engine includes <GLFW/glfw3.h> next to Vulkan; without this GLFW pulls in the OpenGL headers, which a Vulkan-only
@@ -133,7 +137,11 @@ set(RN_DIR ${CMAKE_SOURCE_DIR}/third_party/recastnavigation)
 file(GLOB RN_SRC CONFIGURE_DEPENDS ${RN_DIR}/Recast/Source/*.cpp ${RN_DIR}/Detour/Source/*.cpp ${RN_DIR}/DetourCrowd/Source/*.cpp)
 add_library(recastdetour STATIC ${RN_SRC})
 target_include_directories(recastdetour PUBLIC ${RN_DIR}/Recast/Include ${RN_DIR}/Detour/Include ${RN_DIR}/DetourCrowd/Include)
-target_compile_options(recastdetour PRIVATE -w)
+if(NOT MSVC)
+  target_compile_options(recastdetour PRIVATE -w)     # third-party code: /w on MSVC, -w elsewhere
+else()
+  target_compile_options(recastdetour PRIVATE /w)
+endif()
 
 # ---------------------------------------------------------------- engine
 file(GLOB_RECURSE ENGINE_SRC CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/engine/*.cpp)
@@ -152,10 +160,25 @@ add_dependencies(sakuga SakugaShaders)
 file(GLOB SANDBOX_SRC CONFIGURE_DEPENDS apps/sandbox/*.cpp)
 add_executable(sandbox ${SANDBOX_SRC})
 target_link_libraries(sandbox PRIVATE sakuga)
-add_custom_target(SakugaCopyShaders ALL
+# The SPIR-V has to sit next to the executable (the renderer loads "shaders/*.spv" relative to it). A POST_BUILD step keeps
+# that true for multi-config generators too (Visual Studio puts the exe in bin/<Config>/, which a custom target's
+# $<TARGET_FILE_DIR:...> would not follow reliably).
+add_dependencies(sandbox SakugaShaders)
+add_custom_command(TARGET sandbox POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_BINARY_DIR}/shaders $<TARGET_FILE_DIR:sandbox>/shaders
-  DEPENDS SakugaShaders VERBATIM)
-add_dependencies(SakugaCopyShaders sandbox)
+  COMMENT "Sakuga: copying SPIR-V next to the sandbox executable" VERBATIM)
+
+# ---------------------------------------------------------------- install
+# A relocatable layout the installer packages as-is:  <prefix>/sandbox[.exe]  assets/  shaders/  config/  README.md
+# (the sandbox looks for these next to the executable, see findRoot()). CMake's --install is what
+# installer/sakuga.iss packs, and what a Linux `make install` produces.
+# The layout is flat on purpose: findRoot() (engine/core/FileUtil.cpp) searches for a directory that contains both
+# assets/ and shaders/, starting at the executable, so the app stays relocatable - copy the whole folder anywhere.
+install(TARGETS sandbox RUNTIME DESTINATION . COMPONENT Runtime)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets DESTINATION . COMPONENT Runtime)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/config DESTINATION . COMPONENT Runtime)
+install(DIRECTORY ${CMAKE_BINARY_DIR}/shaders DESTINATION . COMPONENT Runtime)   # compiled SPIR-V the renderer loads
+install(FILES ${CMAKE_SOURCE_DIR}/README.md DESTINATION . COMPONENT Runtime)
 
 # ---------------------------------------------------------------- tests (GPU-free, CTest)
 # Always configureable on its own as well: cmake -S tests -B build-tests

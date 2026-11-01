@@ -26,6 +26,7 @@
 #include <memory>
 #include <sstream>
 #include <set>
+#include <fstream>
 
 using namespace sk;
 namespace fs = std::filesystem;
@@ -54,6 +55,7 @@ struct Options {
     std::vector<ScriptKey> script;
     std::vector<std::string> motionDirs; int mmClips = 0; long mmMask = -1; bool mmCache = true, mmContext = true; std::string playClip, env; float envIntensity = 1.f; bool ik = true, lightSet = false;
     std::string lut = "Anime Shinkai"; float lutStrength = 0.7f; bool hdriSun = false;
+    std::string uiTheme, uiFont; float uiFontSize = 15.f;   // gfx/UiTheme.h preset name or a JSON file (default: config/ui_theme.json)
 };
 
 static void parseScript(const std::string& s, Options& o) {   // "t:x,y[,sprint|crouch];..."
@@ -96,6 +98,9 @@ static Options parseArgs(int argc, char** argv) {
         else if (a == "--mm-clips") o.mmClips = std::atoi(next());
         else if (a == "--mm-categories") { std::string v = next(); o.mmMask = v == "all" ? (long)((1u << kMotionCategoryCount) - 1) : std::atol(v.c_str()); }
         else if (a == "--no-mm-context") o.mmContext = false;
+        else if (a == "--ui-theme") o.uiTheme = next();
+        else if (a == "--ui-font") o.uiFont = next();
+        else if (a == "--ui-font-size") o.uiFontSize = (float)std::atof(next());
         else if (a == "--no-mm-cache") o.mmCache = false;
         else if (a == "--env") o.env = next();
         else if (a == "--env-intensity") o.envIntensity = (float)std::atof(next());
@@ -139,7 +144,11 @@ static Options parseArgs(int argc, char** argv) {
                         "        [--motion-dir DIR]... [--mm-clips N] [--mm-categories all|bitmask] [--no-mm-context] [--no-mm-cache] [--play-clip clipName]\n"
                         "        [--env file.hdr|none] [--env-intensity X] [--no-ik] [--no-hand-ik] [--no-look-at] [--no-springs] [--no-npcs]\n"
                         "        [--time HOURS] [--time-auto] [--time-speed H/s] [--cloud 0..1] [--exposure X] [--npr] [--nav-debug] [--mm-debug] [--no-post]\n"
-                        "        [--lut \"Anime Shinkai\"|none|file.cube] [--lut-strength 0..1] [--hdri-sun]\n");
+                        "        [--lut \"Anime Shinkai\"|none|file.cube] [--lut-strength 0..1] [--hdri-sun]\n"
+                        "        [--ui-theme \"Sakuga Dark\"|\"Sakuga Light\"|\"Midnight\"|\"Monochrome\"|theme.json]\n"
+                        "        [--ui-font file.ttf] [--ui-font-size px]\n"
+                        "  In the window: F11 = ImGui demo, F12 = UI theme editor (live style editor + Save to JSON),\n"
+                        "  F1 = hide the UI, F2 = screenshot, F3 = FPS counter, Tab = release the mouse.\n");
             std::exit(0);
         }
     }
@@ -167,6 +176,8 @@ private:
     void updateScene(float dt);
     FrameInput buildFrame(float dt);
     void drawUI();
+    void drawUiThemeWindow();
+    void loadUiTheme();
     void applyRain(float amount);
     std::vector<Material*> activeMaterials();
 
@@ -200,6 +211,9 @@ private:
     int selectedMat_ = 0; bool syncMat_ = true;
     float fps_ = 60; bool cursorFree_ = true;
     int matForcedMode_ = -1;
+    // UI look: the preset/file this session started from, and the live state the F12 editor writes back to it
+    UiTheme uiTheme_; std::string uiThemePath_, uiThemeError_; fs::file_time_type uiThemeStamp_{};
+    bool showThemeEditor_ = false, showImGuiDemo_ = false; char themeName_[64] = "Sakuga Dark";
     int frame_ = 0;
     bool screenshotRequested_ = false;
 };
@@ -211,7 +225,8 @@ bool Sandbox::init() {
     }
     if (!ctx_.init(windowed, opt_.validation)) return false;
     if (!renderer_.init(ctx_, windowed ? window_.handle() : nullptr, opt_.width, opt_.height, shaderDir_)) return false;
-    if (windowed && opt_.ui) renderer_.initUI(window_.handle());
+    loadUiTheme();
+    if (windowed && opt_.ui) renderer_.initUI(window_.handle(), uiTheme_, opt_.uiFont, opt_.uiFontSize);
     if (!input_.loadActions(root_ + "/config/InputSystem_Actions.inputactions.json")) return false;
     loadAssets();
     buildLab();
@@ -733,6 +748,96 @@ void Sandbox::drawCharacterUI() {
     }
 }
 
+// The look is data (gfx/UiTheme.h): a preset name, or a .json file next to config/ that can be edited while the app runs.
+void Sandbox::loadUiTheme() {
+    uiThemeError_.clear();
+    uiThemePath_.clear();
+    // No --ui-theme: use the theme file committed next to the config, so it can be edited while the app runs.
+    std::string want = opt_.uiTheme;
+    if (want.empty()) {
+        const std::string shipped = root_ + "/config/ui_theme.json";
+        std::error_code ec;
+        want = fs::exists(shipped, ec) ? shipped : std::string(uiThemeDefaultName());
+    }
+    uiTheme_ = uiThemeLoad(want, root_ + "/config", &uiThemePath_, &uiThemeError_);
+    if (!uiThemeError_.empty()) SK_WARN("ui: %s", uiThemeError_.c_str());
+    std::snprintf(themeName_, sizeof themeName_, "%s", uiTheme_.name.c_str());
+    uiThemeStamp_ = fs::file_time_type{};
+    if (!uiThemePath_.empty()) {
+        std::error_code ec; uiThemeStamp_ = fs::last_write_time(uiThemePath_, ec);
+        SK_LOG("ui: theme %s from %s", uiTheme_.name.c_str(), uiThemePath_.c_str());
+    } else {
+        SK_LOG("ui: theme %s (built-in preset; F12 to tweak and save)", uiTheme_.name.c_str());
+    }
+}
+
+void Sandbox::drawUiThemeWindow() {
+    if (!showThemeEditor_) return;
+    ImGui::SetNextWindowSize(ImVec2(430, 620), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 12, 120), ImGuiCond_FirstUseEver, ImVec2(1, 0));
+    if (!ImGui::Begin("UI theme (F12)", &showThemeEditor_)) { ImGui::End(); return; }
+
+    bool changed = false;
+    if (ImGui::BeginCombo("Preset", uiTheme_.name.c_str())) {
+        for (const std::string& n : uiThemeNames())
+            if (ImGui::Selectable(n.c_str(), n == uiTheme_.name)) {
+                uiTheme_ = uiThemePreset(n);
+                std::snprintf(themeName_, sizeof themeName_, "%s", n.c_str());
+                changed = true;
+            }
+        ImGui::EndCombo();
+    }
+    ImGui::InputText("Name", themeName_, sizeof themeName_);
+    changed |= ImGui::SliderFloat("Font scale", &uiTheme_.fontScale, 0.5f, 2.5f, "%.2fx");
+    changed |= ImGui::SliderFloat("Panel alpha", &uiTheme_.panelAlpha, 0.2f, 1.f, "%.2f");
+    ImGui::SameLine(); ImGui::Checkbox("Demo (F11)", &showImGuiDemo_);
+    if (changed) renderer_.setUiTheme(uiTheme_);
+
+    ImGui::SeparatorText("Live style");
+    ImGui::TextDisabled("Edits below apply immediately; Save writes the current state back to JSON.");
+    ImGui::ShowStyleEditor(nullptr);        // imgui_demo.cpp, operates on ImGui::GetStyle()
+
+    ImGui::SeparatorText("File");
+    ImGui::TextWrapped("%s", uiThemePath_.empty() ? "(built-in preset - Save creates config/ui_theme.json)"
+                                                  : uiThemePath_.c_str());
+    if (!uiThemeError_.empty()) ImGui::TextColored(ImVec4(1.f, 0.55f, 0.35f, 1.f), "%s", uiThemeError_.c_str());
+
+    if (ImGui::Button("Save")) {
+        UiTheme live = uiThemeFromLiveStyle(ImGui::GetStyle(), themeName_);
+        live.fontScale = uiTheme_.fontScale;
+        uiThemeSanitize(&live);
+        const std::string path = uiThemePath_.empty() ? root_ + "/config/ui_theme.json" : uiThemePath_;
+        std::error_code ec; fs::create_directories(fs::path(path).parent_path(), ec);
+        std::ofstream f(path, std::ios::binary);
+        f << uiThemeToJson(live);
+        const bool ok = f.good();
+        f.close();
+        if (ok) {
+            uiTheme_ = live; uiThemePath_ = path; uiThemeError_.clear();
+            uiThemeStamp_ = fs::last_write_time(path, ec);        // do not immediately "reload" what we just wrote
+            SK_LOG("ui: saved theme %s", path.c_str());
+        } else {
+            uiThemeError_ = "could not write " + path;
+            SK_ERR("ui: %s", uiThemeError_.c_str());
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Reload")) {
+        std::string used, err;
+        UiTheme t = uiThemeLoad(uiThemePath_.empty() ? std::string(themeName_) : uiThemePath_, root_ + "/config", &used, &err);
+        uiTheme_ = t; uiThemeError_ = err;
+        std::snprintf(themeName_, sizeof themeName_, "%s", uiTheme_.name.c_str());
+        renderer_.setUiTheme(uiTheme_);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Reset to preset")) {
+        uiTheme_ = uiThemePreset(themeName_);
+        renderer_.setUiTheme(uiTheme_);
+    }
+    ImGui::TextDisabled("Editing the .json on disk reloads it automatically.");
+    ImGui::End();
+}
+
 void Sandbox::drawUI() {
     if (!renderer_.uiEnabled()) return;
     renderer_.beginUI();
@@ -743,6 +848,27 @@ void Sandbox::drawUI() {
         ImGui::End();
     }
     touch_.draw(ImGui::GetForegroundDrawList());
+    // Hot reload: a theme file that changed on disk (editor save) is picked up without restarting the app.
+    if (!uiThemePath_.empty()) {
+        std::error_code ec;
+        const auto stamp = fs::last_write_time(uiThemePath_, ec);
+        if (!ec && stamp != uiThemeStamp_) {
+            uiThemeStamp_ = stamp;
+            std::string used, err;
+            UiTheme t = uiThemeLoad(uiThemePath_, root_ + "/config", &used, &err);
+            if (err.empty()) {
+                uiTheme_ = t;
+                std::snprintf(themeName_, sizeof themeName_, "%s", uiTheme_.name.c_str());
+                renderer_.setUiTheme(uiTheme_);
+                SK_LOG("ui: reloaded %s", uiThemePath_.c_str());
+            } else {
+                uiThemeError_ = err;
+                SK_WARN("ui: %s", err.c_str());
+            }
+        }
+    }
+    drawUiThemeWindow();
+    if (showImGuiDemo_) ImGui::ShowDemoWindow(&showImGuiDemo_);
     if (!showUI_) return;
     ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(430, 760), ImGuiCond_FirstUseEver);
     ImGui::Begin("Sakuga Engine");
@@ -888,13 +1014,16 @@ void Sandbox::run() {
             bool uiWantsKeys = renderer_.uiEnabled() && ImGui::GetIO().WantCaptureKeyboard;
             if (uiWantsKeys) { std::memset(dev.key, 0, sizeof(dev.key)); }
             if (renderer_.uiEnabled() && ImGui::GetIO().WantCaptureMouse && !window_.cursorCaptured()) { std::memset(dev.mouseButton, 0, sizeof(dev.mouseButton)); dev.mouseDelta = {0, 0}; }
-            static bool tabPrev = false, f1Prev = false, f2Prev = false, f3Prev = false;
+            static bool tabPrev = false, f1Prev = false, f2Prev = false, f3Prev = false, f11Prev = false, f12Prev = false;
             bool tab = window_.device().key[GLFW_KEY_TAB] && !uiWantsKeys, f1 = window_.device().key[GLFW_KEY_F1], f2 = window_.device().key[GLFW_KEY_F2], f3 = window_.device().key[GLFW_KEY_F3];
+            bool f11 = window_.device().key[GLFW_KEY_F11], f12 = window_.device().key[GLFW_KEY_F12] && !uiWantsKeys;
             if (tab && !tabPrev) window_.setCursorCaptured(!window_.cursorCaptured());
             if (f1 && !f1Prev) showUI_ = !showUI_;
             if (f2 && !f2Prev) screenshotRequested_ = true;
             if (f3 && !f3Prev) showFps_ = !showFps_;
-            tabPrev = tab; f1Prev = f1; f2Prev = f2; f3Prev = f3;
+            if (f11 && !f11Prev) showImGuiDemo_ = !showImGuiDemo_;
+            if (f12 && !f12Prev) showThemeEditor_ = !showThemeEditor_;
+            tabPrev = tab; f1Prev = f1; f2Prev = f2; f3Prev = f3; f11Prev = f11; f12Prev = f12;
             if (window_.device().key[GLFW_KEY_ESCAPE]) break;
         }
         input_.update(dev);
@@ -939,6 +1068,20 @@ static int touchSelfTest() {
 
 int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) if (std::string(argv[i]) == "--touch-selftest") return touchSelfTest();
+    // Writes a theme preset to JSON and exits - no window, no device. This is how config/ui_theme.json is produced:
+    //   sandbox --dump-ui-theme config/ui_theme.json ["Sakuga Dark"]
+    for (int i = 1; i < argc; ++i) if (std::string(argv[i]) == "--dump-ui-theme") {
+        const std::string out = i + 1 < argc && argv[i + 1][0] != '-' ? argv[i + 1] : "ui_theme.json";
+        const std::string preset = i + 2 < argc ? argv[i + 2] : uiThemeDefaultName();
+        UiTheme t = uiThemePreset(preset);
+        std::error_code ec; fs::create_directories(fs::path(out).parent_path(), ec);
+        std::ofstream f(out, std::ios::binary);
+        f << uiThemeToJson(t);
+        f.close();
+        if (!f.good()) { SK_ERR("could not write %s", out.c_str()); return 1; }
+        SK_LOG("wrote %s (%s, %zu colours)", out.c_str(), t.name.c_str(), t.colors.size());
+        return 0;
+    }
     Options opt = parseArgs(argc, argv);
     std::string root = findRoot(argv[0]);
     SK_LOG("Sakuga Engine sandbox | root: %s", root.c_str());

@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <numeric>
 
 namespace sk {
@@ -460,11 +461,38 @@ void Renderer::flushMaterial(Material* m) {
 }
 
 // ===================================================================================== UI
-void Renderer::initUI(GLFWwindow* window) {
+std::vector<std::string> Renderer::uiFontCandidates() {
+#if defined(_WIN32)
+    return {"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/tahoma.ttf", "C:/Windows/Fonts/verdana.ttf"};
+#elif defined(__APPLE__)
+    return {"/System/Library/Fonts/Helvetica.ttc", "/Library/Fonts/Arial.ttf"};
+#else
+    return {"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"};
+#endif
+}
+
+void Renderer::initUI(GLFWwindow* window, const UiTheme& theme, const std::string& fontPath, float fontPx) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGui::StyleColorsDark();
-    ImGuiStyle& st = ImGui::GetStyle(); st.WindowRounding = 6; st.FrameRounding = 4; st.GrabRounding = 4; st.Alpha = 0.96f;
+    uiTheme_ = theme;
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;    // keyboard/gamepad navigation works in the editors
+    // Font: an explicit --ui-font wins, then the platform's UI font, then ImGui's built-in bitmap font. A missing file is
+    // not fatal - AddFontFromFileTTF asserts on failure, so the existence check happens here.
+    ImFont* font = nullptr;
+    auto tryFont = [&](const std::string& path) {
+        if (font || path.empty()) return;
+        std::error_code ec; if (!std::filesystem::exists(path, ec)) return;
+        font = io.Fonts->AddFontFromFileTTF(path.c_str(), fontPx);
+        SK_LOG("ui: font %s (%.0f px)", path.c_str(), fontPx);
+    };
+    tryFont(fontPath);
+    if (fontPath.empty()) for (const std::string& c : uiFontCandidates()) { tryFont(c); if (font) break; }
+    if (!font) { io.Fonts->AddFontDefault(); SK_LOG("ui: built-in font (no system UI font found)"); }
+    io.FontGlobalScale = uiTheme_.fontScale;
+    applyUiTheme(uiTheme_, ImGui::GetStyle());
     ImGui_ImplGlfw_InitForVulkan(window, true);
     ImGui_ImplVulkan_InitInfo ii{};
     ii.Instance = ctx_->instance; ii.PhysicalDevice = ctx_->phys; ii.Device = ctx_->device;
@@ -479,6 +507,13 @@ void Renderer::initUI(GLFWwindow* window) {
     ImGui_ImplVulkan_Init(&ii);
     ui_ = true;
 }
+void Renderer::setUiTheme(const UiTheme& theme) {
+    uiTheme_ = theme;
+    if (!ui_) return;
+    applyUiTheme(uiTheme_, ImGui::GetStyle());
+    ImGui::GetIO().FontGlobalScale = uiTheme_.fontScale;
+}
+
 void Renderer::beginUI() {
     if (!ui_ || uiFrameOpen_) return;
     ImGui_ImplVulkan_NewFrame();

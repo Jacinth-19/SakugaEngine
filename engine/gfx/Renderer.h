@@ -4,6 +4,7 @@
 #include "gfx/Material.h"
 #include "gfx/Mesh.h"
 #include "asset/Lut.h"
+#include "gfx/UiTheme.h"
 #include <glm/glm.hpp>
 #include <memory>
 #include <vector>
@@ -118,10 +119,18 @@ public:
     glm::vec3 environmentSunDirection() const { return envSun_; }   // brightest region of the loaded HDR (zero if none)
 
     // --- UI
-    void initUI(GLFWwindow* window);
+    // Creates the ImGui context, loads a font (the system UI font when `fontPath` is empty - see uiFontCandidates())
+    // and applies `theme` (gfx/UiTheme.h). Must be called before the first frame.
+    void initUI(GLFWwindow* window, const UiTheme& theme = UiTheme{}, const std::string& fontPath = {},
+                float fontPx = 15.f);
     void beginUI();                               // starts an ImGui frame
     bool uiEnabled() const { return ui_; }
     void setUIVisible(bool v) { uiVisible_ = v; }
+    // Applies a theme to the running UI (F12 in the sandbox edits the live style, this pushes a saved one back).
+    void setUiTheme(const UiTheme& theme);
+    const UiTheme& uiTheme() const { return uiTheme_; }
+    // Candidate system UI fonts, in preference order, for the platform this was built for (may be empty).
+    static std::vector<std::string> uiFontCandidates();
 
     // --- rendering
     // Windowed: draws and presents. If `capture` is set, also reads back the final RGBA8 image.
@@ -154,6 +163,7 @@ private:
     GLFWwindow* window_ = nullptr;
     uint32_t width_ = 0, height_ = 0;
     bool ui_ = false, uiVisible_ = true, uiFrameOpen_ = false;
+    UiTheme uiTheme_;
 
     // swapchain
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;

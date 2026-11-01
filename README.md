@@ -40,6 +40,28 @@ cmake --build build -j
 ./build/bin/sandbox --help
 ```
 
+### Windows build and installer
+
+The same CMake project builds with MSVC; `.github/workflows/windows.yml` does it on `windows-latest` on every push:
+configure with the Visual Studio generator, build Release, smoke-test the executable, stage the install tree
+(`cmake --install`), and package it with [Inno Setup](https://jrsoftware.org/isinfo.php) into
+`Sakuga-Engine-<version>-win64.exe` (plus a portable zip), both uploaded as artifacts.
+
+```powershell
+# what the CI job runs, by hand
+choco install vulkan-sdk -y                                   # provides vulkan-1.lib + glslangValidator
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DSAKUGA_BUILD_TESTS=OFF
+cmake --build build --config Release --parallel
+cmake --install build --config Release --prefix stage         # stage\sandbox.exe + assets\ config\ shaders\
+iscc /DAppVersion=0.1.0 /DSourceDir=stage /DOutputDir=dist installer\sakuga.iss
+```
+
+The installer (`installer/sakuga.iss`) puts the app in `Program Files`, adds Start Menu/desktop shortcuts and an
+uninstaller, and warns during setup when no Vulkan runtime (`vulkan-1.dll`) is present. The staged tree is relocatable -
+`sandbox.exe` finds `assets/`, `config/` and `shaders/` next to itself (`findRoot()`), so the portable zip works from
+any folder. What is *not* carried by the installer: the Vulkan loader/GPU driver (installed with the graphics driver) and
+the 77-clip LAFAN1 set (fetch it with `tools/fetch_assets.sh --motion-only`; the installer ships the two preview clips).
+
 Still needed from the machine (nothing this repo can carry):
 
 * a **Vulkan loader + GPU driver** at runtime, and
@@ -53,6 +75,29 @@ Still needed from the machine (nothing this repo can carry):
 
 Sample assets (models, mocap, LUTs, HDRIs) are vendored in `assets/` too; `tools/fetch_assets.sh` only matters if you want
 to re-fetch them or pull the full 77-clip LAFAN1 set.
+
+## The UI: themes, fonts, live editing
+
+The look is data, not code (`engine/gfx/UiTheme.h`): four presets (`Sakuga Dark`, `Sakuga Light`, `Midnight`,
+`Monochrome`) plus a JSON file the app loads by default, `config/ui_theme.json`, which is what to edit while playing with
+the interface.
+
+```sh
+./build/bin/sandbox                                   # loads config/ui_theme.json (falls back to the Sakuga Dark preset)
+./build/bin/sandbox --ui-theme Midnight               # a preset
+./build/bin/sandbox --ui-theme my_theme.json          # any theme file
+./build/bin/sandbox --ui-font ~/fonts/Inter.ttf --ui-font-size 16
+./build/bin/sandbox --dump-ui-theme config/ui_theme.json "Sakuga Light"   # writes a preset out as JSON, no GPU needed
+```
+
+In the window: **F12** opens the theme editor - preset picker, font scale, panel alpha and ImGui's full style editor
+(`ShowStyleEditor`), all applied immediately - plus **Save** (writes the current state back to JSON) and **Reload**.
+Editing the `.json` on disk reloads it without restarting (the file's timestamp is watched), so the loop is
+*edit JSON -> see it in the running app*. **F11** is the ImGui demo window, **F1** hides the UI, **F2** screenshots,
+**F3** FPS, **Tab** releases the mouse.
+
+Fonts: `--ui-font` wins; otherwise the platform's UI font is used (Segoe UI on Windows, DejaVu Sans on Linux, Helvetica on
+macOS); otherwise ImGui's built-in bitmap font. `fontScale` in the theme (or the F12 slider) scales whatever was loaded.
 
 ## Motion matching: the whole library, every character
 
@@ -103,6 +148,7 @@ Eleven CTest targets, each asserting real behaviour:
 | `loader_test` | GLB container validation (magic/version/length/chunk bounds), cgltf parse of all vendored `.glb`/`.vrm` files, VRM humanoid map |
 | `bvh_parse_test` | BVH parsing against the reference importer's tolerance (case-insensitive keywords, spaced joint names, scientific notation, ms frame times) and rejection of truncated/corrupt files; FK rotation order |
 | `mm_search_test` | Motion-matching feature layout, weighted cost + early-out, `MotionMatcher::nearestFrame` against a synthetic database, the movement-context category gating (`resolveCategoryMask`), FK of the vendored mocap |
+| `ui_theme_test` | UI theme presets are complete and in range, JSON round-trips, a partial file overrides only what it names, hostile values are clamped, unknown roles ignored, `config/ui_theme.json` matches the built-in preset, and `applyUiTheme` really writes into `ImGuiStyle` (ImGui core is linked without a backend, so still no device) |
 | `motion_library_test` | Builds a real database from the clips on disk (12 spread over all nine families; `--full` builds all 77), checks every family is reachable, features are normalised, and one search over the whole library stays inside the frame budget. Skips cleanly when the clips have not been fetched |
 | `lut_parsing_test` | `.cube`, `.3dl`, LUT PNG parsing; strip layout; malformed files rejected |
 | `blink_curve_test` | Mepachi blink curve shape/timing, 3-6 s intervals, seeded determinism |

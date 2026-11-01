@@ -55,6 +55,23 @@ if(NOT MSVC)
   target_compile_options(sakuga_headless PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
+# ---------------------------------------------------------------- dear imgui (core only)
+# The UI theme is data plus an apply() into ImGuiStyle, so its test needs ImGui's core library but not the GLFW/Vulkan
+# backends - which keeps ui_theme_test GPU-free like the rest of the suite.
+set(SAKUGA_IMGUI_DIR ${SAKUGA_ROOT}/third_party/imgui)
+if(EXISTS ${SAKUGA_IMGUI_DIR}/imgui.cpp)
+  add_library(sakuga_imgui_core STATIC
+    ${SAKUGA_IMGUI_DIR}/imgui.cpp ${SAKUGA_IMGUI_DIR}/imgui_draw.cpp
+    ${SAKUGA_IMGUI_DIR}/imgui_tables.cpp ${SAKUGA_IMGUI_DIR}/imgui_widgets.cpp
+    ${SAKUGA_ROOT}/engine/gfx/UiTheme.cpp)
+  target_include_directories(sakuga_imgui_core PUBLIC ${SAKUGA_IMGUI_DIR} ${SAKUGA_ROOT}/engine)
+  # UiTheme.cpp reads its JSON through engine/core/Json.cpp, which lives in the headless subset.
+  target_link_libraries(sakuga_imgui_core PUBLIC sakuga_test_glm sakuga_headless)
+  if(NOT MSVC)
+    target_compile_options(sakuga_imgui_core PRIVATE -w)     # third-party code: keep the suite's warnings for ours
+  endif()
+endif()
+
 # ---------------------------------------------------------------- tests
 set(SAKUGA_TESTS
   loader_test
@@ -79,6 +96,14 @@ foreach(test_name ${SAKUGA_TESTS})
     SAKUGA_ASSET_DIR="${SAKUGA_ROOT}/assets")
   add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
+
+# The UI theme test needs the vendored ImGui core (see above); it is skipped when imgui/ is not there.
+if(TARGET sakuga_imgui_core)
+  add_executable(ui_theme_test ${CMAKE_CURRENT_SOURCE_DIR}/ui_theme_test.cpp)
+  target_link_libraries(ui_theme_test PRIVATE sakuga_headless sakuga_imgui_core)
+  target_compile_definitions(ui_theme_test PRIVATE SAKUGA_ROOT="${SAKUGA_ROOT}")
+  add_test(NAME ui_theme_test COMMAND ui_theme_test)
+endif()
 
 # The full-library run is the same binary with --full: it builds all 77 clips (~3 s) and asserts that every LAFAN1 clip
 # family is searchable. Both skip cleanly when the clips have not been fetched (tools/fetch_assets.sh --motion-only).

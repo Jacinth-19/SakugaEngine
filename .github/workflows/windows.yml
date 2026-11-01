@@ -1,0 +1,86 @@
+name: windows
+
+# Builds the sandbox with MSVC on Windows, smoke-tests the executable, stages the install tree and packages it with
+# Inno Setup (installer/sakuga.iss). The GPU-free test suite runs in the `tests` workflow on Linux; the Windows job is
+# about producing something installable (its tests write to POSIX temp paths, and the runner has no Vulkan device).
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version from CMakeLists.txt
+        shell: pwsh
+        run: |
+          $ver = (Select-String -Path CMakeLists.txt -Pattern 'project\(Sakuga VERSION ([0-9]+\.[0-9]+\.[0-9]+)').Matches[0].Groups[1].Value
+          "SAKUGA_VERSION=$ver" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          Write-Host "Sakuga version: $ver"
+
+      - name: Ensure the Vulkan SDK (loader import library)
+        shell: pwsh
+        run: |
+          if ($env:VULKAN_SDK -and (Test-Path "$env:VULKAN_SDK\Lib\vulkan-1.lib")) {
+            Write-Host "Vulkan SDK already on the image: $env:VULKAN_SDK"
+          } else {
+            choco install vulkan-sdk --no-progress -y
+            # The SDK installer sets VULKAN_SDK for new processes only; make it visible to the rest of the job.
+            $sdk = Get-ChildItem "$env:ProgramFiles\VulkanSDK" -Directory | Sort-Object Name | Select-Object -Last 1
+            if ($sdk) { "VULKAN_SDK=$($sdk.FullName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV }
+          }
+          Write-Host "VULKAN_SDK=$env:VULKAN_SDK"
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DSAKUGA_BUILD_TESTS=OFF
+
+      - name: Build (Release)
+        run: cmake --build build --config Release --parallel
+
+      - name: Smoke test the executable
+        shell: pwsh
+        run: |
+          # --help and --dump-ui-theme exit before any Vulkan device is created, so they run on a GPU-less runner.
+          .\build\bin\Release\sandbox.exe --help | Select-Object -First 5
+          .\build\bin\Release\sandbox.exe --dump-ui-theme theme_check.json
+          if (-not (Test-Path theme_check.json)) { throw "the executable did not write theme_check.json" }
+          Get-Content theme_check.json -TotalCount 3
+
+      - name: Stage the install tree
+        run: cmake --install build --config Release --prefix stage
+
+      - name: Portable zip
+        shell: pwsh
+        run: Compress-Archive -Path stage\* -DestinationPath "Sakuga-Engine-$env:SAKUGA_VERSION-win64-portable.zip" -Force
+
+      - name: Locate Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe", "$env:ProgramFiles\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue |
+                  Select-Object -First 1
+          if (-not $iscc) { choco install innosetup --no-progress -y; $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe" | Select-Object -First 1 }
+          if (-not $iscc) { throw "ISCC.exe not found" }
+          "ISCC=$($iscc.FullName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          Write-Host "Using $($iscc.FullName)"
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          & $env:ISCC "/DAppVersion=$env:SAKUGA_VERSION" "/DSourceDir=$PWD\stage" "/DOutputDir=$PWD\dist" installer\sakuga.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+          Get-ChildItem dist
+
+      - name: Upload the installer and the portable zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: sakuga-windows-x64
+          path: |
+            dist/*.exe
+            Sakuga-Engine-*-win64-portable.zip
+          if-no-files-found: error
