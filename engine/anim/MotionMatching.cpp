@@ -127,7 +127,7 @@ bool MotionDatabase::buildFromFiles(const Rig& rig, std::vector<std::string> fil
 
     BvhClip c0;
     { std::string err; if (!loadBvh(files[refIdx], c0, &err)) return fail("cannot load the reference clip"); }
-    fps = 1.f / c0.frameTime;
+    fps = c0.fps();
 
     for (int b = 0; b < kHumanBoneCount; ++b) mapped[b] = rig.human[b] >= 0 && c0.findJoint(kBvhNames[b]) >= 0;
     if (!mapped[HB(Hips)] || !mapped[HB(LFoot)] || !mapped[HB(RFoot)] || !mapped[HB(LUpperLeg)] || !mapped[HB(RUpperLeg)]) return fail("missing essential bones");
@@ -206,7 +206,11 @@ bool MotionDatabase::buildFromFiles(const Rig& rig, std::vector<std::string> fil
     std::atomic<size_t> nextFile{0}, doneFiles{0};
     auto processClip = [&](const std::string& path, ClipOut& out) {
         BvhClip c; std::string err;
-        if (!loadBvh(path, c, &err)) { SK_WARN("bvh %s: %s", path.c_str(), err.c_str()); return; }
+        if (!loadBvh(path, c, &err)) { SK_WARN("bvh %s", err.c_str()); return; }
+        // One database-wide fps drives every clip's timing (velocities, trajectory offsets), so a clip recorded at a
+        // different rate would silently play at the wrong speed.
+        if (c.frameTime > 0.f && std::fabs(c.fps() - fps) > 0.01f * fps)
+            SK_WARN("mm: clip %s is %.2f fps but the database is %.2f fps (resampled by frame index only)", c.name.c_str(), c.fps(), fps);
         int bi[kHumanBoneCount]; for (int b = 0; b < kHumanBoneCount; ++b) bi[b] = mapped[b] ? c.findJoint(kBvhNames[b]) : -1;
         bool ok = true; for (int b = 0; b < kHumanBoneCount; ++b) if (mapped[b] && bi[b] < 0) ok = false;
         if (!ok) { SK_WARN("mm: clip %s has a different skeleton, skipped", c.name.c_str()); return; }

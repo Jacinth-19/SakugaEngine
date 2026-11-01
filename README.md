@@ -26,6 +26,7 @@ All of these are captures of the sandbox in `docs/screenshots/`:
 | Assets (`engine/asset`) | glTF/GLB/VRM loader (cgltf), MToon mapping, face SDF baking, .cube/.3dl/PNG LUT parsing |
 | World (`engine/world`) | Box collision world, Recast/Detour navmesh, crowd |
 | App (`apps/sandbox`) | Motion lab (mocap browser, motion matching, IK, springs, posture), material inspector, headless screenshot/recording mode |
+| `reference/` | the Unity sources the engine ports: `EndfieldHybrid/Debug.shader` and `unity/` (BVH import + pose features), with mapping notes |
 
 ## Build
 
@@ -61,12 +62,13 @@ cmake --build build-tests -j
 ctest --test-dir build-tests --output-on-failure
 ```
 
-Ten CTest targets, each asserting real behaviour:
+Eleven CTest targets, each asserting real behaviour:
 
 | Test | Covers |
 |------|--------|
 | `loader_test` | GLB container validation (magic/version/length/chunk bounds), cgltf parse of all vendored `.glb`/`.vrm` files, VRM humanoid map |
-| `mm_search_test` | Motion-matching feature layout, weighted cost + early-out, `MotionMatcher::nearestFrame` against a synthetic database, BVH loading/FK of the vendored mocap |
+| `bvh_parse_test` | BVH parsing against the reference importer's tolerance (case-insensitive keywords, spaced joint names, scientific notation, ms frame times) and rejection of truncated/corrupt files; FK rotation order |
+| `mm_search_test` | Motion-matching feature layout, weighted cost + early-out, `MotionMatcher::nearestFrame` against a synthetic database, FK of the vendored mocap |
 | `lut_parsing_test` | `.cube`, `.3dl`, LUT PNG parsing; strip layout; malformed files rejected |
 | `blink_curve_test` | Mepachi blink curve shape/timing, 3-6 s intervals, seeded determinism |
 | `posture_clamp_test` | Posture limits, NaN rejection, hunch chain distribution |

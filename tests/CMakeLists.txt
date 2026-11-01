@@ -58,6 +58,7 @@ endif()
 # ---------------------------------------------------------------- tests
 set(SAKUGA_TESTS
   loader_test
+  bvh_parse_test
   mm_search_test
   lut_parsing_test
   blink_curve_test

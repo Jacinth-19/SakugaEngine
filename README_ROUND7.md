@@ -9,7 +9,7 @@ never produced. It now records what the code does, what was actually verified an
 |------|----------|
 | The engine and sandbox compile | every `engine/**.cpp` and `apps/sandbox/*.cpp` compiles under `g++ -std=c++20` (Vulkan-Headers, GLFW, GLM headers) |
 | All shaders are valid SPIR-V | `glslangValidator -V --target-env vulkan1.3` on all 15 `.vert`/`.frag` files |
-| GPU-free test suite passes | `ctest` - 10 targets, see the README table; `tests/run_quality.sh` runs the same thing |
+| GPU-free test suite passes | `ctest` - 11 targets, see the README table; `tests/run_quality.sh` runs the same thing |
 
 Everything below that is visual (blink timing, shadow quality, face shading look) is covered by unit-tested *math* and
 shader compilation, **not** by a rendered frame: no Vulkan device exists in the development sandbox.
@@ -54,6 +54,27 @@ shader compilation, **not** by a rendered frame: no Vulkan device exists in the 
 * Evidence screenshots `ps_on.png`, `ps_off.png`, `ps_final_cmp.png`, `blink_test.png`: none exist in the repository.
 * The md5 sum quoted for `blink_test.png` (`064275026b0cd2f8f774b0e8e71e3fad`) is meaningless - the file was never
   created.
+
+## BVH parser brought back in line with the reference
+
+`reference/unity/BVHImporter/BVHParser.cs` is the parser this port started from. The C++ version accepted less than it did,
+and failed quietly where the reference failed loudly:
+
+* lowercase keywords/channel names (`root`, `offset`, `xrotation`) - accepted by the reference via its case-folding char
+  map, rejected by the port ("empty motion"). Now accepted.
+* joint names with spaces (`JOINT Left Shoulder`) - the reference reads the rest of the line, the port kept only the first
+  token, so the bone was named `Left` and every clip using such a skeleton was skipped as a "different skeleton". Now the
+  tokens up to `{` are joined.
+* a truncated motion section was silently zero-filled to the declared frame count (a half-downloaded clip became a clip
+  that stands still). Now an error, before allocating.
+* `Frame Time: 33.3333` (milliseconds, written by some exporters) became a 0.03 fps clip. Now converted, with a
+  plausible-range fallback.
+* `CHANNELS` outside a joint read `stack.back()` on an empty vector (undefined behaviour). Now rejected.
+* scientific notation and comma decimals are accepted, like `getFloat`.
+
+New: `tests/bvh_parse_test.cpp` (221 checks) pins all of the above. The divergent parts of the reference (Unity
+handedness flip, unused frame time, the pose-feature layout) are documented instead of ported - see the README in
+`reference/unity/`.
 
 ## Next steps
 

@@ -1,6 +1,7 @@
 #pragma once
 // BVH motion-capture loader (hierarchy + channel layout + frames) and forward kinematics.
-// C++ counterpart of Assets/Scripts/BVHImporter/BVHParser.cs in the original Unity project.
+// C++ counterpart of Assets/Scripts/BVHImporter/BVHParser.cs in the original Unity project (kept in
+// reference/unity/; see the README there for the behaviour that was and was not carried over).
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <string>
@@ -20,11 +21,14 @@ struct BvhClip {
     std::string name;
     std::vector<BvhJoint> joints;  // End Sites are dropped
     int frameCount = 0, channelCount = 0;
-    float frameTime = 1.f / 30.f;
+    float frameTime = 1.f / 30.f;    // seconds per frame; milliseconds in the file ("Frame Time: 33.333") are converted
+    float fps() const { return frameTime > 0.f ? 1.f / frameTime : 30.f; }
     std::vector<float> data;       // frameCount * channelCount
 
     int findJoint(const std::string& n) const;
     // World-space joint transforms for a frame. `scale` converts file units (LAFAN: cm) to metres.
+    // Rotation channels are composed in the order they are listed in the file (the BVH convention; for LAFAN1's
+    // "Zrotation Yrotation Xrotation" that equals the reference importer's fromEulerZYX).
     void fk(int frame, float scale, std::vector<glm::vec3>& pos, std::vector<glm::quat>& rot) const;
 };
 
