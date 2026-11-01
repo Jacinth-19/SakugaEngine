@@ -120,7 +120,11 @@ public final class MainActivity extends Activity {
         }
         void setSession(long h, String error) { handle = h; message = error; lastNs = 0; invalidate(); }
         void setSurfaceStatus(String status) { surfaceStatus = status; invalidate(); }
-        void setRunning(boolean enabled) { running = enabled; lastNs = 0; if (enabled) invalidate(); }
+        void setRunning(boolean enabled) {
+            running = enabled; lastNs = 0;
+            if (!enabled) { pointer = -1; stickX = stickY = 0; }
+            invalidate();
+        }
         void close() { running = false; if (handle != 0) { nativeDestroy(handle); handle = 0; } }
         private void text(Canvas c, String value, float x, float y, float size, int color) {
             paint.setStyle(Paint.Style.FILL); paint.setColor(color); paint.setTextSize(size * density); c.drawText(value, x, y, paint);

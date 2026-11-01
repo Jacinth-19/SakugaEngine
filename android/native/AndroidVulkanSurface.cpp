@@ -89,9 +89,9 @@ std::string probeAndroidVulkanSurface(ANativeWindow* window) {
     const int chosen = firstPresentationCandidate(candidates);
     const auto& c = candidates[chosen >= 0 ? static_cast<size_t>(chosen) : 0];
     std::ostringstream result;
-    result << c.name << " | Vulkan " << c.apiMajor << '.' << c.apiMinor << " | ";
-    if (chosen >= 0) result << "basic surface requirements met (renderer not tested)";
+    if (chosen >= 0) result << "Surface baseline met; renderer not tested";
     else result << presentationRequirementFailure(c);
+    result << " | " << c.name << " | Vulkan " << c.apiMajor << '.' << c.apiMinor;
     return result.str();
 }
 }
