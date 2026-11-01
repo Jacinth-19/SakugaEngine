@@ -55,15 +55,18 @@ jobs:
           Write-Host "VULKAN_SDK=$sdk"
           exit 0
 
-      # The job log is not always reachable from outside, so a failure repeats the tail of the output as an annotation
-      # (readable through the checks API).
+      # The job log is not always reachable from outside, so a failure repeats the tail of the output one line per
+      # annotation (multi-line annotation messages get cut, one annotation per line survives).
       - name: Configure
         shell: pwsh
         run: |
           $log = cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DSAKUGA_BUILD_TESTS=OFF 2>&1 | Out-String
           Write-Host $log
           if ($LASTEXITCODE -ne 0) {
-            Write-Host ("::error::configure failed:`n" + ($log -split "`r?`n" | Select-Object -Last 30 | Out-String))
+            foreach ($l in ($log -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -Last 20)) {
+              Write-Host ("::error::" + ($l -replace '%', ' pct '))
+            }
+            Write-Host "::error::cmake configure failed"
             exit 1
           }
 
@@ -73,7 +76,10 @@ jobs:
           $log = cmake --build build --config Release --parallel 2>&1 | Out-String
           Write-Host $log
           if ($LASTEXITCODE -ne 0) {
-            Write-Host ("::error::build failed:`n" + ($log -split "`r?`n" | Select-Object -Last 30 | Out-String))
+            foreach ($l in ($log -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -Last 20)) {
+              Write-Host ("::error::" + ($l -replace '%', ' pct '))
+            }
+            Write-Host "::error::cmake build failed"
             exit 1
           }
 
@@ -110,7 +116,10 @@ jobs:
           $log = & $env:ISCC "/DAppVersion=$env:SAKUGA_VERSION" "/DSourceDir=$PWD\stage" "/DOutputDir=$PWD\dist" installer\sakuga.iss 2>&1 | Out-String
           Write-Host $log
           if ($LASTEXITCODE -ne 0) {
-            Write-Host ("::error::ISCC failed:`n" + ($log -split "`r?`n" | Select-Object -Last 25 | Out-String))
+            foreach ($l in ($log -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -Last 15)) {
+              Write-Host ("::error::" + ($l -replace '%', ' pct '))
+            }
+            Write-Host "::error::ISCC failed"
             exit 1
           }
           Get-ChildItem dist
