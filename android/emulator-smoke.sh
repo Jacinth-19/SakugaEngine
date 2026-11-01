@@ -15,6 +15,18 @@ if [[ $ready != 1 ]]; then
   exit 1
 fi
 adb shell pidof com.sakuga.preview
+# Surface creation and capability probing are allowed to report an unsupported Vulkan device; the key invariant is
+# that the probe finishes without crashing or blocking the animation preview.
+surface_probed=0
+for i in $(seq 1 30); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  if grep -q 'surface probe finished:' /tmp/sakuga-android-log.txt; then surface_probed=1; break; fi
+  sleep 2
+done
+if [[ $surface_probed != 1 ]]; then
+  adb logcat -d -s SakugaPreview:V AndroidRuntime:E '*:S' | tail -80
+  echo '::error::The live Android Vulkan surface probe did not complete.'; exit 1
+fi
 # Save an actual emulator screenshot and tap the NEXT CLIP region, using the captured dimensions.
 sleep 3
 adb exec-out screencap -p > apk/android-preview.png

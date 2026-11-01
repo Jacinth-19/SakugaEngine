@@ -9,7 +9,11 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.os.Bundle;
 import android.view.MotionEvent;
+import android.view.Surface;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
 import android.view.View;
+import android.widget.FrameLayout;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -24,12 +28,39 @@ public final class MainActivity extends Activity {
     private static native void nativeNext(long handle);
     private static native float[] nativeJoints(long handle);
     private static native String nativeInfo(long handle);
+    private static native String nativeProbeSurface(Surface surface);
     private volatile boolean destroyed;
+    private int surfaceGeneration;
     private PreviewView preview;
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
-        preview = new PreviewView(); setContentView(preview);
+        preview = new PreviewView();
+        // The SurfaceView is underneath the animation preview. It gives the native Vulkan port an actual Android
+        // surface to probe without pretending the production renderer is already running.
+        FrameLayout layout = new FrameLayout(this);
+        SurfaceView surfaceView = new SurfaceView(this);
+        surfaceView.getHolder().addCallback(new SurfaceHolder.Callback() {
+            @Override public void surfaceCreated(SurfaceHolder holder) {
+                final int generation = ++surfaceGeneration;
+                final Surface surface = holder.getSurface();
+                preview.setSurfaceStatus("Checking Android Vulkan surface...");
+                new Thread(new Runnable() { @Override public void run() {
+                    final String status = surface.isValid() ? nativeProbeSurface(surface) : "Android surface unavailable";
+                    runOnUiThread(new Runnable() { @Override public void run() {
+                        if (!destroyed && generation == surfaceGeneration) preview.setSurfaceStatus(status);
+                    }});
+                }}, "vulkan-surface-probe").start();
+            }
+            @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) { }
+            @Override public void surfaceDestroyed(SurfaceHolder holder) {
+                ++surfaceGeneration;
+                if (!destroyed) preview.setSurfaceStatus("Android surface inactive");
+            }
+        });
+        layout.addView(surfaceView, new FrameLayout.LayoutParams(-1, -1));
+        layout.addView(preview, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(layout);
         new Thread(new Runnable() { @Override public void run() {
             long handle = 0; String error = null;
             try {
@@ -67,6 +98,7 @@ public final class MainActivity extends Activity {
         private final Bitmap base, knob;
         private long handle; private long lastNs; private boolean running;
         private String message = "Loading two sample animations...";
+        private String surfaceStatus = "Waiting for Android surface...";
         private int pointer = -1; private float stickX, stickY;
         private final float density = getResources().getDisplayMetrics().density;
         PreviewView() {
@@ -78,6 +110,7 @@ public final class MainActivity extends Activity {
             catch (IOException e) { return null; }
         }
         void setSession(long h, String error) { handle = h; message = error; lastNs = 0; invalidate(); }
+        void setSurfaceStatus(String status) { surfaceStatus = status; invalidate(); }
         void setRunning(boolean enabled) { running = enabled; lastNs = 0; if (enabled) invalidate(); }
         void close() { running = false; if (handle != 0) { nativeDestroy(handle); handle = 0; } }
         private void text(Canvas c, String value, float x, float y, float size, int color) {
@@ -101,6 +134,10 @@ public final class MainActivity extends Activity {
                 for (int i = 0; i < 22; ++i) c.drawCircle(centerX+(j[i*3]+j[i*3+2]*.35f)*scale, bottomY-j[i*3+1]*scale, Math.max(2,2*density), paint);
             }
             text(c, nativeInfo(handle), margin, 70 * density, 12, Color.WHITE);
+            paint.setTextSize(10 * density);
+            CharSequence visibleStatus = android.text.TextUtils.ellipsize(surfaceStatus, paint, w - margin * 2,
+                    android.text.TextUtils.TruncateAt.END);
+            text(c, visibleStatus.toString(), margin, 89 * density, 10, Color.LTGRAY);
             float r = Math.min(w,h)*.13f, bx = margin+r, by = h-margin-r;
             bitmap(c, base, bx, by, r); bitmap(c, knob, bx+stickX*r*.55f, by+stickY*r*.55f, r*.5f);
             paint.setColor(Color.rgb(33,60,78)); paint.setStyle(Paint.Style.FILL);

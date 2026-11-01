@@ -1,4 +1,6 @@
 #include "MobileSession.h"
+#include "AndroidVulkanSurface.h"
+#include <android/native_window_jni.h>
 #include <jni.h>
 #include <memory>
 #include <string>
@@ -45,4 +47,15 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_sakuga_preview_MainActivity_native
     std::string text = std::to_string(s->clipIndex() + 1) + " / " + std::to_string(s->clipCount()) + "   " + s->clipName()
         + "   |   frame " + std::to_string(s->frame()) + (s->browsing() ? "   |   browsing" : "   |   matching");
     return env->NewStringUTF(text.c_str());
+}
+
+extern "C" JNIEXPORT jstring JNICALL Java_com_sakuga_preview_MainActivity_nativeProbeSurface(JNIEnv* env, jclass, jobject surface) {
+    ANativeWindow* window = surface ? ANativeWindow_fromSurface(env, surface) : nullptr;
+    if (env->ExceptionCheck()) { env->ExceptionClear(); __android_log_print(ANDROID_LOG_INFO, tag, "surface probe finished: Android surface unavailable"); return env->NewStringUTF("Android surface unavailable"); }
+    std::string status;
+    try { status = sk::probeAndroidVulkanSurface(window); }
+    catch (const std::exception& e) { status = std::string("Vulkan surface probe failed: ") + e.what(); }
+    if (window) ANativeWindow_release(window);
+    __android_log_print(ANDROID_LOG_INFO, tag, "surface probe finished: %s", status.c_str());
+    return env->NewStringUTF(status.c_str());
 }
