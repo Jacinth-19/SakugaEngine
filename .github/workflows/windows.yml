@@ -126,8 +126,8 @@ jobs:
           Write-Host "Using $($iscc.FullName)"
           # The wizard style directives are version-gated; record which Inno compiled this, so the log says which
           # appearance (PNG + DynamicDark + background art, or the BMP fallback) actually went into the installer.
-          $ver = (& $env:ISCC /? 2>&1 | Select-Object -First 1) -join " "
-          Write-Host "::notice::$ver"
+          $ver = (Get-Item $iscc.FullName).VersionInfo.ProductVersion
+          Write-Host "::notice::Inno Setup $ver ($($iscc.FullName))"
 
       - name: Generate the installer art
         shell: pwsh
