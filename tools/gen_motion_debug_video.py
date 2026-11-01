@@ -470,7 +470,7 @@ def main():
         if not shutil.which("convert"):
             print("no ImageMagick 'convert' and no ffmpeg: PNG frames left in", tmp)
             return
-        subprocess.run(["convert", "-delay", str(int(round(delay_ms))), "-loop", "0",
+        subprocess.run(["convert", "-delay", str(max(1, int(round(delay_ms / 10)))), "-loop", "0",
                         str(tmp / "f*.png"), "-resize", "70%", "-layers", "Optimize",
                         "-colors", "128", str(out)], check=True)
 
