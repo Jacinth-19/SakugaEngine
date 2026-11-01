@@ -37,6 +37,18 @@ jobs:
             echo '::error::Android build or package validation failed.'
             exit 1
           fi
+      - name: Exercise owner signing with a disposable CI key
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This disposable key is only for checking the signing path, never for distribution.
+          keytool -genkeypair -keystore "$RUNNER_TEMP/ci-only.keystore" -storepass ci-test-password \
+            -keypass ci-test-password -alias ci-only -dname 'CN=Sakuga CI only' -keyalg RSA -keysize 2048 -validity 1 >/dev/null 2>&1
+          export SAKUGA_ANDROID_SIGNING_MODE=owner SAKUGA_ANDROID_KEYSTORE="$RUNNER_TEMP/ci-only.keystore"
+          export SAKUGA_ANDROID_KEY_ALIAS=ci-only SAKUGA_ANDROID_STORE_PASSWORD=ci-test-password SAKUGA_ANDROID_KEY_PASSWORD=ci-test-password
+          bash android/sign-apk.sh android/output/Sakuga-Android-animation-preview-debug.apk "$RUNNER_TEMP/owner-test.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$RUNNER_TEMP/owner-test.apk" | grep -F 'CN=Sakuga CI only'
+          rm -f "$RUNNER_TEMP/ci-only.keystore" "$RUNNER_TEMP/owner-test.apk"
       - name: Upload installable debug preview
         uses: actions/upload-artifact@v4
         with:

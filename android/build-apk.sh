@@ -40,13 +40,13 @@ mapfile -t CLASSES < <(find "$WORK/classes" -name '*.class' -type f | sort)
 "$BT/aapt" package -f -M "$ROOT/android/app/AndroidManifest.xml" -S "$WORK/res" -A "$WORK/assets" -I "$JAR" -F "$WORK/unsigned.apk"
 (cd "$WORK/stage" && zip -q -0 "$WORK/unsigned.apk" classes.dex && zip -qr -0 "$WORK/unsigned.apk" lib)
 "$BT/zipalign" -f -p 4 "$WORK/unsigned.apk" "$WORK/aligned.apk"
-# An ephemeral debug key; CI artifacts are not suitable for Play Store publishing or dependable upgrades.
-keytool -genkeypair -keystore "$WORK/debug.keystore" -storepass android -keypass android -alias androiddebugkey \
-  -dname 'CN=Sakuga Android Preview,O=Sakuga Engine' -keyalg RSA -keysize 2048 -validity 10000 >/dev/null 2>&1
-APK="$OUT/Sakuga-Android-animation-preview-debug.apk"
-"$BT/apksigner" sign --ks "$WORK/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android \
-  --key-pass pass:android --out "$APK" "$WORK/aligned.apk"
-"$BT/apksigner" verify --verbose "$APK"
+# Owner signing only changes the APK identity; this remains an experimental animation preview, not the full app.
+case "${SAKUGA_ANDROID_SIGNING_MODE:-debug}" in
+  debug) APK="$OUT/Sakuga-Android-animation-preview-debug.apk" ;;
+  owner) APK="$OUT/Sakuga-Android-animation-preview-owner-signed.apk" ;;
+  *) echo 'SAKUGA_ANDROID_SIGNING_MODE must be debug or owner.' >&2; exit 2 ;;
+esac
+bash "$ROOT/android/sign-apk.sh" "$WORK/aligned.apk" "$APK"
 unzip -tq "$APK"
 "$BT/aapt" dump badging "$APK" > "$WORK/badging.txt"
 grep -F "package: name='com.sakuga.preview'" "$WORK/badging.txt"
