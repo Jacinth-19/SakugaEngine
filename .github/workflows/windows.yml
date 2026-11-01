@@ -24,15 +24,36 @@ jobs:
       - name: Ensure the Vulkan SDK (loader import library)
         shell: pwsh
         run: |
-          if ($env:VULKAN_SDK -and (Test-Path "$env:VULKAN_SDK\Lib\vulkan-1.lib")) {
-            Write-Host "Vulkan SDK already on the image: $env:VULKAN_SDK"
-          } else {
-            choco install vulkan-sdk --no-progress -y
-            # The SDK installer sets VULKAN_SDK for new processes only; make it visible to the rest of the job.
-            $sdk = Get-ChildItem "$env:ProgramFiles\VulkanSDK" -Directory | Sort-Object Name | Select-Object -Last 1
-            if ($sdk) { "VULKAN_SDK=$($sdk.FullName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV }
+          # The sandbox links the loader (vulkan-1.lib). The Windows images usually carry the SDK; when they do not, try
+          # chocolatey and then LunarG's own installer. The step only fails if no import library can be found at all.
+          function Find-VulkanLib {
+            foreach ($p in @("$env:VULKAN_SDK\Lib\vulkan-1.lib", "C:\VulkanSDK\*\Lib\vulkan-1.lib",
+                             "$env:ProgramFiles\VulkanSDK\*\Lib\vulkan-1.lib")) {
+              $hit = Get-Item $p -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($hit) { return $hit.FullName }
+            }
+            return $null
           }
-          Write-Host "VULKAN_SDK=$env:VULKAN_SDK"
+
+          $lib = Find-VulkanLib
+          if ($lib) {
+            Write-Host "Vulkan loader import library already on the image: $lib"
+          } else {
+            Write-Host "No Vulkan SDK found - installing it"
+            choco install vulkan-sdk --no-progress -y
+            $lib = Find-VulkanLib
+            if (-not $lib) {
+              $exe = Join-Path $env:RUNNER_TEMP "vulkan_sdk.exe"
+              Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe" -OutFile $exe
+              Start-Process -FilePath $exe -ArgumentList "/S" -Wait
+              $lib = Find-VulkanLib
+            }
+          }
+          if (-not $lib) { Write-Host "::error::vulkan-1.lib not found - cannot link the sandbox"; exit 1 }
+          $sdk = Split-Path (Split-Path $lib -Parent) -Parent
+          "VULKAN_SDK=$sdk" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          Write-Host "VULKAN_SDK=$sdk"
+          exit 0
 
       - name: Configure
         shell: pwsh
