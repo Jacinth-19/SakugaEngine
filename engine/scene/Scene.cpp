@@ -1,5 +1,4 @@
 #include <cstdio>
-#include <cstdlib>
 #include "scene/Scene.h"
 #include "anim/IKCommon.h"
 #include "world/World.h"
@@ -16,7 +15,9 @@ void Entity::init(std::shared_ptr<Model> m) {
     model->rig.globals(pose, restGlobals);
     globals = restGlobals;
     exprTarget.assign(model->expressions.size(), 0.f); exprCur = exprTarget; exprFinal = exprTarget;
-    blinkTimer = 0.8f + 2.f * (float)(std::rand() % 100) / 100.f;
+    blink = BlinkClock{};                                  // deterministic default timing
+    blink.rng = Rng(hashSeed(name.c_str()));                // same-name entities blink in the same rhythm, others differ
+    blink.timer = blink.rng.range(0.8f, 2.8f);             // first blink shortly after spawn
 }
 
 glm::mat4 Entity::transform() const {
@@ -85,41 +86,13 @@ void Entity::updateExpressions(float dt) {
     float k = 1.f - std::exp(-dt / 0.06f);
     for (size_t i = 0; i < n; ++i) exprCur[i] += (exprTarget[i] - exprCur[i]) * k;
     exprFinal = exprCur;
-        // AAA-anime blink (mepachi style): 3 frames (close ~80ms, half ~40ms, open ~80ms) on 2s/3s timing (random 3-6s), eased close faster than open, occasional double/half blink, blink on look/head turns
-    bool doubleBlink = false, halfBlink = false;
-    if (autoBlink) {
-        blinkClock += dt;
-        if (!blinking) {
-            blinkTimer -= dt;
-            // Random interval 3-6s (plus occasional look/head turn trigger)
-            if (blinkTimer <= 0.f || (look.enabled && (std::abs(lookState.exprLook.x) > 0.6f || std::abs(lookState.exprLook.y) > 0.6f))) {
-                blinkTimer = 3.f + 3.f * (float)(std::rand() % 100) / 100.f; // 3-6s
-                // Occasional double/half blink (15% chance)
-                int dice = std::rand() % 100;
-                blinking = true; blinkClock = 0.f;
-                doubleBlink = (dice < 5); halfBlink = (dice >= 5 && dice < 15);
-            }
-        } else {
-            // 3-keyframe timing: close (0-80ms), half (80-120ms), open (120-200ms) -> total 200ms
-            // Eased close faster than open: close is linear/fast, open is eased
-            float t = blinkClock;
-            float tgt = 0.f;
-            if (t < 0.08f) { // close (fast)
-                tgt = 1.0f;
-            } else if (t < 0.12f) { // half (mid)
-                tgt = halfBlink ? 0.5f : 0.25f;
-            } else if (t < 0.20f) { // open (slow eased)
-                float openT = (t - 0.12f) / 0.08f;
-                tgt = (1.0f - openT) * (1.0f - openT); // ease out
-                if (doubleBlink && t < 0.14f) tgt = 1.0f; // double blink reset
-            } else {
-                blinking = false; doubleBlink = false; halfBlink = false;
-            }
-            blinkWeight += (tgt - blinkWeight) * (1.f - std::exp(-dt / 0.02f)); // faster response
-            int b = model->expression("blink");
-            if (b >= 0) exprFinal[b] = std::max(exprFinal[b], blinkWeight * (1.f - 0.7f * std::max(expressionWeight("happy"), 0.f)));
-        }
-    }
+    // AAA-anime blink (mepachi): the curve lives in anim/BlinkCurve.h (tested by tests/blink_curve_test.cpp).
+    // A look/head turn triggers an extra blink.
+    blink.enabled = autoBlink;
+    bool lookTriggered = look.enabled && (std::abs(lookState.exprLook.x) > 0.6f || std::abs(lookState.exprLook.y) > 0.6f);
+    float blinkWeight = blink.step(dt, lookTriggered);
+    int blinkExpr = model->expression("blink");
+    if (blinkExpr >= 0) exprFinal[blinkExpr] = std::max(exprFinal[blinkExpr], blinkWeight * (1.f - 0.7f * std::max(expressionWeight("happy"), 0.f)));
     // eye-bone-less rigs: drive the look expressions from the gaze
     if (model->rig.eyeL < 0 && look.enabled) {
         glm::vec2 e = lookState.exprLook;
@@ -160,41 +133,30 @@ void Entity::update(float dt, const glm::vec3& desiredVelocity) {
     {   float gh = 0.f; if (world && !world->groundHeight(pos + glm::vec3(0, 0.5f, 0), 3.f, gh)) gh = pos.y; groundHeightUnder = world ? gh : pos.y; }
     if (havePos_ && dt > 0) velocity = glm::mix(velocity, (pos - lastPos_) / dt, 0.4f); lastPos_ = pos; havePos_ = true;
     (void)before;
-    // --- Posture correction (Unity Animation Rigging analogue) ---
-    // Apply pitch offsets and hunch correction (Chain/Twist distribution) before globals
-    if (posture.weight > 0.f) {
-        const int bSpine = rig.human[(int)HumanBone::Spine];
-        const int bChest = rig.human[(int)HumanBone::Chest];
-        const int bNeck = rig.human[(int)HumanBone::Neck];
-        const int bHead = rig.human[(int)HumanBone::Head];
-        // 1. Pitch offsets
-        auto applyPitch = [&](int b, float deg) {
-            if (b >= 0) {
-                float rad = deg * 0.0174533f; // degrees to radians
-                glm::quat q(1,0,0,0); q = glm::angleAxis(rad, glm::vec3(1,0,0));
-                pose.r[b] = glm::slerp(pose.r[b], q * pose.r[b], posture.weight);
+    // --- Posture correction (Unity Animation Rigging analogue) ---------------------------------------------
+    // Clamping and the chain distribution live in anim/Posture.h (tested by tests/posture_clamp_test.cpp); this only
+    // turns the (already clamped) pitch offsets into quaternions. Skipped entirely when the layer is a no-op.
+    if (postureActive(posture)) {
+        const PostureControl pc = clampPosture(posture);
+        const int boneOf[4] = {rig.human[(int)HumanBone::Spine], rig.human[(int)HumanBone::Chest],
+                               rig.human[(int)HumanBone::Neck], rig.human[(int)HumanBone::Head]};
+        const float pitchDeg[4] = {pc.spine, pc.chest, pc.neck, pc.head};
+        // 1. explicit per-bone pitch offsets (blended in by the layer weight)
+        for (int i = 0; i < 4; ++i) {
+            int b = boneOf[i];
+            if (b < 0 || pitchDeg[i] == 0.f) continue;
+            glm::quat q = glm::angleAxis(pitchDeg[i] * 0.017453293f, glm::vec3(1, 0, 0));
+            pose.r[b] = glm::normalize(glm::slerp(pose.r[b], q * pose.r[b], pc.weight));
+        }
+        // 2. hunch / lean correction: a counter-rotation distributed over spine, chest and neck
+        if (pc.hunchCorrection > 0.f) {
+            float rad[3]; hunchRadiansPerBone(pc, rad);
+            for (int i = 0; i < 3; ++i) {
+                int b = boneOf[i];
+                if (b < 0 || rad[i] == 0.f) continue;
+                glm::quat corr = glm::angleAxis(rad[i], glm::vec3(1, 0, 0));
+                pose.r[b] = glm::normalize(corr * pose.r[b]);
             }
-        };
-        applyPitch(bSpine, posture.spine);
-        applyPitch(bChest, posture.chest);
-        applyPitch(bNeck, posture.neck);
-        applyPitch(bHead, posture.head);
-        // 2. Hunch/lean correction (distributed counter-rotation over spine chain)
-        if (posture.hunchCorrection > 0.f) {
-            float w = std::clamp(posture.hunchCorrection * posture.weight, 0.f, 1.f);
-            // distribute over spine, chest, neck (head stays aligned)
-            auto applyHunch = [&](int b, float share) {
-                if (b >= 0) {
-                    glm::quat q = pose.r[b];
-                    // counter-rotation around X (pitch) to straighten
-                    float rad = -0.35f * share * w; // 20 degrees max total
-                    glm::quat corr = glm::angleAxis(rad, glm::vec3(1,0,0));
-                    pose.r[b] = glm::slerp(q, corr * q, 1.f);
-                }
-            };
-            applyHunch(bSpine, 0.4f);
-            applyHunch(bChest, 0.3f);
-            applyHunch(bNeck, 0.3f);
         }
     }
     rig.applyConstraints(pose);
@@ -209,12 +171,12 @@ void Entity::update(float dt, const glm::vec3& desiredVelocity) {
         if (look.enabled) solveLookAt(rig, pose, globals, restGlobals, T, lookTarget, hasLookTarget, dt, look, lookState);
         updateExpressions(dt);
         spring.time = time;
-        // ZZZ spring tuning: stiffness/drag/gravity/collider radii (post slider)
-        spring.stiffnessScale *= springTuningStiffness;
-        spring.dragScale *= springTuningDrag;
-        spring.gravityScale *= springTuningGravity;
-        // Note: collider radius scaling is handled in SpringBone.cpp via springTuningColliderRadius
-        if (spring.enabled) stepSpringBones(*model, restGlobals, pose, globals, T, dt, spring, springState);
+        // Spring tuning: resolved into a fresh copy every frame (applyTuning is pure). The old code multiplied the
+        // entity's persistent `spring` scales in place, so any slider != 1 compounded exponentially per frame.
+        if (spring.enabled) {
+            const SpringSettings tuned = applyTuning(spring, springTuning);
+            stepSpringBones(*model, restGlobals, pose, globals, T, dt, tuned, springState);
+        }
     } else if (model->isVRM) updateExpressions(dt);
 }
 
@@ -271,12 +233,9 @@ void Entity::debugSkeleton(std::vector<LineVertex>& lines, uint32_t color) const
     std::vector<char> isJoint(rig.nodes.size(), 0);
     for (auto& s : rig.skins) for (int j : s.joints) isJoint[j] = 1;
     for (int b = 0; b < kHumanBoneCount; ++b) if (rig.human[b] >= 0) isJoint[rig.human[b]] = 1;
-    for (size_t i = 0; i < rig.nodes.size(); ++i) {
-        int p = rig.nodes[i].parent;
-        if (p < 0 || !isJoint[i] || !isJoint[p]) continue;
-        lines.push_back({glm::vec3(T * globals[p][3]), color});
-        lines.push_back({glm::vec3(T * globals[i][3]), color});
-    }
+    std::vector<int> parent(rig.nodes.size(), -1);
+    for (size_t i = 0; i < rig.nodes.size(); ++i) parent[i] = rig.nodes[i].parent;
+    appendSkeletonSegments(lines, parent, globals, isJoint, T, color);
 }
 
 glm::vec3 OrbitCamera::position() const {

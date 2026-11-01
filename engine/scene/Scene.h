@@ -1,7 +1,9 @@
 #pragma once
+#include "anim/BlinkCurve.h"
 #include "anim/FootIK.h"
 #include "anim/HandIK.h"
 #include "anim/LookAt.h"
+#include "anim/Posture.h"
 #include "anim/SpringBone.h"
 #include "anim/MotionMatching.h"
 #include "gfx/Renderer.h"
@@ -47,13 +49,15 @@ struct Entity {
     HandIKSettings hands; HandIKState handState;
     LookAtSettings look; LookAtState lookState; glm::vec3 lookTarget{0}; bool hasLookTarget = false;
     SpringSettings spring; SpringState springState;
-    // ZZZ spring tuning: stiffness/drag/gravity/collider radii (post slider)
-    float springTuningStiffness = 1.f, springTuningDrag = 1.f, springTuningGravity = 1.f, springTuningColliderRadius = 1.f;
-    // ZZZ spring tuning: stiffness/drag/gravity/collider radii (post slider)
+    // per-entity spring tuning (ImGui sliders / CLI). Resolved into a per-frame copy by sk::applyTuning(); the model's
+    // own SpringSettings are never mutated (a previous version did `spring.stiffnessScale *= ...` every frame).
+    SpringTuning springTuning;
     // expressions: targets are set by gameplay (setExpression), blink / lookAt-expressions are added automatically
-    bool autoBlink = true; float blinkTimer = 4.5f, blinkClock = 0.f, blinkWeight = 0.f; bool blinking = false; bool doubleBlink = false, halfBlink = false;
+    bool autoBlink = true;
+    BlinkClock blink;                     // mepachi blink curve + its own seeded RNG (see anim/BlinkCurve.h)
+    std::vector<float> exprTarget, exprCur, exprFinal;   // per-expression weights: requested, smoothed, after autoregressive layers
     // Posture controls (Unity Animation Rigging analogue): spine/chest/neck/head pitch offsets, lean/hunch correction
-    struct PostureControl { float spine = 0.f, chest = 0.f, neck = 0.f, head = 0.f; float hunchCorrection = 0.f; float weight = 1.f; } posture;
+    PostureControl posture;
     void setExpression(const std::string& n, float w) { if (!model) return; int i = model->expression(n); if (i >= 0 && i < (int)exprTarget.size()) exprTarget[i] = w; }
     float expressionWeight(const std::string& n) const { int i = model ? model->expression(n) : -1; return i >= 0 && i < (int)exprFinal.size() ? exprFinal[i] : 0.f; }
     float time = 0.f;

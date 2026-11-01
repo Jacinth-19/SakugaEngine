@@ -44,12 +44,10 @@ void stepSpringBones(const Model& model, const std::vector<glm::mat4>& restG, Po
                 glm::quat restWorld = parentRot * j.initRot;
                 float len = j.boneLength * scale;
                 glm::vec3 restDir = restWorld * j.boneAxisLocal;
-                // verlet integration
-                glm::vec3 inertia = (j.cur - j.prev) * (1.f - std::clamp(sj.drag * set.dragScale, 0.f, 1.f));
-                glm::vec3 stiff = restDir * (sj.stiffness * set.stiffnessScale * h) * scale;
-                glm::vec3 ext = (glm::normalize(sj.gravityDir) * sj.gravityPower * set.gravityScale + wind) * h * scale;
-                glm::vec3 next = j.cur + inertia + stiff + ext;
-                next = head + glm::normalize(next - head + glm::vec3(1e-7f)) * len;
+                // verlet integration (SpringStep.h: shared with the unit tests)
+                glm::vec3 ext = (glm::normalize(sj.gravityDir) * sj.gravityPower * set.gravityScale + wind) * scale;
+                glm::vec3 next = springTailStep(j.cur, j.prev, head, restDir, sj.drag * set.dragScale,
+                                                sj.stiffness * set.stiffnessScale * scale, ext, len, h);
                 // colliders (sphere / capsule) of every group attached to this chain
                 for (int g : ch.colliderGroups) {
                     if (g < 0 || g >= (int)sd.groups.size()) continue;
@@ -57,18 +55,11 @@ void stepSpringBones(const Model& model, const std::vector<glm::mat4>& restG, Po
                         if (ci < 0 || ci >= (int)sd.colliders.size()) continue;
                         const SpringCollider& col = sd.colliders[ci]; if (col.node < 0) continue;
                         glm::mat4 CW = T * G[col.node];
-                        glm::vec3 a = glm::vec3(CW * glm::vec4(col.offset, 1.f)), closest = a;
-                        if (col.capsule) {
-                            glm::vec3 b = glm::vec3(CW * glm::vec4(col.tail, 1.f)), ab = b - a; float l2 = glm::dot(ab, ab);
-                            float t = l2 > 1e-10f ? std::clamp(glm::dot(next - a, ab) / l2, 0.f, 1.f) : 0.f; closest = a + ab * t;
-                        }
-                        float r = (col.radius * scale + entity->springTuningColliderRadius) * scale + sj.hitRadius * scale;
-                        glm::vec3 d = next - closest; float dist = glm::length(d);
-                        if (dist < r) {
-                            glm::vec3 n = dist > 1e-6f ? d / dist : glm::vec3(0, 0, 1);
-                            next = closest + n * r;
-                            next = head + glm::normalize(next - head) * len;
-                        }
+                        glm::vec3 a = glm::vec3(CW * glm::vec4(col.offset, 1.f));
+                        glm::vec3 b = col.capsule ? glm::vec3(CW * glm::vec4(col.tail, 1.f)) : a;
+                        // collider radius in entity space + the per-entity padding (metres, added once, not double-scaled)
+                        float r = (col.radius + sj.hitRadius) * scale + set.colliderRadiusPad * scale;
+                        next = springPushOut(next, a, b, r, head, len);
                     }
                 }
                 // keep hair above the ground: simple floor (feet level of the entity)

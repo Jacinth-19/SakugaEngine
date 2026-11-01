@@ -49,7 +49,7 @@ struct Options {
     float postureSpine = 0.f, postureChest = 0.f, postureNeck = 0.f, postureHead = 0.f;
     float postureHunch = 0.f, postureWeight = 1.f;
     // ZZZ spring tuning (post slider)
-    float springTuningStiffness = 1.f, springTuningDrag = 1.f, springTuningGravity = 1.f, springTuningColliderRadius = 1.f;
+    float springTuningStiffness = 1.f, springTuningDrag = 1.f, springTuningGravity = 1.f, springTuningColliderRadius = 0.f;
     float timeStart = 0.f;
     std::vector<ScriptKey> script;
     std::vector<std::string> motionDirs; int mmClips = 0; long mmMask = -1; bool mmCache = true; std::string playClip, env; float envIntensity = 1.f; bool ik = true, lightSet = false;
@@ -607,10 +607,10 @@ FrameInput Sandbox::buildFrame(float dt) {
     h.posture.neck = opt_.postureNeck; h.posture.head = opt_.postureHead;
     h.posture.hunchCorrection = opt_.postureHunch; h.posture.weight = opt_.postureWeight;
     // Apply ZZZ spring tuning from CLI
-    h.springTuningStiffness = opt_.springTuningStiffness;
-    h.springTuningDrag = opt_.springTuningDrag;
-    h.springTuningGravity = opt_.springTuningGravity;
-    h.springTuningColliderRadius = opt_.springTuningColliderRadius;
+    h.springTuning.stiffness = opt_.springTuningStiffness;
+    h.springTuning.drag = opt_.springTuningDrag;
+    h.springTuning.gravity = opt_.springTuningGravity;
+    h.springTuning.colliderRadiusPad = opt_.springTuningColliderRadius;
     if (pointLightsOn_ && showcases_[showcase_].name.rfind("Shader lab", 0) == 0) {      // coloured extra lights to show the multi-light path
         fi.light.points[0] = {{-1.9f, 1.0f, 1.8f}, 4.5f, {1.0f, 0.35f, 0.65f}, 2.0f};
         fi.light.points[1] = {{1.9f, 0.9f, 1.6f}, 4.5f, {0.3f, 0.85f, 1.0f}, 2.0f};
@@ -689,10 +689,10 @@ void Sandbox::drawCharacterUI() {
         ImGui::Checkbox("Springs", &h.spring.enabled); ImGui::SliderFloat("Stiffness x", &h.spring.stiffnessScale, 0, 3); ImGui::SliderFloat("Drag x", &h.spring.dragScale, 0, 2);
         ImGui::SliderFloat("Gravity x", &h.spring.gravityScale, 0, 3); ImGui::SliderFloat("Wind", &h.spring.windStrength, 0, 3);
         // ZZZ spring tuning (post slider)
-        ImGui::SliderFloat("Tuning Stiffness", &h.springTuningStiffness, 0.1, 3.0);
-        ImGui::SliderFloat("Tuning Drag", &h.springTuningDrag, 0.1, 3.0);
-        ImGui::SliderFloat("Tuning Gravity", &h.springTuningGravity, 0.1, 3.0);
-        ImGui::SliderFloat("Tuning Collider Radius", &h.springTuningColliderRadius, -0.5, 0.5);
+        ImGui::SliderFloat("Tuning Stiffness", &h.springTuning.stiffness, 0.1, 3.0);
+        ImGui::SliderFloat("Tuning Drag", &h.springTuning.drag, 0.1, 3.0);
+        ImGui::SliderFloat("Tuning Gravity", &h.springTuning.gravity, 0.1, 3.0);
+        ImGui::SliderFloat("Tuning Collider Radius (m)", &h.springTuning.colliderRadiusPad, -0.02f, 0.05f);
         ImGui::Text("%zu chains, %zu colliders (VRM %s)", h.model->springs.chains.size(), h.model->springs.colliders.size(), h.model->vrmVersion == 1 ? "1.0" : "0.x");
         
         
