@@ -1,5 +1,6 @@
 #pragma once
 #include "anim/MotionMatching.h"
+#include "platform/MobileTouch.h"
 #include <array>
 #include <string>
 #include <vector>
@@ -17,6 +18,7 @@ public:
     std::string clipName() const;
     int frame() const { return matcher_.debug.frame; }
     bool browsing() const { return matcher_.browsing(); }
+    MobileTouch touch;
 private:
     Rig rig_;
     MotionDatabase db_;

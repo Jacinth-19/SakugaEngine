@@ -31,8 +31,16 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeCr
 }
 extern "C" JNIEXPORT void JNICALL Java_com_sakuga_preview_MainActivity_nativeDestroy(JNIEnv*, jclass, jlong h) { delete session(h); }
 extern "C" JNIEXPORT void JNICALL Java_com_sakuga_preview_MainActivity_nativeUpdate(JNIEnv*, jclass, jlong h, jfloat dt, jfloat x, jfloat y) { if (h) session(h)->update(dt, x, y); }
-extern "C" JNIEXPORT void JNICALL Java_com_sakuga_preview_MainActivity_nativeNext(JNIEnv*, jclass, jlong h) {
-    if (h) { session(h)->nextClip(); __android_log_print(ANDROID_LOG_INFO, tag, "next clip requested"); }
+extern "C" JNIEXPORT jfloatArray JNICALL Java_com_sakuga_preview_MainActivity_nativeTouch(
+        JNIEnv* env, jclass, jlong h, jint action, jint id, jfloat x, jfloat y, jfloat width, jfloat height, jfloat density) {
+    if (!h || action < 0 || action > 3) return nullptr;
+    auto* s = session(h);
+    auto result = s->touch.event(static_cast<sk::MobileTouch::Action>(action), id, x, y, width, height, density);
+    if (result.nextClip) { s->nextClip(); __android_log_print(ANDROID_LOG_INFO, tag, "next clip requested"); }
+    const jfloat values[] = {result.stickX, result.stickY};
+    jfloatArray array = env->NewFloatArray(2);
+    if (array) env->SetFloatArrayRegion(array, 0, 2, values);
+    return array;
 }
 extern "C" JNIEXPORT jfloatArray JNICALL Java_com_sakuga_preview_MainActivity_nativeJoints(JNIEnv* env, jclass, jlong h) {
     if (!h) return nullptr;

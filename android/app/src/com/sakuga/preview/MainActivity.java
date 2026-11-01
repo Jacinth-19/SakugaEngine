@@ -25,7 +25,9 @@ public final class MainActivity extends Activity {
     private static native long nativeCreate(String[] paths);
     private static native void nativeDestroy(long handle);
     private static native void nativeUpdate(long handle, float dt, float x, float y);
-    private static native void nativeNext(long handle);
+    // Actions: 0 down, 1 move, 2 up, 3 cancel (kept independent of Android's integer constants).
+    private static native float[] nativeTouch(long handle, int action, int pointerId, float x, float y,
+                                               float width, float height, float density);
     private static native float[] nativeJoints(long handle);
     private static native String nativeInfo(long handle);
     private static native String nativeProbeSurface(Surface surface);
@@ -108,7 +110,7 @@ public final class MainActivity extends Activity {
         private long handle; private long lastNs; private boolean running;
         private String message = "Loading two sample animations...";
         private String surfaceStatus = "Waiting for Android surface...";
-        private int pointer = -1; private float stickX, stickY;
+        private float stickX, stickY;
         private final float density = getResources().getDisplayMetrics().density;
         PreviewView() {
             super(MainActivity.this); setBackgroundColor(Color.rgb(11,14,20));
@@ -122,7 +124,7 @@ public final class MainActivity extends Activity {
         void setSurfaceStatus(String status) { surfaceStatus = status; invalidate(); }
         void setRunning(boolean enabled) {
             running = enabled; lastNs = 0;
-            if (!enabled) { pointer = -1; stickX = stickY = 0; }
+            if (!enabled) { touch(3, -1, 0, 0); stickX = stickY = 0; }
             invalidate();
         }
         void close() { running = false; if (handle != 0) { nativeDestroy(handle); handle = 0; } }
@@ -163,24 +165,23 @@ public final class MainActivity extends Activity {
             if (img == null) return;
             paint.setColor(Color.WHITE); paint.setAlpha(220); c.drawBitmap(img, null, new RectF(x-r,y-r,x+r,y+r), paint); paint.setAlpha(255);
         }
-        private void moveStick(float x, float y) {
-            float r = Math.min(getWidth(),getHeight())*.13f, bx=18*density+r, by=getHeight()-18*density-r;
-            stickX=(x-bx)/r; stickY=(y-by)/r; float length=(float)Math.hypot(stickX,stickY);
-            if (length>1) {stickX/=length; stickY/=length;} invalidate();
+        private void touch(int action, int id, float x, float y) {
+            if (handle == 0) return;
+            float[] position = nativeTouch(handle, action, id, x, y, getWidth(), getHeight(), density);
+            if (position != null && position.length == 2) { stickX = position[0]; stickY = position[1]; }
         }
         @Override public boolean onTouchEvent(MotionEvent e) {
-            int action=e.getActionMasked(), i=e.getActionIndex();
-            if (action==MotionEvent.ACTION_DOWN || action==MotionEvent.ACTION_POINTER_DOWN) {
-                float x=e.getX(i), y=e.getY(i);
-                if (handle != 0 && x>getWidth()*.70f && y>getHeight()*.55f) nativeNext(handle);
-                else if (pointer==-1 && x<getWidth()*.45f && y>getHeight()*.45f) {pointer=e.getPointerId(i); moveStick(x,y);}
-                return true;
-            }
-            if (action==MotionEvent.ACTION_MOVE && pointer!=-1) { int index=e.findPointerIndex(pointer); if(index>=0) moveStick(e.getX(index),e.getY(index)); return true; }
-            if (action==MotionEvent.ACTION_CANCEL || ((action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_POINTER_UP) && e.getPointerId(i)==pointer)) {
-                pointer=-1; stickX=stickY=0; invalidate(); return true;
-            }
-            return true;
+            int action = e.getActionMasked(), index = e.getActionIndex();
+            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN)
+                touch(0, e.getPointerId(index), e.getX(index), e.getY(index));
+            else if (action == MotionEvent.ACTION_MOVE) {
+                // Every pointer is updated independently; Android may reorder pointer indices between events.
+                for (int i = 0; i < e.getPointerCount(); ++i)
+                    touch(1, e.getPointerId(i), e.getX(i), e.getY(i));
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP)
+                touch(2, e.getPointerId(index), e.getX(index), e.getY(index));
+            else if (action == MotionEvent.ACTION_CANCEL) touch(3, -1, 0, 0);
+            invalidate(); return true;
         }
     }
 }

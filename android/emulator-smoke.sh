@@ -46,7 +46,7 @@ adb shell rm -f /sdcard/sakuga-preview.mp4
 adb shell screenrecord --time-limit 8 --size 1280x720 --bit-rate 1000000 /sdcard/sakuga-preview.mp4 &
 record_pid=$!
 sleep 1
-adb shell input tap "$((width * 85 / 100))" "$((height * 80 / 100))"
+adb shell input tap "$((width * 90 / 100))" "$((height * 80 / 100))"
 adb shell input swipe "$((width * 12 / 100))" "$((height * 75 / 100))" "$((width * 19 / 100))" "$((height * 63 / 100))" 1000
 wait "$record_pid"
 adb pull /sdcard/sakuga-preview.mp4 apk/android-preview.mp4 >/dev/null

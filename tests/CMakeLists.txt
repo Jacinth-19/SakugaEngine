@@ -80,6 +80,7 @@ endif()
 set(SAKUGA_TESTS
   sys_info_test
   presentation_requirements_test
+  mobile_touch_test
   loader_test
   bvh_parse_test
   mm_search_test
