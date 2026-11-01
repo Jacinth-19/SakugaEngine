@@ -90,6 +90,27 @@ float rainDroplets(vec2 uv, float scale, float speed, float density) {
     return saturate(max(a, b));
 }
 
+// ------------------------------------------------------------------ face shading helpers
+// Mirror of engine/gfx/FaceShading.h (which the CPU tests exercise): keep constants and formulas in sync.
+// 1. nose/under-eye lightening is *per texel* and bounded: inside the ellipse only, it releases a fraction of the SDF
+//    cast shadow instead of gating the whole face.
+float faceNoseMask(vec2 uv) {
+    vec2 d = (uv - vec2(0.5, 0.45)) / vec2(0.12, 0.08);
+    return 1.0 - smoothstep(0.60, 1.00, length(d));
+}
+float faceLightenNoseShadow(float sdfShadow, float mask, float amount) {
+    return max(0.0, saturate(sdfShadow) * (1.0 - saturate(amount) * saturate(mask)));
+}
+// 2. ZZZ normal flatten: the shading normal is lerped toward the view vector, so the light map (not the geometric
+//    gradient) shapes the face. A real normal change, applied before any lighting term.
+vec3 faceFlattenNormal(vec3 n, vec3 viewDir, float amount) {
+    return normalize(mix(n, normalize(viewDir), saturate(amount)));
+}
+// 3. complementary aura: zero when the face looks at the camera, rising only toward the silhouette.
+float faceSilhouetteAura(float dotNV, float strength, float power) {
+    return saturate(strength) * pow(1.0 - saturate(dotNV), max(power, 0.001));
+}
+
 float computeFaceSDFShadow(vec2 uv, vec3 lightDirWS) {
     bool headDriven = PC.pad0 == 1u;     // VRM face: axes follow the head bone
     vec3 forwardVec = normalize(mat3(PC.model) * (headDriven ? G.faceForward.xyz : M.m_faceForwardOS.xyz));
@@ -105,13 +126,6 @@ float computeFaceSDFShadow(vec2 uv, vec3 lightDirWS) {
     float cosAngle = clamp(dot(lightHeadDir, rightVec), -1.0, 1.0);
     float angle01 = acos(cosAngle) / 3.1415926;
     float exposeRight = step(angle01, 0.5);
-
-    // ZZZ nose/under-eye mark (ellipse in UV space)
-    float noseMark = 0.0;
-    vec2 noseCenter = vec2(0.5, 0.45); // centered on nose/eye region
-    vec2 noseScale = vec2(0.12, 0.08); // ellipse width/height
-    float noseDist = length((uv - noseCenter) / noseScale);
-    noseMark = saturate(1.0 - smoothstep(0.0, 0.6, noseDist)) * 0.35; // 35% lighter cast shadow on face
 
     float valueR = pow(saturate(1.0 - angle01 * 2.0), 3.0);
     float valueL = pow(saturate(angle01 * 2.0 - 1.0), 3.0);
@@ -132,25 +146,12 @@ float computeFaceSDFShadow(vec2 uv, vec3 lightDirWS) {
     float sdfLit = smoothstep(mixValue - M.m_sdfSoftness, mixValue + M.m_sdfSoftness, mixSdf + thresholdBias);
     float frontFade = smoothstep(-M.m_sdfBackFade, M.m_sdfBackFade, dot(lightHeadDir, forwardVec));
     sdfLit = mix(1.0, sdfLit, frontFade);
-    
-    // ZZZ face-normal flatten (85% toward view direction, applied in shade_surface, not G-buffer)
-    float viewFlatten = saturate(dot(forwardVec, normalize(G.cameraPos - vPosWS)) * 0.85 + 0.15);
-    float flatNormalFactor = mix(1.0, 0.15, viewFlatten); // flatten reduces shadow intensity on face by 15% max
-    sdfLit = mix(sdfLit, 1.0, flatNormalFactor * noseMark);
 
-    // ZZZ complementary rim "aura" (weak rim, grounded look)
-    float rimAura = pow(1.0 - saturate(dot(forwardVec, lightHeadDir)), 1.5) * 0.12; // weak rim multiplier
-    sdfLit = mix(sdfLit, 1.0, rimAura * noseMark);
-
-    // ZZZ desaturated palette/gradient (post slider)
-    float paletteDesat = saturate(M.m_faceColorStabilize * 0.65); // desaturation based on face color stabilize
-    float gradientMix = saturate(dot(lightHeadDir, forwardVec) * 0.5 + 0.5); // gradient based on light
-    sdfLit = mix(sdfLit, 1.0, paletteDesat * gradientMix * noseMark * 0.1);
-
-    // ZZZ soft shadows (light and suppressed)
-    float softShadow = mix(sdfLit, 1.0, 0.25); // suppress shadow by 25% (light shadow)
-
-    return (1.0 - softShadow) * (1.0 - noseMark);
+    // ZZZ nose/under-eye lightening (per texel, inside the ellipse only, bounded by faceNoseLighten). The normal flatten
+    // and the silhouette aura are *not* applied here: they belong to the shading terms in main().
+    float lightenAmount = M.m_faceNoseLighten * step(0.001, M.m_sdfShadowStrength);
+    float shadow = 1.0 - sdfLit;
+    return faceLightenNoseShadow(shadow, faceNoseMask(uv), lightenAmount);
 }
 
 float splitNprSide() {
@@ -328,22 +329,26 @@ void main() {
     mat3 tbn = mat3(Tn, Bn, Nn);
     vec3 N = normalize(tbn * normalTS);
     vec3 V = normalize(G.cameraPos.xyz - vPosWS);
+    // ZZZ face normal flatten (faces only: PC.pad0 == 1 marks the head-bone-driven face SDF draws). Flattening the
+    // *shading* normal keeps the geometric normal for the tangent frame / matcap / reflections.
+    bool isFaceDraw = PC.pad0 == 1u;
+    vec3 Nshade = isFaceDraw ? faceFlattenNormal(N, V, M.m_faceNormalFlatten) : N;
 
     float shadowAtten = mainLightShadow(vShadowCoord);
     shadowAtten = mix(shadowAtten, smoothstep(0.35, 0.65, shadowAtten), M.m_celShadow);      // anime: crisp, cel-shaped cast shadow edge
     vec3 L = normalize(G.lightDir.xyz);
     vec3 lightRGB = G.lightColor.rgb * G.lightDir.w;
     vec3 H = normalize(L + V);
-    float NoL = saturate(dot(N, L));
-    float NoV = saturate(dot(N, V));
-    float NoH = saturate(dot(N, H));
+    float NoL = saturate(dot(Nshade, L));
+    float NoV = saturate(dot(Nshade, V));
+    float NoH = saturate(dot(Nshade, H));
     float halfLambert = NoL * 0.5 + 0.5;
 
     float metallic = saturate(paramTex.r * M.m_metallicScale);
     float baseSmoothness = saturate(mix(M.m_smoothnessMin, M.m_smoothnessMax, 1.0 - paramTex.g) * M.m_smoothnessScale);
     float smoothness = saturate(baseSmoothness + glossWet * M.m_wetSmoothnessBoost);
     float occlusion = mix(1.0, saturate(paramTex.b), M.m_occlusionStrength);
-    vec3 pbrColor = universalFragmentPBR(N, V, vPosWS, L, lightRGB, shadowAtten, baseTex.rgb, metallic, smoothness, occlusion);
+    vec3 pbrColor = universalFragmentPBR(Nshade, V, vPosWS, L, lightRGB, shadowAtten, baseTex.rgb, metallic, smoothness, occlusion);
 
     float rampU = saturate(smoothstep(M.m_rampThreshold - M.m_rampFeather, M.m_rampThreshold + M.m_rampFeather, halfLambert));
     rampU = mix(rampU, styleTex.r, M.m_styleRampStrength);
@@ -436,6 +441,13 @@ void main() {
     {
         float sunRim = pow(1.0 - NoV, 3.0) * smoothstep(-0.15, 0.55, dot(N, L)) * smoothstep(0.15, 0.8, shadowAtten);
         stylizedAdd += sunRim * M.m_rimIntensity * 1.8 * mix(vec3(1.0), G.lightColor.rgb, 0.6) * mix(0.35, 1.0, saturate(G.lightDir.w));
+    }
+    // ZZZ complementary aura on faces: additive, silhouette only (0 where the face looks at the camera), tinted by the
+    // complement of the key light. Face materials ship with rimIntensity = 0, so nothing else adds a rim there.
+    if (isFaceDraw) {
+        float aura = faceSilhouetteAura(dot(Nshade, V), M.m_faceAuraStrength, M.m_faceAuraPower);
+        vec3 auraTint = mix(M.m_rimColor.rgb, vec3(1.0) - clamp(lightRGB, 0.0, 1.0), 0.5);
+        stylizedAdd += aura * auraTint * mix(0.35, 1.0, saturate(G.lightDir.w));
     }
 
     vec3 toonPts = toonPointLights(N, vPosWS, lutBase);

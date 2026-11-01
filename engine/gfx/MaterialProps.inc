@@ -55,6 +55,12 @@ SK_MAT_FLOAT(sdfChannel,            0.00f, 0.0f, 3.0f)
 SK_MAT_FLOAT(sdfThreshold,          0.48f, 0.0f, 1.0f)
 SK_MAT_FLOAT(sdfSoftness,           0.08f, 0.001f, 0.5f)
 SK_MAT_FLOAT(sdfBackFade,           0.12f, 0.001f, 0.5f)
+// ZZZ face touches (see engine/gfx/FaceShading.h and the "face shading helpers" block in shaders/toon.frag).
+// Only used by face SDF materials (sdfShadowStrength > 0) / face draws (PC.pad0 == 1).
+SK_MAT_FLOAT(faceNoseLighten,       0.18f, 0.0f, 1.0f)
+SK_MAT_FLOAT(faceNormalFlatten,     0.85f, 0.0f, 1.0f)
+SK_MAT_FLOAT(faceAuraStrength,      0.12f, 0.0f, 0.5f)
+SK_MAT_FLOAT(faceAuraPower,         2.00f, 0.5f, 6.0f)
 SK_MAT_FLOAT(hairAnisoStrength,     0.00f, 0.0f, 2.0f)
 SK_MAT_FLOAT(hairAnisoPower,       80.00f, 1.0f, 256.0f)
 SK_MAT_FLOAT(hairSpecShift,         0.00f, -1.0f, 1.0f)

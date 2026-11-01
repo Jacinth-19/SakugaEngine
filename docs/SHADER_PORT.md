@@ -34,12 +34,22 @@ the GLSL UBO block and the ImGui inspector are all generated from it with X-macr
 * The robust tangent frame in `toon.frag` handles meshes without tangents (Fox, CesiumMan) - normalising a zero tangent gives NaN.
 
 ## Not ported / differences
-* No SSAO, no local reflection probes, no cascaded shadow maps, point lights are unshadowed.
+* No SSAO, no local reflection probes.
+* Shadows *are* implemented since Round 7: two directional cascades sharing one 2x1 atlas (square box fit per cascade, or a
+  sphere fit to the camera frustum slice for the near one, both snapped to shadow texels) and a cube atlas for up to two
+  point lights. The math lives in `engine/gfx/ShadowFit.h` and is unit tested by `tests/shadow_fit_test.cpp`.
 * **Transparency** is implemented: materials with `transparent` (glTF `BLEND`, except hair cards which stay alpha-tested) are drawn after the opaque
   pass with alpha blending, no depth write and no outline, sorted back to front per draw.
 * **Face SDF:** for VRM `*Face*SKIN` materials the loader bakes a 1024^2 R/G texture by rasterising the face mesh into UV space (head-local X, G = light from +X, R = light from -X,
   `_FaceSDFDirectionalRG = 1`). The shader's face frame (`_FaceForwardOS` / `_FaceRightOS`) follows the **head bone** (global UBO, `PC.pad0 == 1`), so the shadow follows head turns.
   The shader lab still uses the procedural SDF; hand-made SDF textures can be assigned in the inspector.
+* **ZZZ face touches** (three separate, bounded effects - `engine/gfx/FaceShading.h` is the reference implementation and
+  `tests/face_hair_test.cpp` pins it; the GLSL block in `shaders/toon.frag` mirrors it):
+  1. `faceNoseLighten`: a UV ellipse over the nose/under-eye region releases a fraction of the SDF *cast* shadow, per texel.
+  2. `faceNormalFlatten`: for face draws (`PC.pad0 == 1`) the shading normal is lerped toward the view vector, so the light
+     map shapes the face instead of the geometric gradient. The geometric normal is still used for the tangent frame/matcap.
+  3. `faceAuraStrength` / `faceAuraPower`: an additive rim that only appears toward the silhouette, tinted by the complement
+     of the key light. Face materials keep `rimIntensity = 0`, so nothing else adds a rim there.
 * **Look tuning for characters** (`GltfLoader.cpp`): `_PBRBaseBlend = 0.4` (NPR-dominant lit side), `_RampThreshold = 0.56` with a narrow feather for crisp cel bands,
   MToon shade colours tinted cool for the shadow ramp, darkened outline colour, warm key light + HDRI sky ambient.
 * VRM (MToon) materials are mapped heuristically onto the hybrid parameters (`GltfLoader.cpp`: face / eye / hair name heuristics).

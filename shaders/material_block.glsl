@@ -51,6 +51,10 @@ layout(set = 1, binding = 0, std140) uniform MaterialUBO {
     float m_sdfThreshold;
     float m_sdfSoftness;
     float m_sdfBackFade;
+    float m_faceNoseLighten;
+    float m_faceNormalFlatten;
+    float m_faceAuraStrength;
+    float m_faceAuraPower;
     float m_hairAnisoStrength;
     float m_hairAnisoPower;
     float m_hairSpecShift;

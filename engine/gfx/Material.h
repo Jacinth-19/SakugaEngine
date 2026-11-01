@@ -24,6 +24,27 @@ inline const char* texSlotName(int s) {
 // Colour data is sRGB-encoded in files, everything else is linear data.
 inline bool texSlotIsSRGB(int s) { return s == TEX_BASE || s == TEX_MATCAP || s == TEX_EMISSION || s == TEX_HIGHLIGHT; }
 
+namespace matdetail {
+// Property counts, derived from MaterialProps.inc so adding a property cannot desynchronise the CPU mirror, the std140
+// padding or the generated shaders/material_block.glsl.
+enum MatCounts {
+    kVec4Count = 0
+#define SK_MAT_VEC4(name, r, g, b, a, isColor) + 1
+#define SK_MAT_FLOAT(name, d, mn, mx) + 0
+#include "gfx/MaterialProps.inc"
+#undef SK_MAT_VEC4
+#undef SK_MAT_FLOAT
+    ,
+    kFloatCount = 0
+#define SK_MAT_VEC4(name, r, g, b, a, isColor) + 0
+#define SK_MAT_FLOAT(name, d, mn, mx) + 1
+#include "gfx/MaterialProps.inc"
+#undef SK_MAT_VEC4
+#undef SK_MAT_FLOAT
+};
+constexpr int kPadFloats = (4 - (kFloatCount % 4)) % 4;   // std140 rounds the uniform block up to 16 bytes
+}  // namespace matdetail
+
 // CPU mirror of the std140 MaterialUBO. Generated layout: see MaterialProps.inc.
 struct MaterialParams {
 #define SK_MAT_VEC4(name, r, g, b, a, isColor) glm::vec4 name{r, g, b, a};
@@ -31,9 +52,10 @@ struct MaterialParams {
 #include "gfx/MaterialProps.inc"
 #undef SK_MAT_VEC4
 #undef SK_MAT_FLOAT
-    float _pad[1] = {};   // std140 rounds the block up to 16 bytes (59 floats -> 60); checked by static_assert below
+    std::array<float, (size_t)matdetail::kPadFloats> _pad{};
 };
-static_assert(sizeof(MaterialParams) == 10 * 16 + 60 * 4, "MaterialParams must match shaders/material_block.glsl");
+static_assert(sizeof(MaterialParams) == (size_t)matdetail::kVec4Count * 16 + (size_t)(matdetail::kFloatCount + matdetail::kPadFloats) * 4,
+              "MaterialParams must match shaders/material_block.glsl (regenerate it with tools/gen_material_glsl.py)");
 
 struct Material {
     std::string name;
