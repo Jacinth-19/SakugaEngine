@@ -10,8 +10,8 @@ Unity URP shader. **Nothing here is compiled by this project.**
 | `BVHImporter/BVHAnimationImporter.cs` / `BVHAnimationImporterEditor.cs` | editor UI; BVH text → `BVHAnimationClip` asset (root motion curve + per-bone quaternion keys) | `MotionDatabase::buildFromFiles` (retarget + features), `apps/sandbox`
 | `BVHImporter/BVHAnimator.cs` | runtime playback: 30 fps stepping, lerp between the last two samples | `MotionMatcher::update` / `samplePose` |
 | `BVHImporter/BVHAnimationClipEditor.cs` | "GeneratePoseFeature": future root-motion / facing deltas at +5…+30 frames | `MotionDatabase` feature vector (`kFeatureDim`, `trajOffsets`) |
-
-`BVHAnimationClip` and `PoseFeature` (the ScriptableObject types these reference) were not part of the uploaded set.
+| `BVHImporter/BVHAnimationClip.cs` | the `ScriptableObject` the importer fills: `boneList`, `boneRotations`, `rootBoneOffset`, `rootMotionCurve` (+ the `RotationCurve` / `PoseFeature` types) | `MotionDatabase` (clips, poses, features), `BvhClip` (frames, root motion, `refHips`) |
+| `MotionMatching/TrajectoryPredictor.cs` | empty `MonoBehaviour` - dead code, no scene references, kept only to show there was nothing to port | - (this engine's trajectory/future-pose term lives in `MotionMatcher`'s feature vector) |
 
 ## Behaviour carried over
 

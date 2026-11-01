@@ -48,6 +48,8 @@ Still needed from the machine (nothing this repo can carry):
   `-DGLFW_BUILD_X11=OFF -DGLFW_BUILD_WAYLAND=OFF` to build the engine and the tests without a window backend.
 * optional: `glslangValidator` (from the Vulkan SDK) if you want the shaders recompiled from source. Without it the build
   uses `shaders/spv/`; run `./tools/build_shaders.sh` after editing a shader.
+* optional: `python3` (standard library only - no numpy/Pillow) for `tools/gen_anime_luts.py` and
+  `tools/gen_material_glsl.py`, which regenerate already-committed assets.
 
 Sample assets (models, mocap, LUTs, HDRIs) are vendored in `assets/` too; `tools/fetch_assets.sh` only matters if you want
 to re-fetch them or pull the full 77-clip LAFAN1 set.
@@ -85,7 +87,8 @@ so the NPCs search at 0.18 s intervals instead of every frame.
 
 ## Tests
 
-The test suite is **GPU-free** (no device, no window server) and runs in CI:
+The test suite is **GPU-free** (no device, no window server) and runs in CI (`.github/workflows/tests.yml`, every push
+and pull request; it also re-runs the asset generators and fails if the committed output is stale):
 
 ```sh
 cmake -S tests -B build-tests          # picks up the vendored glm automatically
@@ -140,7 +143,7 @@ The Round 7 report claimed things the code did not do, and listed verification t
   visual verification still has to happen on a machine with a Vulkan device.
 * No SSAO, no local reflection probes; the near cascade is a single sphere fit (no per-cascade split tuning UI).
 * `docs/UNITY_REPO_AUDIT.md` records what the reference Unity project (`Jacinth-19/MotionMatchingInUnity`) contains and which
-  of its scripts are dead code.
+  of its scripts are dead code; `docs/SCRIPT_AUDIT.md` is the script-by-script audit of that project and of `tools/`.
 * `docs/SHADER_PORT.md` lists the remaining differences from the Unity reference shader.
 
 ## Licences

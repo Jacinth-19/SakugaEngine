@@ -32,6 +32,9 @@ the last trace of a "trajectory prediction" feature that the Unity project never
 Nothing else in the repo is stale: `Assets/BVHAnimation/*.asset` (154 files, ~12 MB each) are generated import output, not
 scripts, and `Assets/Model/model_skeleton.fbx` is the single rig everything is retargeted onto.
 
+All seven scripts are vendored verbatim under `reference/unity/` (`BVHImporter/` and `MotionMatching/`), and
+`docs/SCRIPT_AUDIT.md` checks them field by field against the port.
+
 ## Mocap
 
 * `Assets/lafan1/` - the full LAFAN1 set: **77 `.bvh` files**, 6.4 KB … 5.7 MB each (333 MB total).

@@ -10,15 +10,18 @@
 #   tools/fetch_assets.sh                 # everything (models, LUTs, HDRI, all 77 mocap clips)
 #   tools/fetch_assets.sh --motion-only   # just the mocap library
 #   tools/fetch_assets.sh --clips 12      # only the first 12 clips (a quick subset)
+#   tools/fetch_assets.sh --assets-only   # models, LUTs and HDRIs, no mocap
 #   SAKUGA_MOTION_DIR=/data/lafan1 tools/fetch_assets.sh --motion-only
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 motion_only=0
+assets_only=0
 clips_limit=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --motion-only) motion_only=1 ;;
+    --motion-only) motion_only=1; assets_only=0 ;;
+    --assets-only) assets_only=1 ;;
     --clips) shift; clips_limit="${1:-0}" ;;
     -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -82,43 +85,70 @@ fetch_clip() {
 export -f fetch_clip is_clip
 export LAFAN_REPOS="${lafan_repos[*]}"
 
-echo "LAFAN1 mocap -> $dest (CC BY-NC-ND 4.0, non-commercial)"
-failed=0
-# shellcheck disable=SC2086
-printf '%s\n' $wanted | MOUT="$dest" xargs -P 6 -I{} bash -c 'fetch_clip "$1" "$MOUT/$1.bvh"' _ {} || failed=1
+if [ "$assets_only" -eq 0 ]; then
+  echo "LAFAN1 mocap -> $dest (CC BY-NC-ND 4.0, non-commercial)"
+  failed=0
+  # shellcheck disable=SC2086
+  printf '%s\n' $wanted | MOUT="$dest" xargs -P 6 -I{} bash -c 'fetch_clip "$1" "$MOUT/$1.bvh"' _ {} || failed=1
 
-have=$(ls "$dest"/*.bvh 2>/dev/null | wc -l)
-echo "clips in $dest: $have / $total"
-if [ "$have" -lt "$total" ]; then
-  echo "warning: $((total - have)) clip(s) missing; the engine uses whatever is present" >&2
-  [ "$failed" -ne 0 ] && echo "warning: a download failed - see the FAIL lines above" >&2
+  have=$(ls "$dest"/*.bvh 2>/dev/null | wc -l)
+  echo "clips in $dest: $have / $total"
+  if [ "$have" -lt "$total" ]; then
+    echo "warning: $((total - have)) clip(s) missing; the engine uses whatever is present" >&2
+    [ "$failed" -ne 0 ] && echo "warning: a download failed - see the FAIL lines above" >&2
+  fi
 fi
 
 if [ "$motion_only" -eq 1 ]; then echo done; exit 0; fi
 
+# ------------------------------------------------------------------ everything else
+# GitHub-hosted files go through raw.githubusercontent.com first and `gh api` second, for the same reason as the clips.
+missing=0
+fetch_gh() {   # <owner/repo/branch> <path in repo> <destination>
+  local spec="$1" path="$2" dest="$3" tmp repo branch
+  [ -s "$dest" ] && return 0
+  mkdir -p "$(dirname "$dest")"
+  tmp="$(mktemp "$dest.XXXXXX")"
+  if curl -fsSL --retry 2 -o "$tmp" "https://raw.githubusercontent.com/$spec/$path" 2>/dev/null && [ -s "$tmp" ]; then
+    mv "$tmp" "$dest"; return 0
+  fi
+  repo="${spec%/*}"; branch="${spec##*/}"
+  if command -v gh >/dev/null 2>&1 &&
+     gh api -H "Accept: application/vnd.github.raw" "repos/$repo/contents/$path?ref=$branch" > "$tmp" 2>/dev/null &&
+     [ -s "$tmp" ]; then
+    mv "$tmp" "$dest"; return 0
+  fi
+  rm -f "$tmp"
+  echo "warning: could not fetch $repo/$path" >&2
+  missing=$((missing + 1))
+}
+
 # ------------------------------------------------------------------ sample models
 mkdir -p assets/models
-base=https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models
-[ -s assets/models/Fox.glb ] || curl -fsSL -o assets/models/Fox.glb "$base/Fox/glTF-Binary/Fox.glb"
-[ -s assets/models/CesiumMan.glb ] || curl -fsSL -o assets/models/CesiumMan.glb "$base/CesiumMan/glTF-Binary/CesiumMan.glb"
+fetch_gh KhronosGroup/glTF-Sample-Assets/main Fox/glTF-Binary/Fox.glb assets/models/Fox.glb
+fetch_gh KhronosGroup/glTF-Sample-Assets/main CesiumMan/glTF-Binary/CesiumMan.glb assets/models/CesiumMan.glb
 # VRM avatars: the hero (VRM 1.0 twist sample) and the two NPC characters
-[ -s assets/models/AvatarSample.vrm ] || curl -fsSL -o assets/models/AvatarSample.vrm \
-  https://raw.githubusercontent.com/pixiv/three-vrm/dev/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm
-[ -s assets/models/Seed-san.vrm ] || curl -fsSL -o assets/models/Seed-san.vrm \
-  https://raw.githubusercontent.com/vrm-c/vrm-specification/master/samples/Seed-san/vrm/Seed-san.vrm
-[ -s assets/models/three-vrm-girl.vrm ] || curl -fsSL -o assets/models/three-vrm-girl.vrm \
-  https://raw.githubusercontent.com/pixiv/three-vrm/v0.6.11/packages/three-vrm/examples/models/three-vrm-girl.vrm
+fetch_gh pixiv/three-vrm/dev packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm assets/models/AvatarSample.vrm
+fetch_gh vrm-c/vrm-specification/master samples/Seed-san/vrm/Seed-san.vrm assets/models/Seed-san.vrm
+fetch_gh pixiv/three-vrm/v0.6.11 packages/three-vrm/examples/models/three-vrm-girl.vrm assets/models/three-vrm-girl.vrm
 
 # ------------------------------------------------------------------ LUTs (three.js examples; Anime *.cube are generated)
 mkdir -p assets/luts
 for f in "Bourbon%2064.CUBE" "Chemical%20168.CUBE" "Clayton%2033.CUBE" "Cubicle%2099.CUBE" "Remy%2024.CUBE" "NeutralLUT.png" "NightLUT.png" "B%26WLUT.png" "Presetpro-Cinematic.3dl"; do
   out="assets/luts/$(python3 -c "import urllib.parse;print(urllib.parse.unquote('$f'))")"
-  [ -s "$out" ] || curl -fsSL -o "$out" "https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/luts/$f"
+  fetch_gh mrdoob/three.js/dev "examples/luts/$f" "$out"
 done
 [ -s "assets/luts/Anime Shinkai.cube" ] || python3 tools/gen_anime_luts.py
 
 # ------------------------------------------------------------------ image based lighting (Poly Haven, CC0)
 mkdir -p assets/env
-[ -s assets/env/kloofendal_48d_partly_cloudy_puresky.hdr ] || curl -fsSL -o assets/env/kloofendal_48d_partly_cloudy_puresky.hdr \
-  https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/kloofendal_48d_partly_cloudy_puresky_1k.hdr
+for sky in kloofendal_48d_partly_cloudy_puresky qwantani_dusk_2_puresky; do
+  out="assets/env/$sky.hdr"
+  [ -s "$out" ] || curl -fsSL -o "$out" "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/${sky}_1k.hdr" ||
+    echo "warning: could not fetch $sky.hdr" >&2
+done
+if [ "$missing" -ne 0 ]; then
+  echo "warning: $missing file(s) could not be fetched; the vendored copies in assets/ are still usable" >&2
+  exit 1
+fi
 echo done

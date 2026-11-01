@@ -1,0 +1,31 @@
+name: tests
+
+# The GPU-free suite the README points at: no Vulkan device, no window server, no download of anything (glm, GLFW, the
+# Vulkan headers and the compiled SPIR-V are vendored). The mocap tests SKIP when the 77-clip LAFAN1 set is absent, which
+# is what happens here - assets/motion/ only carries the two preview clips.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gpu-free:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S tests -B build-tests -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-tests -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build-tests --output-on-failure
+
+      - name: Generated files are current
+        run: |
+          python3 tools/gen_material_glsl.py
+          python3 tools/gen_anime_luts.py
+          git diff --exit-code -- shaders/material_block.glsl assets/luts ||
+            { echo "::error::regenerated files differ from the committed ones - rerun the generators and commit"; exit 1; }

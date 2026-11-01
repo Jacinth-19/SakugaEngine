@@ -4,10 +4,10 @@
 //
 // The clips are NOT in the repository (333 MB, CC BY-NC-ND): get them with
 //     tools/fetch_assets.sh --motion-only
-// which puts them in $SAKUGA_MOTION_DIR or ~/.cache/lafan1. Without them this test reports SKIP and passes, so ctest
-// stays green on a fresh clone.
+// which puts them in $SAKUGA_MOTION_DIR or ~/.cache/lafan1. With fewer than 12 clips (a fresh clone only has the two
+// vendored ones) the test reports SKIP and passes, so ctest stays green in CI.
 //
-//   motion_library_test            # first 12 clips (fast, a few hundred ms)
+//   motion_library_test            # 12 clips spread over the families (fast, a few hundred ms)
 //   motion_library_test --full     # the whole library; asserts all 9 clip families are searchable
 #include "Check.h"
 #include "SyntheticMotion.h"
@@ -48,8 +48,13 @@ int main(int argc, char** argv) {
     const bool full = argc > 1 && std::strcmp(argv[1], "--full") == 0;
 
     std::vector<std::string> files = findClips();
-    if (files.empty()) {
-        std::cout << "motion_library_test: SKIP (no .bvh files found; run tools/fetch_assets.sh --motion-only)\n";
+    // assets/motion/ always carries two vendored clips, so "not empty" is not "the library is here": the checks below are
+    // about a library that spans the clip families. Below the threshold this is a SKIP, which keeps `ctest` green on a
+    // fresh clone (and in CI) where tools/fetch_assets.sh has not run.
+    const size_t needed = full ? 40 : 12;
+    if (files.size() < needed) {
+        std::cout << "motion_library_test: SKIP (" << files.size() << " clip(s) found, need " << needed
+                  << "; run tools/fetch_assets.sh --motion-only for the 77-clip LAFAN1 set)\n";
         return 0;
     }
     const int clips = full ? 0 : 12;                                   // 0 = everything
