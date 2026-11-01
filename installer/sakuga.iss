@@ -3,12 +3,24 @@
 ; It packs the relocatable tree produced by `cmake --install`, i.e. sandbox.exe next to assets/, config/ and shaders/
 ; (the layout findRoot() in engine/core/FileUtil.cpp expects). Build it with:
 ;
+;   python tools\gen_installer_art.py                 # writes installer\art\ (not committed)
 ;   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 ;   cmake --build build --parallel
 ;   cmake --install build --prefix stage
 ;   iscc /DAppVersion=0.1.0 /DSourceDir=stage /DOutputDir=dist installer\sakuga.iss
 ;
-; which is exactly what .github/workflows/windows.yml does; the result is uploaded as a workflow artifact.
+; which is what .github/workflows/windows.yml does; the result is uploaded as a workflow artifact.
+;
+; HOW FAR THE LOOK IS CUSTOMISED
+;   * custom wizard images (large side panel + small header logo), in light and dark versions, as PNG with alpha
+;     (Inno 6.6+); BMP copies are used when compiling with an older ISPP that has no PNG support,
+;   * custom wizard background image + colours with opacity blending (Inno 6.7+),
+;   * dark mode that follows the Windows setting (6.6+), 6.7's hidebevels,
+;   * custom application icon (SetupIconFile), version-info strings, on-brand welcome/finished text,
+;   * "before installing" / "after installing" info pages, Start Menu + desktop shortcuts, uninstaller,
+;   * a Vulkan check before anything is installed.
+; Everything version-specific is behind `#if VER >= EncodeVer(...)`, so the same script still compiles with 6.0-6.5.
+; What is NOT possible is documented in docs/INSTALLER.md.
 
 #ifndef AppVersion
   #define AppVersion "0.1.0"
@@ -25,6 +37,7 @@
 #define AppExe         "sandbox.exe"
 #define AppPublisher   "Sakuga Engine contributors"
 #define AppURL         "https://github.com/Jacinth-19/SakugaEngine"
+#define ArtDir         "art"
 
 [Setup]
 ; A fixed AppId keeps upgrades/uninstalls tied to the same product; do not regenerate it.
@@ -35,27 +48,77 @@ AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}/issues
-VersionInfoVersion={#AppVersion}
-VersionInfoDescription={#AppName} {#AppVersion}
+AppUpdatesURL={#AppURL}/releases
+VersionInfoCompany={#AppPublisher}
+VersionInfoDescription={#AppName} {#AppVersion} Setup
+VersionInfoProductName={#AppName}
+VersionInfoProductVersion={#AppVersion}
+VersionInfoCopyright=CC BY-NC-ND 4.0 mocap by Ubisoft La Forge (LAFAN1); engine code MIT-style, see the repository
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
+AllowNoIcons=yes
+; Show the welcome page: it is where the custom side image is on screen the longest.
+DisableWelcomePage=no
+InfoBeforeFile=before_install.txt
+InfoAfterFile=after_install.txt
 OutputDir={#OutputDir}
 OutputBaseFilename={#AppShortName}-Engine-{#AppVersion}-win64
+SetupIconFile={#ArtDir}\sakuga.ico
+UninstallDisplayName={#AppName}
+UninstallDisplayIcon={app}\{#AppExe}
 Compression=lzma2/max
 SolidCompression=yes
-WizardStyle=modern
+WizardSizePercent=120,120
+WizardImageStretch=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
-UninstallDisplayName={#AppName}
-UninstallDisplayIcon={app}\{#AppExe}
+CloseApplications=yes
+RestartApplications=no
 ; The app writes screenshots / a saved UI theme next to the executable or into the working directory, so keep it out of
 ; a read-only location unless the user is an administrator (the default {autopf} = Program Files).
-PrivilegesRequiredOverridesAllowed=dialog
+PrivilegesRequiredOverridesAllowed=dialog commandline
+
+; ------------------------------------------------------------------ wizard appearance
+; Inno 6.6 added appearance modes (light/dark/dynamic) plus PNG wizard images with alpha and *DynamicDark variants;
+; 6.7 added background images/colours, opacity blending and the hidebevels modifier. Older compilers get the plain
+; modern wizard with BMP images.
+#if VER >= EncodeVer(6,7,0)
+WizardStyle=modern dynamic hidebevels
+WizardBackImageFile={#ArtDir}\back_light.png
+WizardBackImageFileDynamicDark={#ArtDir}\back_dark.png
+; 120/255: the background art is a big soft arc, blended into the page colour so text stays readable in both modes
+WizardBackImageOpacity=120
+WizardBackColor=#f6f8fb
+WizardBackColorDynamicDark=#0b0e14
+#elif VER >= EncodeVer(6,6,0)
+WizardStyle=modern dynamic
+#else
+WizardStyle=modern
+#endif
+
+#if VER >= EncodeVer(6,6,0)
+WizardImageFile={#ArtDir}\side_light.png
+WizardImageFileDynamicDark={#ArtDir}\side_dark.png
+WizardSmallImageFile={#ArtDir}\small_light.png
+WizardSmallImageFileDynamicDark={#ArtDir}\small_dark.png
+WizardImageBackColor=#f6f8fb
+WizardImageBackColorDynamicDark=#0b0e14
+#else
+WizardImageFile={#ArtDir}\side_light.bmp
+WizardSmallImageFile={#ArtDir}\small_light.bmp
+#endif
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Messages]
+; Same information as the stock pages, in the product's own words.
+WelcomeLabel1=Welcome to [name] setup
+WelcomeLabel2=This will install [name/ver] on your computer.%n%nSakuga Engine is an anime-style real-time renderer: motion matching on mocap, VRM avatars, toon shading and a Vulkan 1.3 renderer. You need a Vulkan 1.3 capable graphics driver to run it.
+FinishedLabel=Setup has finished installing [name] on your computer.%n%nThe full LAFAN1 mocap library (77 clips) is not bundled - see the info page for the one command that fetches it.
+FinishedLabelNoIcons=Setup has finished installing [name] on your computer.%n%nThe full LAFAN1 mocap library (77 clips) is not bundled - see the info page for the one command that fetches it.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked

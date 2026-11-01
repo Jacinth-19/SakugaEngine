@@ -1,0 +1,16 @@
+First run
+=========
+
+  * Start "Sakuga Engine" from the Start Menu (or run sandbox.exe).
+  * Esc quits, Tab releases/re-captures the mouse, F1 hides the UI, F2 saves a screenshot.
+  * F12 opens the UI theme editor: pick a preset, tweak the style and press Save - it writes
+    config\ui_theme.json, which is loaded on the next start. F11 shows the ImGui demo.
+  * The sandbox writes its motion database cache to %USERPROFILE%\.cache\sakuga (the first
+    start with the full 77-clip library takes a few seconds to build it).
+
+Command line (sandbox.exe --help lists everything)
+  * --ui-theme "Midnight" | --ui-theme my_theme.json
+  * --motion-dir DIR            extra folder with .bvh clips
+  * --mm-categories all         let every clip family be picked at any time
+  * --no-mm-context             turn the movement-context gating off
+  * --screenshot out.png --frames N --headless   render off-screen and exit

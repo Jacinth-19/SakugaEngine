@@ -64,7 +64,11 @@ configure ("could not find any instance of Visual Studio"). The GPU-free test su
 several of those tests write to POSIX temp paths.
 
 The installer (`installer/sakuga.iss`) puts the app in `Program Files`, adds Start Menu/desktop shortcuts and an
-uninstaller, and warns during setup when no Vulkan runtime (`vulkan-1.dll`) is present. The staged tree is relocatable -
+uninstaller, and warns during setup when no Vulkan runtime (`vulkan-1.dll`) is present. It is themed to match the app,
+not left as the stock wizard: generated wizard artwork in the theme palette (`tools/gen_installer_art.py`) with separate
+light and dark sets, a background image blended in on Inno 6.7, `WizardStyle=modern dynamic` so it follows the Windows
+light/dark setting, a custom icon and on-brand text. `docs/INSTALLER.md` lists exactly how far Inno can be pushed and
+where the hard limits are. The staged tree is relocatable -
 `sandbox.exe` finds `assets/`, `config/` and `shaders/` next to itself (`findRoot()`), so the portable zip works from
 any folder. What is *not* carried by the installer: the Vulkan loader/GPU driver (installed with the graphics driver) and
 the 77-clip LAFAN1 set (fetch it with `tools/fetch_assets.sh --motion-only`; the installer ships the two preview clips).
@@ -195,6 +199,7 @@ The Round 7 report claimed things the code did not do, and listed verification t
   compile to SPIR-V with `glslangValidator -V --target-env vulkan1.3`, and the GPU-free suite passes - but frame-level
   visual verification still has to happen on a machine with a Vulkan device.
 * No SSAO, no local reflection probes; the near cascade is a single sphere fit (no per-cascade split tuning UI).
+* `docs/INSTALLER.md` - the installer's look, how to iterate on it locally, and what Inno cannot do.
 * `docs/UNITY_REPO_AUDIT.md` records what the reference Unity project (`Jacinth-19/MotionMatchingInUnity`) contains and which
   of its scripts are dead code; `docs/SCRIPT_AUDIT.md` is the script-by-script audit of that project and of `tools/`.
 * `docs/SHADER_PORT.md` lists the remaining differences from the Unity reference shader.

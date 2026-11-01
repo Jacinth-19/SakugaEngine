@@ -27,5 +27,6 @@ jobs:
         run: |
           python3 tools/gen_material_glsl.py
           python3 tools/gen_anime_luts.py
-          git diff --exit-code -- shaders/material_block.glsl assets/luts ||
+          python3 tools/gen_installer_art.py
+          git diff --exit-code -- shaders/material_block.glsl assets/luts installer/art ||
             { echo "::error::regenerated files differ from the committed ones - rerun the generators and commit"; exit 1; }

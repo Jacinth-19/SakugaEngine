@@ -124,6 +124,18 @@ jobs:
           if (-not $iscc) { throw "ISCC.exe not found" }
           "ISCC=$($iscc.FullName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           Write-Host "Using $($iscc.FullName)"
+          # The wizard style directives are version-gated; record which Inno compiled this, so the log says which
+          # appearance (PNG + DynamicDark + background art, or the BMP fallback) actually went into the installer.
+          $ver = (& $env:ISCC /? 2>&1 | Select-Object -First 1) -join " "
+          Write-Host "::notice::$ver"
+
+      - name: Generate the installer art
+        shell: pwsh
+        run: |
+          # installer/art/ is committed, but regenerating it here proves the generator still produces the shipped images
+          # (the committed copies are what a local build without Python uses).
+          python tools/gen_installer_art.py
+          Get-ChildItem installer\art | Select-Object Name, Length
 
       - name: Build the installer
         shell: pwsh
