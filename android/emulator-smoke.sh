@@ -27,7 +27,25 @@ if [[ $surface_probed != 1 ]]; then
   adb logcat -d -s SakugaPreview:V AndroidRuntime:E '*:S' | tail -80
   echo '::error::The live Android Vulkan surface probe did not complete.'; exit 1
 fi
-grep -F 'surface probe finished:' /tmp/sakuga-android-log.txt | tail -1 || true
+probe_line=$(grep -F 'surface probe finished:' /tmp/sakuga-android-log.txt | tail -1)
+echo "::notice::$probe_line"
+# Unlike the GPU-free unit suite, this is an application/emulator integration check. Exercise the real renderer when
+# the emulator supports it and explicitly report a fallback rather than counting it as a rendered frame.
+renderer_result=''
+for i in $(seq 1 90); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  if grep -q 'engine renderer first frame presented' /tmp/sakuga-android-log.txt; then renderer_result=presented; break; fi
+  if grep -q 'renderer unavailable:' /tmp/sakuga-android-log.txt; then renderer_result=unavailable; break; fi
+  sleep 2
+done
+if [[ $renderer_result == presented ]]; then
+  echo '::notice::Engine Vulkan scene presented a frame on the Android emulator.'
+elif [[ $renderer_result == unavailable ]]; then
+  renderer_line=$(grep -F 'renderer unavailable:' /tmp/sakuga-android-log.txt | tail -1)
+  echo "::notice::Android emulator used Canvas fallback: $renderer_line"
+else
+  echo '::error::Android renderer neither presented nor reported an incompatibility.'; exit 1
+fi
 # Save an actual emulator screenshot and tap the NEXT CLIP region, using the captured dimensions.
 sleep 3
 adb exec-out screencap -p > apk/android-preview.png
