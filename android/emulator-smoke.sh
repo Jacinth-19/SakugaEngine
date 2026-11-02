@@ -72,7 +72,11 @@ if [[ $renderer_result == presented ]]; then
     if grep -q 'imgui bloom changed' /tmp/sakuga-android-log.txt; then ui_changed=1; break; fi
     sleep 1
   done
-  if [[ $ui_changed != 1 ]]; then echo '::error::Android ImGui checkbox did not respond to a tap.'; exit 1; fi
+  if [[ $ui_changed != 1 ]]; then
+    adb exec-out screencap -p > apk/android-fail.png
+    while IFS= read -r line; do echo "::notice::$line"; done < <(grep -E 'imgui bloom target|touch route|surface dimensions' /tmp/sakuga-android-log.txt | tail -20)
+    echo '::error::Android ImGui checkbox did not respond to a tap.'; exit 1
+  fi
   echo '::notice::Android ImGui checkbox responded to touch.'
   # Open the actual sandbox editor, not just the compact mobile panel.
   ui_target=$(grep -F 'sandbox editor target x=' /tmp/sakuga-android-log.txt | tail -1)

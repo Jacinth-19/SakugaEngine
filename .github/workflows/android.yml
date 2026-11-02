@@ -92,13 +92,14 @@ jobs:
           script: bash android/emulator-smoke.sh
       # Temporary branch-only exporter for visual verification; removed after inspection.
       - name: Export inspection screenshots
-        if: github.event_name == 'push' && github.ref == 'refs/heads/arena/a13c5e34-sakugaengine'
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/arena/a13c5e34-sakugaengine'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          for img in android-editor android-night; do
+          for img in android-editor android-night android-fail; do
+            [[ -f "apk/$img.png" ]] || continue
             python3 - "$img" <<'PYCODE'
           import base64, json, sys
           name = sys.argv[1]
