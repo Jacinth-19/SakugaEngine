@@ -10,7 +10,7 @@ The `Android sandbox` workflow builds and validates the APK, and requires a Vulk
 
 To build locally, install Android SDK platform 35, build-tools 35.0.0, NDK 27.2.12479018, JDK, CMake, Ninja and zip; set `ANDROID_HOME`, then run `bash android/build-apk.sh`. Android SDK/NDK and Java are platform build tools, not bundled runtime libraries. Output is in `android/output/`.
 
-The [port plan](ANDROID_PORT_PLAN.md) tracks implemented work and remaining limitations. Linux/macOS packages remain future work.
+NPC model credit: Seed-san by VirtualCast, Inc.; three-vrm-girl by pixiv Inc. See the [port plan](ANDROID_PORT_PLAN.md) for licensing and remaining limitations. Linux/macOS packages remain future work.
 
 The AI-generated files in `assets/branding/` are **concept artwork**, not screenshots or the actual in-app character. The 512px PNG is used as the Android preview launcher icon, but it is not yet wired into the Windows executable or an Android adaptive icon. The wide banner should be labelled concept art when shown to users.
 

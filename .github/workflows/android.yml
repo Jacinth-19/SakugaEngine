@@ -97,4 +97,5 @@ jobs:
           path: |
             apk/android-preview.png
             apk/android-preview.mp4
+            apk/android-npcs.png
           if-no-files-found: error

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'echo "::error::Android emulator smoke failed at line $LINENO"' ERR
 adb install -r apk/Sakuga-Android-animation-preview-debug.apk
 adb logcat -c
 adb shell am start -W -n com.sakuga.preview/.MainActivity
@@ -29,8 +30,7 @@ if [[ $surface_probed != 1 ]]; then
 fi
 probe_line=$(grep -F 'surface probe finished:' /tmp/sakuga-android-log.txt | tail -1)
 echo "::notice::$probe_line"
-# Unlike the GPU-free unit suite, this is an application/emulator integration check. Exercise the real renderer when
-# the emulator supports it and explicitly report a fallback rather than counting it as a rendered frame.
+# Unlike the GPU-free unit suite, this application/emulator integration check requires the real renderer.
 renderer_result=''
 for i in $(seq 1 90); do
   adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
@@ -134,6 +134,7 @@ if [[ $renderer_result == presented ]]; then
     echo '::error::The sandbox did not load four NPCs and present a frame.'; exit 1
   fi
   echo '::notice::Loaded four NPCs and presented the MotionLab frame.'
+  adb exec-out screencap -p > apk/android-npcs.png
 fi
 echo 'Android emulator loaded two clips and dispatched a NEXT CLIP touch.'
 
