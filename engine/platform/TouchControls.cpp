@@ -31,10 +31,15 @@ void TouchControls::injectTouch(int id, float x, float y, bool down) {
     touches_.push_back(t);
 }
 
+void TouchControls::cancel() {
+    touches_.clear(); stick_ = lookDelta_ = glm::vec2(0);
+    for (bool& held : btnHeld_) held = false;
+}
+
 void TouchControls::apply(DeviceState& d) {
     stick_ = glm::vec2(0); lookDelta_ = glm::vec2(0);
     for (bool& h : btnHeld_) h = false;
-    if (!enabled) { touches_.clear(); return; }
+    if (!enabled) { cancel(); return; }
     float radius = 90.f * std::min(w_, h_) * 0.0014f * uiScale;
     for (auto& t : touches_) {
         if (t.role == Touch::Stick) { glm::vec2 v = (t.pos - stickBase_) / radius; float l = glm::length(v); if (l > 1.f) { stickBase_ += (v / l) * (l - 1.f) * radius; v /= l; } stick_ = glm::vec2(v.x, v.y); }

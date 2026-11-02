@@ -118,6 +118,12 @@ if(TARGET sakuga_imgui_core)
   target_link_libraries(ui_theme_test PRIVATE sakuga_headless sakuga_imgui_core)
   target_compile_definitions(ui_theme_test PRIVATE SAKUGA_ROOT="${SAKUGA_ROOT}")
   add_test(NAME ui_theme_test COMMAND ui_theme_test)
+
+  add_executable(touch_controls_test ${CMAKE_CURRENT_SOURCE_DIR}/touch_controls_test.cpp ${SAKUGA_ROOT}/engine/platform/TouchControls.cpp)
+  target_include_directories(touch_controls_test PRIVATE ${SAKUGA_ROOT}/third_party/glfw/include)
+  target_compile_definitions(touch_controls_test PRIVATE GLFW_INCLUDE_NONE)
+  target_link_libraries(touch_controls_test PRIVATE sakuga_headless sakuga_imgui_core)
+  add_test(NAME touch_controls_test COMMAND touch_controls_test)
 endif()
 
 # GPU-free tooling that reuses the same engine subset as the tests: it records what the matcher does frame by frame

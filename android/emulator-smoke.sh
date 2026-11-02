@@ -93,21 +93,28 @@ adb shell rm -f /sdcard/sakuga-preview.mp4
 adb shell screenrecord --time-limit 8 --size 1280x720 --bit-rate 1000000 /sdcard/sakuga-preview.mp4 &
 record_pid=$!
 sleep 1
-adb shell input tap "$((width * 90 / 100))" "$((height * 80 / 100))"
+if [[ $renderer_result == presented ]]; then
+  ui_target=$(grep -F 'sandbox next target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*sandbox next target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo '::error::Sandbox NEXT target was not reported.'; exit 1; fi
+  adb shell input tap "$ui_x" "$ui_y"
+else
+  adb shell input tap "$((width * 90 / 100))" "$((height * 80 / 100))"
+fi
 adb shell input swipe "$((width * 12 / 100))" "$((height * 75 / 100))" "$((width * 19 / 100))" "$((height * 63 / 100))" 1000
 wait "$record_pid"
 adb pull /sdcard/sakuga-preview.mp4 apk/android-preview.mp4 >/dev/null
 test -s apk/android-preview.mp4
 sleep 1
 adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
-if ! grep -q 'next clip requested' /tmp/sakuga-android-log.txt; then
-  echo '::error::The NEXT CLIP touch did not reach the native matcher.'; exit 1
+if [[ $renderer_result != presented ]] && ! grep -q 'next clip requested' /tmp/sakuga-android-log.txt; then
+  echo '::error::The fallback NEXT CLIP touch did not reach the native matcher.'; exit 1
 fi
 if [[ $renderer_result == presented ]]; then
   if ! grep -q 'sandbox movement reached the avatar' /tmp/sakuga-android-log.txt; then
     echo '::error::The on-screen stick did not move the sandbox avatar.'; exit 1
   fi
-  if ! grep -q 'sandbox clip selected 1' /tmp/sakuga-android-log.txt; then
+  if ! grep -q 'sandbox clip selected' /tmp/sakuga-android-log.txt; then
     echo '::error::The clip button did not update the sandbox avatar.'; exit 1
   fi
   echo '::notice::Touch input moved the sandbox avatar and selected a clip.'

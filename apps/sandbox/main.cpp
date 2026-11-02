@@ -172,7 +172,7 @@ public:
 #ifdef __ANDROID__
     bool initMobile(ANativeWindow* window, std::string& error);
     int frameMobile(float dt, float x, float y, int clip);
-    void touchMobile(int action, float x, float y);
+    void touchMobile(bool imgui, int action, int id, float x, float y);
 #endif
 
 private:
@@ -198,7 +198,6 @@ private:
 #ifdef __ANDROID__
     ANativeWindow* mobileWindow_ = nullptr;
     std::string mobileError_;
-    int mobileSelectedClip_ = -1;
     bool mobileLoggedControls_ = false, mobileLoggedMove_ = false;
 #endif
     struct Showcase { std::string name; std::vector<Entity*> entities; Entity* hero = nullptr; bool lab = false; };
@@ -1168,21 +1167,18 @@ bool Sandbox::initMobile(ANativeWindow* window, std::string& error) {
     if (!vrm_ || !vrm_->mm || !vrm_->mmDb) { error = "Sandbox avatar or motion library failed to load"; return false; }
     // Conservative starting values, editable in the mobile panel and the full sandbox UI.
     post_.bloom = false; light_.pointShadows = false; showUI_ = false; showFps_ = false;
+    touch_.enabled = true; touch_.setScreen((float)renderer_.width(), (float)renderer_.height());
     return true;
 }
 int Sandbox::frameMobile(float dt, float x, float y, int clip) {
     if (!std::isfinite(x) || !std::isfinite(y)) x = y = 0.f;
-    if (vrm_ && vrm_->mm && vrm_->mmDb && clip >= 0 && clip < (int)vrm_->mmDb->clipNames.size() && clip != mobileSelectedClip_) {
-        vrm_->mm->playClip(clip, vrm_->pos, vrm_->yaw); mobileSelectedClip_ = clip;
-        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox clip selected %d", clip);
-    }
-    DeviceState dev; dev.padConnected = true; dev.padCount = 1;
-    dev.padAxis[GLFW_GAMEPAD_AXIS_LEFT_X] = x;
-    dev.padAxis[GLFW_GAMEPAD_AXIS_LEFT_Y] = -y;
+    (void)x; (void)y; (void)clip;
+    touch_.setScreen((float)renderer_.width(), (float)renderer_.height());
+    DeviceState dev; touch_.apply(dev);
     input_.update(dev); handleActions(dt);
     const glm::vec3 previousPos = vrm_ ? vrm_->pos : glm::vec3(0);
     updateScene(dt);
-    if (!mobileLoggedMove_ && vrm_ && (std::fabs(x) + std::fabs(y) > .2f) && glm::length(vrm_->pos - previousPos) > 1e-5f) {
+    if (!mobileLoggedMove_ && vrm_ && glm::length(touch_.stick()) > .2f && glm::length(vrm_->pos - previousPos) > 1e-5f) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox movement reached the avatar"); mobileLoggedMove_ = true;
     }
     FrameInput fi = buildFrame(dt);
@@ -1193,7 +1189,17 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
     ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .34f, renderer_.height() * .42f), ImGuiCond_Always);
     ImGui::Begin("Sakuga mobile", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
     ImGui::TextUnformatted("Sandbox");
-    ImGui::Text("Clip: %d / %d", vrm_ && vrm_->mm ? vrm_->mm->debug.clip + 1 : 0, vrm_ && vrm_->mmDb ? (int)vrm_->mmDb->clipNames.size() : 0);
+    ImGui::Text("Clip %d/%d", vrm_ && vrm_->mm ? vrm_->mm->debug.clip + 1 : 0, vrm_ && vrm_->mmDb ? (int)vrm_->mmDb->clipNames.size() : 0);
+    ImGui::SameLine();
+    if (ImGui::Button("NEXT") && vrm_ && vrm_->mm && vrm_->mmDb && !vrm_->mmDb->clipNames.empty()) {
+        const int next = (std::max(-1, vrm_->mm->debug.clip) + 1) % (int)vrm_->mmDb->clipNames.size();
+        vrm_->mm->playClip(next, vrm_->pos, vrm_->yaw);
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox clip selected %d", next);
+    }
+    if (frame_ == 0) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox next target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+    }
     if (ImGui::Checkbox("Bloom", &post_.bloom)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "imgui bloom changed");
     if (!mobileLoggedControls_) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
@@ -1211,7 +1217,12 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
     ++frame_;
     return renderer_.renderFrame(fi) ? 1 : 0;
 }
-void Sandbox::touchMobile(int action, float x, float y) {
+void Sandbox::touchMobile(bool imgui, int action, int id, float x, float y) {
+    if (!imgui) {
+        if (action == 3) touch_.cancel();
+        else if (std::isfinite(x) && std::isfinite(y)) touch_.injectTouch(id, x, y, action != 2);
+        return;
+    }
     if (!renderer_.uiEnabled()) return;
     ImGuiIO& io = ImGui::GetIO(); io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
     if (action == 3) { io.AddMouseButtonEvent(0, false); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); return; }
@@ -1246,7 +1257,7 @@ int mobileSandboxFrame(MobileSandbox* m, float x, float y, int clip, std::string
         return m->sandbox->frameMobile(dt, x, y, clip);
     } catch (const std::exception& e) { error = e.what(); return -1; }
 }
-void mobileSandboxTouch(MobileSandbox* m, int action, float x, float y) { if (m && m->sandbox) m->sandbox->touchMobile(action, x, y); }
+void mobileSandboxTouch(MobileSandbox* m, bool imgui, int action, int id, float x, float y) { if (m && m->sandbox) m->sandbox->touchMobile(imgui, action, id, x, y); }
 void destroyMobileSandbox(MobileSandbox* m) { delete m; }
 }
 #endif

@@ -20,8 +20,8 @@ AndroidRenderSession* createAndroidRenderSession(ANativeWindow* window, const st
 int renderAndroidFrame(AndroidRenderSession* s, float x, float y, int clip, std::string& error) {
     return s && s->sandbox ? mobileSandboxFrame(s->sandbox, x, y, clip, error) : -1;
 }
-void touchAndroidRenderSession(AndroidRenderSession* s, int action, float x, float y) {
-    if (s && s->sandbox) mobileSandboxTouch(s->sandbox, action, x, y);
+void touchAndroidRenderSession(AndroidRenderSession* s, bool imgui, int action, int id, float x, float y) {
+    if (s && s->sandbox) mobileSandboxTouch(s->sandbox, imgui, action, id, x, y);
 }
 void destroyAndroidRenderSession(AndroidRenderSession* session) { delete session; }
 }

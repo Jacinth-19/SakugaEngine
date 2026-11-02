@@ -20,6 +20,7 @@ public:
 
     void setScreen(float w, float h) { w_ = w; h_ = h; }
     void injectTouch(int id, float x, float y, bool down);     // pixels, origin top-left
+    void cancel();                                            // release all pointers and virtual controls
     void apply(DeviceState& d);                                // merge into the device state (call once per frame, after injecting)
     void draw(ImDrawList* dl) const;                           // overlay (ImGui foreground list)
     bool anyActive() const { return !touches_.empty(); }
