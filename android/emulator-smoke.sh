@@ -46,6 +46,25 @@ elif [[ $renderer_result == unavailable ]]; then
 else
   echo '::error::Android renderer neither presented nor reported an incompatibility.'; exit 1
 fi
+# Android may show a one-time immersive-mode education dialog over the app on a fresh emulator.
+# Dismiss it by its accessibility label, not by blindly tapping a position in the app.
+adb shell uiautomator dump /sdcard/sakuga-window.xml >/dev/null 2>&1 || true
+adb shell cat /sdcard/sakuga-window.xml > /tmp/sakuga-window.xml 2>/dev/null || true
+if grep -q 'Viewing full screen' /tmp/sakuga-window.xml; then
+  read -r dialog_x dialog_y < <(python3 - <<'PYCODE'
+import re, xml.etree.ElementTree as ET
+root = ET.parse('/tmp/sakuga-window.xml').getroot()
+for node in root.iter():
+    if node.get('text') == 'Got it':
+        values = [int(x) for x in re.findall(r'\d+', node.get('bounds', ''))]
+        if len(values) == 4:
+            print((values[0] + values[2]) // 2, (values[1] + values[3]) // 2)
+            break
+PYCODE
+  )
+  if [[ -z ${dialog_x:-} || -z ${dialog_y:-} ]]; then echo '::error::Could not locate the Android fullscreen confirmation.'; exit 1; fi
+  adb shell input tap "$dialog_x" "$dialog_y"
+fi
 # Save an actual emulator screenshot and tap the NEXT CLIP region, using the captured dimensions.
 sleep 3
 adb exec-out screencap -p > apk/android-preview.png
@@ -74,7 +93,7 @@ if [[ $renderer_result == presented ]]; then
   done
   if [[ $ui_changed != 1 ]]; then
     adb exec-out screencap -p > apk/android-fail.png
-    while IFS= read -r line; do echo "::notice::$line"; done < <(grep -E 'imgui bloom target|touch route|surface dimensions' /tmp/sakuga-android-log.txt | tail -20)
+    while IFS= read -r line; do echo "::notice::$line"; done < <(grep -E 'imgui bloom target|touch route' /tmp/sakuga-android-log.txt | tail -20)
     echo '::error::Android ImGui checkbox did not respond to a tap.'; exit 1
   fi
   echo '::notice::Android ImGui checkbox responded to touch.'
