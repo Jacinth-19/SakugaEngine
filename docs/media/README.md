@@ -5,3 +5,5 @@
 - The banner under `assets/branding/` is AI-generated concept artwork, not an in-engine screenshot.
 
 Motion shown in the preview uses the bundled LAFAN1 samples by Ubisoft La Forge. LAFAN1 is CC BY-NC-ND 4.0; review its terms before redistributing data or footage.
+
+- `android_sandbox_editor.png` was captured on the x86_64 Android emulator using the real Vulkan sandbox (SwiftShader), on 2 November 2026, in [GitHub Actions run 41520145068](https://github.com/Jacinth-19/SakugaEngine/actions/runs/41520145068), commit `b537b6c`. It shows the mobile ImGui editor; it is not a screenshot from a physical phone. The same run submitted four lamp shadow maps (24 faces) at night, but the screenshot is not a quantitative shadow-quality test.

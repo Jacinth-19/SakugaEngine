@@ -47,13 +47,11 @@ These are existing desktop sandbox captures, not the illustrative banner above. 
 
 **Earlier desktop demos:** [Motion lab video](docs/demo_motion_lab.mp4) · [Motion matching video](docs/demo_motion_matching.mp4). These are previously committed footage, not new verification of the current Windows build.
 
-### Android emulator — animation preview
+### Android emulator — Vulkan sandbox
 
-![Android emulator screenshot of the skeleton animation preview](docs/media/android_preview.png)
+![Android Vulkan sandbox and ImGui editor on an emulator](docs/media/android_sandbox_editor.png)
 
-[Watch the Android emulator preview](docs/media/android_preview.mp4) · [Build and emulator test run](https://github.com/Jacinth-19/SakugaEngine/actions/runs/41331384579)
-
-Captured from the Android emulator on 1 November 2026. It shows the **two-clip synthetic-rig preview**, not the full mobile game or Vulkan renderer. The run checked startup and a touch on **Next Clip**; a physical Android device has not yet been tested. See [media provenance](docs/media/README.md).
+Captured from the x86_64 Android emulator using SwiftShader on 2 November 2026. The [build and emulator run](https://github.com/Jacinth-19/SakugaEngine/actions/runs/41520145068) checked editor input, avatar movement, clip selection, four point-light shadow maps, NPC loading and background/resume. This is not a physical-phone test. The [earlier Canvas-only preview](docs/media/android_preview.mp4) and its [provenance](docs/media/README.md) remain available.
 
 ## Explore
 
