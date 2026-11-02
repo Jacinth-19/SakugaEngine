@@ -10,13 +10,14 @@ list(FILTER ENGINE_SOURCES EXCLUDE REGEX "/platform/Window\\.cpp$")
 set(RN ${ROOT}/third_party/recastnavigation)
 file(GLOB RN_SOURCES CONFIGURE_DEPENDS ${RN}/Recast/Source/*.cpp ${RN}/Detour/Source/*.cpp ${RN}/DetourCrowd/Source/*.cpp)
 add_library(sakuga_mobile SHARED
-  jni.cpp MobileSession.cpp AndroidVulkanSurface.cpp AndroidContext.cpp AndroidRenderSession.cpp
+  jni.cpp MobileSession.cpp AndroidVulkanSurface.cpp AndroidContext.cpp AndroidRenderSession.cpp WindowAndroid.cpp
+  ${ROOT}/apps/sandbox/main.cpp ${ROOT}/apps/sandbox/MotionLab.cpp
   ${ENGINE_SOURCES} ${RN_SOURCES}
   ${ROOT}/third_party/imgui/imgui.cpp ${ROOT}/third_party/imgui/imgui_draw.cpp
-  ${ROOT}/third_party/imgui/imgui_tables.cpp ${ROOT}/third_party/imgui/imgui_widgets.cpp
+  ${ROOT}/third_party/imgui/imgui_tables.cpp ${ROOT}/third_party/imgui/imgui_widgets.cpp ${ROOT}/third_party/imgui/imgui_demo.cpp
   ${ROOT}/third_party/imgui/backends/imgui_impl_vulkan.cpp)
 target_include_directories(sakuga_mobile PRIVATE ${ROOT}/engine ${ROOT}/third_party ${ROOT}/third_party/glm
-  ${ROOT}/third_party/imgui ${ROOT}/third_party/glfw/include
+  ${ROOT}/third_party/imgui ${ROOT}/third_party/glfw/include ${ROOT}/android/native
   ${RN}/Recast/Include ${RN}/Detour/Include ${RN}/DetourCrowd/Include)
 target_compile_definitions(sakuga_mobile PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RADIANS GLM_ENABLE_EXPERIMENTAL
   VK_USE_PLATFORM_ANDROID_KHR GLFW_INCLUDE_NONE)

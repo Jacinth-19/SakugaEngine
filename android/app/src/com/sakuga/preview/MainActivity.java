@@ -128,7 +128,7 @@ public final class MainActivity extends Activity {
                                 android.util.Log.i("SakugaPreview", "engine renderer first frame presented");
                                 runOnUiThread(new Runnable() { @Override public void run() {
                                     if (!destroyed && generation == surfaceGeneration) {
-                                        preview.setVulkanActive(true); preview.setSurfaceStatus("Engine Vulkan scene • bundled VRM • 2 motion clips");
+                                        preview.setVulkanActive(true); preview.setSurfaceStatus("Engine sandbox • bundled VRM • 2 motion clips");
                                     }
                                 }});
                             }
@@ -164,7 +164,8 @@ public final class MainActivity extends Activity {
             try {
                 String[] names = {"walk1_subject1.bvh", "run1_subject2.bvh"};
                 String[] paths = new String[names.length];
-                File dir = new File(getFilesDir(), "motion");
+                File root = new File(getFilesDir(), "sandbox");
+                File dir = new File(root, "assets/motion");
                 if (!dir.exists() && !dir.mkdirs()) throw new IOException("Cannot create motion directory");
                 for (int i = 0; i < names.length; ++i) {
                     File out = new File(dir, names[i]);
@@ -175,10 +176,10 @@ public final class MainActivity extends Activity {
                     }
                     paths[i] = out.getAbsolutePath();
                 }
-                File model = new File(getFilesDir(), "AvatarSample.vrm");
-                try (InputStream in = getAssets().open("models/AvatarSample.vrm"); FileOutputStream dst = new FileOutputStream(model)) {
-                    byte[] buffer = new byte[32768]; int n; while ((n = in.read(buffer)) != -1) dst.write(buffer, 0, n);
-                }
+                copyAssetDirectory("models", new File(root, "assets/models"));
+                copyAssetDirectory("luts", new File(root, "assets/luts"));
+                copyAssetDirectory("config", new File(root, "config"));
+                File model = new File(root, "assets/models/AvatarSample.vrm");
                 handle = nativeCreate(paths);
                 if (handle == 0) error = "Could not load motion data. See Android logcat.";
                 else { modelPath = model.getAbsolutePath(); motionPaths = paths; }
@@ -190,6 +191,19 @@ public final class MainActivity extends Activity {
                 preview.setSession(result, message);
             }});
         }}, "motion-loader").start();
+    }
+    private void copyAssetDirectory(String assetDir, File dest) throws IOException {
+        if (!dest.exists() && !dest.mkdirs()) throw new IOException("Cannot create asset directory " + dest);
+        String[] names = getAssets().list(assetDir);
+        if (names == null) throw new IOException("Missing assets: " + assetDir);
+        for (String name : names) {
+            String path = assetDir + "/" + name;
+            String[] children = getAssets().list(path);
+            if (children != null && children.length > 0) copyAssetDirectory(path, new File(dest, name));
+            else try (InputStream in = getAssets().open(path); FileOutputStream out = new FileOutputStream(new File(dest, name))) {
+                byte[] buffer = new byte[32768]; int n; while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+            }
+        }
     }
     @Override protected void onResume() { super.onResume(); if (preview != null) preview.setRunning(true); }
     @Override protected void onPause() { if (preview != null) preview.setRunning(false); super.onPause(); }
@@ -234,7 +248,7 @@ public final class MainActivity extends Activity {
             super.onDraw(c); int w = getWidth(), h = getHeight();
             float margin = 18 * density;
             text(c, "SAKUGA  /  ANIMATION PREVIEW", margin, 28 * density, 17, Color.rgb(184,235,250));
-            text(c, vulkanActive ? "2 sample clips  •  bundled VRM  •  engine Vulkan scene" : "2 sample clips  •  synthetic rig  •  Canvas fallback", margin, 48 * density, 11, Color.LTGRAY);
+            text(c, vulkanActive ? "2 sample clips  •  bundled VRM  •  engine sandbox" : "2 sample clips  •  synthetic rig  •  Canvas fallback", margin, 48 * density, 11, Color.LTGRAY);
             if (handle == 0) { text(c, message == null ? "Loading..." : message, margin, h * .5f, 14, Color.WHITE); return; }
             long now = System.nanoTime(); float dt = lastNs == 0 ? 0 : (now - lastNs) / 1000000000f; lastNs = now;
             if (running) nativeUpdate(handle, dt, stickX, -stickY);
@@ -279,7 +293,7 @@ public final class MainActivity extends Activity {
             if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
                 int id = e.getPointerId(index); float x = e.getX(index), y = e.getY(index);
                 // The Vulkan settings panel owns the top-right region; the stick and clip button own the bottom.
-                if (vulkanActive && uiPointer == -1 && x >= getWidth() * .65f && y < getHeight() * .50f) {
+                if (vulkanActive && uiPointer == -1 && y < getHeight() * .50f && (x >= getWidth() * .65f || y < getHeight() * .42f)) {
                     uiPointer = id; uiTouches.add(new UiTouch(0, x, y));
                 } else touch(0, id, x, y);
             } else if (action == MotionEvent.ACTION_MOVE) {

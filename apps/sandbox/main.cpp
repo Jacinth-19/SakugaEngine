@@ -16,6 +16,12 @@
 #include "platform/TouchControls.h"
 #include "scene/Scene.h"
 #include "MotionLab.h"
+#ifdef __ANDROID__
+#include "MobileSandbox.h"
+#include <android/native_window.h>
+#include <android/log.h>
+#include <cfloat>
+#endif
 
 #include <GLFW/glfw3.h>
 #include <glm/gtc/constants.hpp>
@@ -163,6 +169,11 @@ public:
     bool init();
     void run();
     void shutdown();
+#ifdef __ANDROID__
+    bool initMobile(ANativeWindow* window, std::string& error);
+    int frameMobile(float dt, float x, float y, int clip);
+    void touchMobile(int action, float x, float y);
+#endif
 
 private:
     void loadAssets();
@@ -184,6 +195,12 @@ private:
 
     Options opt_; std::string root_, shaderDir_;
     Context ctx_; Renderer renderer_; Window window_; InputSystem input_; StyleTextures style_;
+#ifdef __ANDROID__
+    ANativeWindow* mobileWindow_ = nullptr;
+    std::string mobileError_;
+    int mobileSelectedClip_ = -1;
+    bool mobileLoggedControls_ = false;
+#endif
     struct Showcase { std::string name; std::vector<Entity*> entities; Entity* hero = nullptr; bool lab = false; };
     std::vector<std::unique_ptr<Entity>> entities_;
     std::vector<Showcase> showcases_;
@@ -221,11 +238,16 @@ private:
 
 bool Sandbox::init() {
     bool windowed = !opt_.headless;
+#ifdef __ANDROID__
+    if (!mobileWindow_ || !ctx_.initAndroid(mobileWindow_, mobileError_)) return false;
+    if (!renderer_.initAndroid(ctx_, mobileWindow_, ANativeWindow_getWidth(mobileWindow_), ANativeWindow_getHeight(mobileWindow_), shaderDir_)) return false;
+#else
     if (windowed) {
         if (!window_.create((int)opt_.width, (int)opt_.height, "Sakuga Engine - Sandbox")) return false;
     }
     if (!ctx_.init(windowed, opt_.validation)) return false;
     if (!renderer_.init(ctx_, windowed ? window_.handle() : nullptr, opt_.width, opt_.height, shaderDir_)) return false;
+#endif
     loadUiTheme();
     if (windowed && opt_.ui) renderer_.initUI(window_.handle(), uiTheme_, opt_.uiFont, opt_.uiFontSize);
     if (!input_.loadActions(root_ + "/config/InputSystem_Actions.inputactions.json")) return false;
@@ -252,7 +274,9 @@ bool Sandbox::init() {
 
     setShowcase(opt_.showcase < 0 ? (int)showcases_.size() - 1 : opt_.showcase);
     if (opt_.wet > 0) { rainOn_ = true; rain_ = opt_.wet; }
+#ifndef __ANDROID__
     if (windowed) { window_.setCursorCaptured(false); window_.loadGamepadMappings(root_ + "/config/gamecontrollerdb.txt"); touch_.enabled = opt_.touch; }
+#endif
     return true;
 }
 
@@ -289,6 +313,9 @@ void Sandbox::loadEnvironment(const std::string& path) {
 void Sandbox::loadAssets() {
     style_ = createStyleTextures(renderer_);
     GltfOptions go; go.outlines = opt_.outlines; go.bodyUnderMask = opt_.bodyMask ? 0.006f : 0.f;
+#ifdef __ANDROID__
+    go.maxTextureSize = 1024;
+#endif
     auto addEntity = [&](std::shared_ptr<Model> m, const char* name) -> Entity* {
         auto e = std::make_unique<Entity>(); e->name = name; e->init(std::move(m)); entities_.push_back(std::move(e)); return entities_.back().get();
     };
@@ -871,7 +898,12 @@ void Sandbox::drawUI() {
     drawUiThemeWindow();
     if (showImGuiDemo_) ImGui::ShowDemoWindow(&showImGuiDemo_);
     if (!showUI_) return;
+#ifdef __ANDROID__
+    ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x * .50f, ImGui::GetIO().DisplaySize.y * .48f), ImGuiCond_FirstUseEver);
+#else
     ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(430, 760), ImGuiCond_FirstUseEver);
+#endif
     ImGui::Begin("Sakuga Engine");
     ImGui::Text("%s | %.0f fps | %u draws | %u tris", ctx_.props.deviceName, fps_, renderer_.stats.drawCalls, renderer_.stats.triangles);
     ImGui::TextDisabled("Tab: mouse-look | F1: hide UI | F2: screenshot | F3: FPS | Esc: quit");
@@ -1014,6 +1046,7 @@ void Sandbox::drawUI() {
     ImGui::End();
 }
 
+#ifndef __ANDROID__
 void Sandbox::run() {
     auto last = std::chrono::steady_clock::now();
     std::vector<uint8_t> pixels;
@@ -1076,6 +1109,7 @@ void Sandbox::run() {
     }
 }
 
+#endif
 void Sandbox::shutdown() {
     if (opt_.headless && std::getenv("SAKUGA_DUMP"))
         for (Entity* e : showcases_[showcase_].entities) if (e->mm || e == vrm_) std::fprintf(stderr, "entity %-28s pos %6.2f %5.2f %6.2f yaw %5.1f vel %.2f mm frame %d clip %d cost %.2f armDelta %.2f hasLook %d\n", e->name.c_str(), e->pos.x, e->pos.y, e->pos.z, glm::degrees(e->yaw), glm::length(e->velocity), e->mm ? e->mm->debug.frame : -1, e->mm ? e->mm->debug.clip : -1, e->mm ? e->mm->debug.cost : 0.f, [&]{ int n = e->model->rig.bone(HumanBone::LUpperArm); return n < 0 ? -1.f : glm::degrees(glm::angle(glm::normalize(e->pose.r[n] * glm::inverse(e->model->rig.nodes[n].r)))); }(), (int)e->hasLookTarget);
@@ -1084,6 +1118,7 @@ void Sandbox::shutdown() {
     if (window_.handle()) window_.destroy();
 }
 
+#ifndef __ANDROID__
 static int touchSelfTest() {
     TouchControls t; t.enabled = true; t.setScreen(1280, 720); DeviceState d;
     t.injectTouch(1, 200, 500, true); t.apply(d); t.injectTouch(1, 290, 450, true);          // stick: drag right + up
@@ -1123,3 +1158,85 @@ int main(int argc, char** argv) {
     app.shutdown();
     return 0;
 }
+
+#endif // !__ANDROID__
+
+#ifdef __ANDROID__
+bool Sandbox::initMobile(ANativeWindow* window, std::string& error) {
+    mobileWindow_ = window;
+    if (!init()) { error = mobileError_.empty() ? "Sandbox initialization failed" : mobileError_; return false; }
+    if (!vrm_ || !vrm_->mm || !vrm_->mmDb) { error = "Sandbox avatar or motion library failed to load"; return false; }
+    // Conservative starting values, editable in the mobile panel and the full sandbox UI.
+    post_.bloom = false; light_.pointShadows = false; showUI_ = false; showFps_ = false;
+    return true;
+}
+int Sandbox::frameMobile(float dt, float x, float y, int clip) {
+    if (!std::isfinite(x) || !std::isfinite(y)) x = y = 0.f;
+    if (vrm_ && vrm_->mm && vrm_->mmDb && clip >= 0 && clip < (int)vrm_->mmDb->clipNames.size() && clip != mobileSelectedClip_) {
+        vrm_->mm->playClip(clip, vrm_->pos, vrm_->yaw); mobileSelectedClip_ = clip;
+    }
+    DeviceState dev; dev.padConnected = true; dev.padCount = 1;
+    dev.padAxis[GLFW_GAMEPAD_AXIS_LEFT_X] = x;
+    dev.padAxis[GLFW_GAMEPAD_AXIS_LEFT_Y] = -y;
+    input_.update(dev); handleActions(dt); updateScene(dt);
+    FrameInput fi = buildFrame(dt);
+    fps_ = glm::mix(fps_, 1.f / std::max(dt, 1e-4f), .05f);
+    drawUI();
+    const float density = opt_.uiFontSize / 14.f;
+    ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .65f, 10.f * density), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .34f, renderer_.height() * .42f), ImGuiCond_Always);
+    ImGui::Begin("Sakuga mobile", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::TextUnformatted("Sandbox");
+    ImGui::Text("Clip: %d / %d", vrm_ && vrm_->mm ? vrm_->mm->debug.clip + 1 : 0, vrm_ && vrm_->mmDb ? (int)vrm_->mmDb->clipNames.size() : 0);
+    if (ImGui::Checkbox("Bloom", &post_.bloom)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "imgui bloom changed");
+    if (!mobileLoggedControls_) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "imgui bloom target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
+        mobileLoggedControls_ = true;
+    }
+    ImGui::Checkbox("Point shadows", &light_.pointShadows);
+    ImGui::Checkbox("Sandbox editor", &showUI_);
+    ImGui::End();
+    // The UI changes are reflected on the next frame, as with desktop sandbox controls.
+    ++frame_;
+    return renderer_.renderFrame(fi) ? 1 : 0;
+}
+void Sandbox::touchMobile(int action, float x, float y) {
+    if (!renderer_.uiEnabled()) return;
+    ImGuiIO& io = ImGui::GetIO(); io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
+    if (action == 3) { io.AddMouseButtonEvent(0, false); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); return; }
+    if (!std::isfinite(x) || !std::isfinite(y)) return;
+    io.AddMousePosEvent(x, y);
+    if (action == 0) io.AddMouseButtonEvent(0, true);
+    else if (action == 2) io.AddMouseButtonEvent(0, false);
+}
+namespace sk {
+class MobileSandbox {
+public:
+    std::unique_ptr<Sandbox> sandbox;
+    std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+    ~MobileSandbox() { if (sandbox) { try { sandbox->shutdown(); } catch (...) {} } }
+};
+MobileSandbox* createMobileSandbox(ANativeWindow* window, const std::string& root, const std::string& shaders, float density, std::string& error) {
+    auto m = std::make_unique<MobileSandbox>();
+    try {
+        Options opt;
+        opt.npcs = false; opt.springs = false; opt.pointShadows = false; opt.mmCache = false;
+        opt.uiFontSize = 14.f * std::clamp(density, .75f, 4.f);
+        m->sandbox = std::make_unique<Sandbox>(opt, root, shaders);
+        if (!m->sandbox->initMobile(window, error)) return nullptr;
+        m->last = std::chrono::steady_clock::now(); return m.release();
+    } catch (const std::exception& e) { error = e.what(); return nullptr; }
+}
+int mobileSandboxFrame(MobileSandbox* m, float x, float y, int clip, std::string& error) {
+    if (!m || !m->sandbox) { error = "Sandbox unavailable"; return -1; }
+    try {
+        auto now = std::chrono::steady_clock::now();
+        float dt = std::clamp(std::chrono::duration<float>(now - m->last).count(), 1e-5f, .05f); m->last = now;
+        return m->sandbox->frameMobile(dt, x, y, clip);
+    } catch (const std::exception& e) { error = e.what(); return -1; }
+}
+void mobileSandboxTouch(MobileSandbox* m, int action, float x, float y) { if (m && m->sandbox) m->sandbox->touchMobile(action, x, y); }
+void destroyMobileSandbox(MobileSandbox* m) { delete m; }
+}
+#endif

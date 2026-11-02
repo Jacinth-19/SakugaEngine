@@ -68,8 +68,6 @@ jobs:
           if-no-files-found: error
 
   emulator-smoke:
-    permissions:
-      contents: write # temporary branch-scoped screenshot inspection
     needs: build-preview
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -100,12 +98,3 @@ jobs:
             apk/android-preview.png
             apk/android-preview.mp4
           if-no-files-found: error
-
-      - name: Temporary branch screenshot inspection
-        if: github.ref == 'refs/heads/arena/a13c5e34-sakugaengine'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 -c 'import base64,json; json.dump({"encoding":"base64","content":base64.b64encode(open("apk/android-preview.png","rb").read()).decode()},open("/tmp/sakuga-blob.json","w"))'
-          sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/blobs" --input /tmp/sakuga-blob.json --jq .sha)
-          echo "::notice::Temporary screenshot blob: $sha"
