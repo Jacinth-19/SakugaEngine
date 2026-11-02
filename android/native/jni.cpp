@@ -50,6 +50,9 @@ extern "C" JNIEXPORT jfloatArray JNICALL Java_com_sakuga_preview_MainActivity_na
     if (a) env->SetFloatArrayRegion(a, 0, static_cast<jsize>(joints.size()), joints.data());
     return a;
 }
+extern "C" JNIEXPORT jint JNICALL Java_com_sakuga_preview_MainActivity_nativeClipIndex(JNIEnv*, jclass, jlong h) {
+    return h ? session(h)->clipIndex() : -1;
+}
 extern "C" JNIEXPORT jstring JNICALL Java_com_sakuga_preview_MainActivity_nativeInfo(JNIEnv* env, jclass, jlong h) {
     if (!h) return env->NewStringUTF("Loading");
     auto* s = session(h);
@@ -78,9 +81,9 @@ struct RendererHandle {
 thread_local std::string rendererError;
 RendererHandle* renderer(jlong h) { return reinterpret_cast<RendererHandle*>(static_cast<intptr_t>(h)); }
 }
-extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererCreate(JNIEnv* env, jclass, jobject surface, jstring shaderDir) {
+extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererCreate(JNIEnv* env, jclass, jobject surface, jstring shaderDir, jstring modelPath, jobjectArray motionPaths) {
     rendererError.clear();
-    if (!surface || !shaderDir) { rendererError = "Surface or shaders unavailable"; return 0; }
+    if (!surface || !shaderDir || !modelPath || !motionPaths) { rendererError = "Surface or assets unavailable"; return 0; }
     try {
         auto h = std::make_unique<RendererHandle>();
         h->window = ANativeWindow_fromSurface(env, surface);
@@ -88,18 +91,26 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeRe
         const char* path = env->GetStringUTFChars(shaderDir, nullptr);
         if (!path) { rendererError = "Shader path unavailable"; return 0; }
         std::string directory(path); env->ReleaseStringUTFChars(shaderDir, path);
-        h->session = sk::createAndroidRenderSession(h->window, directory, rendererError);
+        path = env->GetStringUTFChars(modelPath, nullptr);
+        if (!path) { rendererError = "Model path unavailable"; return 0; }
+        std::string model(path); env->ReleaseStringUTFChars(modelPath, path);
+        std::vector<std::string> motion;
+        for (jsize i = 0, n = env->GetArrayLength(motionPaths); i < n; ++i) {
+            auto str = static_cast<jstring>(env->GetObjectArrayElement(motionPaths, i));
+            if (!str) { rendererError = "Motion path unavailable"; return 0; }
+            const char* value = env->GetStringUTFChars(str, nullptr);
+            if (!value) { env->DeleteLocalRef(str); rendererError = "Motion path unavailable"; return 0; }
+            motion.emplace_back(value); env->ReleaseStringUTFChars(str, value); env->DeleteLocalRef(str);
+        }
+        h->session = sk::createAndroidRenderSession(h->window, directory, model, motion, rendererError);
         if (!h->session) { __android_log_print(ANDROID_LOG_WARN, tag, "renderer unavailable: %s", rendererError.c_str()); return 0; }
         __android_log_print(ANDROID_LOG_INFO, tag, "engine renderer initialized");
         return static_cast<jlong>(reinterpret_cast<intptr_t>(h.release()));
     } catch (const std::exception& e) { rendererError = e.what(); return 0; }
 }
-extern "C" JNIEXPORT jint JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererFrame(JNIEnv* env, jclass, jlong handle, jfloatArray joints) {
+extern "C" JNIEXPORT jint JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererFrame(JNIEnv*, jclass, jlong handle, jfloat x, jfloat y, jint clip) {
     auto* h = renderer(handle); if (!h) return -1;
-    float data[66]; int count = 0;
-    if (joints && env->GetArrayLength(joints) >= 66) { env->GetFloatArrayRegion(joints, 0, 66, data); count = 66; }
-    if (env->ExceptionCheck()) return -1;
-    return sk::renderAndroidFrame(h->session, data, count, rendererError);
+    return sk::renderAndroidFrame(h->session, x, y, clip, rendererError);
 }
 extern "C" JNIEXPORT jstring JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererError(JNIEnv* env, jclass) {
     return env->NewStringUTF(rendererError.c_str());

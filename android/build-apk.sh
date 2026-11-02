@@ -16,21 +16,18 @@ for cmd in cmake ninja javac keytool zip unzip; do command -v "$cmd" >/dev/null 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 OUT=${1:-"$ROOT/android/output"}
-mkdir -p "$OUT" "$WORK/res/drawable-nodpi" "$WORK/assets/motion" "$WORK/assets/controls" "$WORK/assets/shaders" "$WORK/classes" "$WORK/stage"
+mkdir -p "$OUT" "$WORK/res/drawable-nodpi" "$WORK/assets/motion" "$WORK/assets/controls" "$WORK/assets/shaders" "$WORK/assets/models" "$WORK/classes" "$WORK/stage"
 OUT=$(cd "$OUT" && pwd)
 cp -R "$ROOT/android/app/res/values" "$WORK/res/"
 cp "$ROOT/assets/branding/sakuga_icon_512.png" "$WORK/res/drawable-nodpi/sakuga_icon.png"
 cp "$ROOT/assets/motion/walk1_subject1.bvh" "$ROOT/assets/motion/run1_subject2.bvh" "$WORK/assets/motion/"
 cp "$ROOT"/shaders/spv/*.spv "$WORK/assets/shaders/"
+cp "$ROOT/assets/models/AvatarSample.vrm" "$WORK/assets/models/"
 cp "$ROOT/assets/ui/touch/joystick_base.png" "$ROOT/assets/ui/touch/joystick_knob.png" "$WORK/assets/controls/"
 for abi in arm64-v8a x86_64; do
-  # Porting check: compile (but do not link or run) desktop engine sources once for ARM.
-  compilecheck=OFF
-  if [[ "$abi" == arm64-v8a ]]; then compilecheck=ON; fi
   cmake -S "$ROOT/android/native" -B "$WORK/build-$abi" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
-    -DANDROID_ABI="$abi" -DANDROID_PLATFORM=android-26 -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release \
-    -DSAKUGA_ANDROID_COMPILE_DESKTOP_SOURCES="$compilecheck"
+    -DANDROID_ABI="$abi" -DANDROID_PLATFORM=android-26 -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release
   cmake --build "$WORK/build-$abi" --parallel 2
   mkdir -p "$WORK/stage/lib/$abi"
   cp "$WORK/build-$abi/libsakuga_mobile.so" "$WORK/stage/lib/$abi/"
@@ -53,7 +50,7 @@ unzip -tq "$APK"
 "$BT/aapt" dump badging "$APK" > "$WORK/badging.txt"
 grep -F "package: name='com.sakuga.preview'" "$WORK/badging.txt"
 unzip -Z1 "$APK" > "$WORK/filelist.txt"
-for path in lib/arm64-v8a/libsakuga_mobile.so lib/x86_64/libsakuga_mobile.so assets/motion/walk1_subject1.bvh assets/motion/run1_subject2.bvh classes.dex; do
+for path in lib/arm64-v8a/libsakuga_mobile.so lib/x86_64/libsakuga_mobile.so assets/motion/walk1_subject1.bvh assets/motion/run1_subject2.bvh assets/models/AvatarSample.vrm assets/shaders/toon.vert.spv classes.dex; do
   grep -Fx "$path" "$WORK/filelist.txt" >/dev/null || { echo "APK missing $path" >&2; exit 1; }
 done
 (cd "$OUT" && sha256sum "$(basename "$APK")" > SHA256SUMS.txt)

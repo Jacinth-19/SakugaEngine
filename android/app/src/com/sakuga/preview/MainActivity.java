@@ -19,7 +19,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.IOException;
 
-/** Animation-only Android preview: real native matcher, synthetic rig, Canvas visualization. */
+/** Experimental Android scene with a Canvas animation fallback. Not the complete desktop sandbox. */
 public final class MainActivity extends Activity {
     static { System.loadLibrary("sakuga_mobile"); }
     private static native long nativeCreate(String[] paths);
@@ -30,16 +30,21 @@ public final class MainActivity extends Activity {
                                                float width, float height, float density);
     private static native float[] nativeJoints(long handle);
     private static native String nativeInfo(long handle);
+    private static native int nativeClipIndex(long handle);
     private static native String nativeProbeSurface(Surface surface);
-    private static native long nativeRendererCreate(Surface surface, String shaderDir);
-    private static native int nativeRendererFrame(long renderer, float[] joints);
+    private static native long nativeRendererCreate(Surface surface, String shaderDir, String modelPath, String[] motionPaths);
+    private static native int nativeRendererFrame(long renderer, float x, float y, int clip);
     private static native String nativeRendererError();
     private static native void nativeRendererDestroy(long renderer);
     private volatile boolean destroyed;
     private int surfaceGeneration;
     private volatile boolean surfaceLive;
     private Thread surfaceThread;
-    private volatile float[] renderJoints;
+    private volatile String[] motionPaths;
+    private volatile String modelPath;
+    private volatile boolean assetsFailed;
+    private volatile float renderMoveX, renderMoveY;
+    private volatile int renderClip = -1;
     private String shaderDir;
     private final Object surfaceLock = new Object();
     private PreviewView preview;
@@ -59,8 +64,7 @@ public final class MainActivity extends Activity {
             }
             shaderDir = dir.getAbsolutePath();
         } catch (IOException e) { shaderDir = null; preview.setSurfaceStatus("Shader setup failed: " + e.getMessage()); }
-        // The SurfaceView is underneath the animation preview. It gives the native Vulkan port an actual Android
-        // surface to probe without pretending the production renderer is already running.
+        // The SurfaceView is underneath the touch overlay and the fallback Canvas preview.
         FrameLayout layout = new FrameLayout(this);
         SurfaceView surfaceView = new SurfaceView(this);
         surfaceView.getHolder().addCallback(new SurfaceHolder.Callback() {
@@ -76,7 +80,14 @@ public final class MainActivity extends Activity {
                         synchronized (surfaceLock) {
                             if (!surfaceLive || generation != surfaceGeneration) return;
                             status = surface.isValid() ? nativeProbeSurface(surface) : "Android surface unavailable";
-                            if (surface.isValid() && shaderDir != null) renderer = nativeRendererCreate(surface, shaderDir);
+                        }
+                        while (surfaceLive && !destroyed && motionPaths == null && !assetsFailed) {
+                            try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                        }
+                        synchronized (surfaceLock) {
+                            if (!surfaceLive || generation != surfaceGeneration) return;
+                            if (surface.isValid() && shaderDir != null && motionPaths != null && modelPath != null)
+                                renderer = nativeRendererCreate(surface, shaderDir, modelPath, motionPaths);
                         }
                         if (renderer == 0) {
                             final String failure = shaderDir == null ? "Shaders unavailable" : nativeRendererError();
@@ -91,7 +102,7 @@ public final class MainActivity extends Activity {
                             int frameResult;
                             synchronized (surfaceLock) {
                                 if (!surfaceLive || generation != surfaceGeneration) break;
-                                frameResult = nativeRendererFrame(renderer, renderJoints);
+                                frameResult = nativeRendererFrame(renderer, renderMoveX, renderMoveY, renderClip);
                             }
                             if (frameResult < 0) {
                                 final String failure = nativeRendererError();
@@ -107,10 +118,11 @@ public final class MainActivity extends Activity {
                                 android.util.Log.i("SakugaPreview", "engine renderer first frame presented");
                                 runOnUiThread(new Runnable() { @Override public void run() {
                                     if (!destroyed && generation == surfaceGeneration) {
-                                        preview.setVulkanActive(true); preview.setSurfaceStatus("Engine Vulkan scene (synthetic rig)");
+                                        preview.setVulkanActive(true); preview.setSurfaceStatus("Engine Vulkan scene • bundled VRM • 2 motion clips");
                                     }
                                 }});
                             }
+                            try { Thread.sleep(16); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
                         }
                     } finally {
                         if (renderer != 0) nativeRendererDestroy(renderer);
@@ -148,9 +160,15 @@ public final class MainActivity extends Activity {
                     }
                     paths[i] = out.getAbsolutePath();
                 }
+                File model = new File(getFilesDir(), "AvatarSample.vrm");
+                try (InputStream in = getAssets().open("models/AvatarSample.vrm"); FileOutputStream dst = new FileOutputStream(model)) {
+                    byte[] buffer = new byte[32768]; int n; while ((n = in.read(buffer)) != -1) dst.write(buffer, 0, n);
+                }
                 handle = nativeCreate(paths);
                 if (handle == 0) error = "Could not load motion data. See Android logcat.";
+                else { modelPath = model.getAbsolutePath(); motionPaths = paths; }
             } catch (Exception e) { error = "Could not start preview: " + e.getMessage(); }
+            if (handle == 0) assetsFailed = true;
             final long result = handle; final String message = error;
             runOnUiThread(new Runnable() { @Override public void run() {
                 if (destroyed) { if (result != 0) nativeDestroy(result); return; }
@@ -197,12 +215,12 @@ public final class MainActivity extends Activity {
             super.onDraw(c); int w = getWidth(), h = getHeight();
             float margin = 18 * density;
             text(c, "SAKUGA  /  ANIMATION PREVIEW", margin, 28 * density, 17, Color.rgb(184,235,250));
-            text(c, vulkanActive ? "2 sample clips  •  synthetic rig  •  engine Vulkan scene" : "2 sample clips  •  synthetic rig  •  Canvas fallback", margin, 48 * density, 11, Color.LTGRAY);
+            text(c, vulkanActive ? "2 sample clips  •  bundled VRM  •  engine Vulkan scene" : "2 sample clips  •  synthetic rig  •  Canvas fallback", margin, 48 * density, 11, Color.LTGRAY);
             if (handle == 0) { text(c, message == null ? "Loading..." : message, margin, h * .5f, 14, Color.WHITE); return; }
             long now = System.nanoTime(); float dt = lastNs == 0 ? 0 : (now - lastNs) / 1000000000f; lastNs = now;
             if (running) nativeUpdate(handle, dt, stickX, -stickY);
             float[] j = nativeJoints(handle);
-            renderJoints = j;
+            renderClip = nativeClipIndex(handle);
             if (!vulkanActive && j != null && j.length == 66) {
                 float scale = Math.min(h * .38f, w * .20f), centerX = w * .5f, bottomY = h * .85f;
                 paint.setColor(Color.rgb(86,207,241)); paint.setStrokeWidth(Math.max(3, 2.5f * density)); paint.setStyle(Paint.Style.STROKE);
@@ -231,7 +249,7 @@ public final class MainActivity extends Activity {
         private void touch(int action, int id, float x, float y) {
             if (handle == 0) return;
             float[] position = nativeTouch(handle, action, id, x, y, getWidth(), getHeight(), density);
-            if (position != null && position.length == 2) { stickX = position[0]; stickY = position[1]; }
+            if (position != null && position.length == 2) { stickX = position[0]; stickY = position[1]; renderMoveX = stickX; renderMoveY = -stickY; }
         }
         @Override public boolean onTouchEvent(MotionEvent e) {
             int action = e.getActionMasked(), index = e.getActionIndex();

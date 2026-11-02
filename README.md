@@ -77,7 +77,7 @@ On Windows, use a Bash environment such as Git Bash. The script belongs to the *
 | Platform | Status |
 | :--- | :--- |
 | **Windows x64** | Preview installer and portable archive; CI build and GPU-free smoke tests pass. Real-device visual testing remains. |
-| **Android** | An **experimental animation-only debug APK** is built by GitHub Actions; see the [Android notes](docs/ANDROID_AND_DIAGNOSTICS.md). It is not the full Vulkan/VRM desktop sandbox and is not a production release. |
+| **Android** | An **experimental Android debug APK** includes a small engine-rendered VRM scene on compatible Vulkan devices and a Canvas fallback; see the [Android notes](docs/ANDROID_AND_DIAGNOSTICS.md). It is not the full desktop sandbox or a production release. |
 | **Linux** | Source build exists; no release package is provided yet. |
 | **macOS** | No release package or verified build is provided yet. |
 
