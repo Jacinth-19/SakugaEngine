@@ -118,6 +118,22 @@ if [[ $renderer_result == presented ]]; then
     echo '::error::The clip button did not update the sandbox avatar.'; exit 1
   fi
   echo '::notice::Touch input moved the sandbox avatar and selected a clip.'
+  ui_target=$(grep -F 'sandbox npcs target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*sandbox npcs target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo '::error::NPC button target was not reported.'; exit 1; fi
+  adb shell input tap "$ui_x" "$ui_y"
+  npc_frame=0
+  for i in $(seq 1 90); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'sandbox npcs frame presented' /tmp/sakuga-android-log.txt; then npc_frame=1; break; fi
+    if grep -q 'renderer unavailable:' /tmp/sakuga-android-log.txt; then break; fi
+    sleep 2
+  done
+  if [[ $npc_frame != 1 ]] || ! grep -q 'sandbox npcs loaded 4' /tmp/sakuga-android-log.txt; then
+    adb logcat -d -s SakugaPreview:V AndroidRuntime:E '*:S' | tail -80
+    echo '::error::The sandbox did not load four NPCs and present a frame.'; exit 1
+  fi
+  echo '::notice::Loaded four NPCs and presented the MotionLab frame.'
 fi
 echo 'Android emulator loaded two clips and dispatched a NEXT CLIP touch.'
 

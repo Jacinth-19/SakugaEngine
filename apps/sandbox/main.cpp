@@ -176,7 +176,10 @@ public:
 #endif
 
 private:
+    struct Showcase;
     void loadAssets();
+    void loadNpcModels();
+    void spawnNpcs(Showcase& sc);
     void loadEnvironment(const std::string& path);
     void buildLab();
     void buildMotionLab();
@@ -199,6 +202,7 @@ private:
     ANativeWindow* mobileWindow_ = nullptr;
     std::string mobileError_;
     bool mobileLoggedControls_ = false, mobileLoggedMove_ = false;
+    bool mobileLoadNpcs_ = false, mobileNpcsRequested_ = false, mobileNpcsPendingFrame_ = false;
 #endif
     struct Showcase { std::string name; std::vector<Entity*> entities; Entity* hero = nullptr; bool lab = false; };
     std::vector<std::unique_ptr<Entity>> entities_;
@@ -383,13 +387,23 @@ void Sandbox::loadAssets() {
             if (!m->clips.empty()) e->clip = std::min<int>(p.clip, (int)m->clips.size() - 1);
         }
     }
-    // NPC characters (other VRM models: Seed-san = VRM 1.0 without eye bones, three-vrm-girl = VRM 0.x)
-    if (vrm_ && vrm_->mm && opt_.npcs)
-        for (const char* f : {"Seed-san.vrm", "three-vrm-girl.vrm"}) {
-            std::string path = root_ + "/assets/models/" + f;
-            if (!fs::exists(path)) continue;
-            if (std::shared_ptr<Model> m = loadGltfModel(renderer_, style_, path, go)) { if (m->rig.isHumanoid()) npcModels_.push_back(m); else SK_WARN("%s: no humanoid rig, skipped", f); }
+    if (opt_.npcs) loadNpcModels();
+}
+
+void Sandbox::loadNpcModels() {
+    if (!vrm_ || !vrm_->mm || !npcModels_.empty()) return;
+    GltfOptions go; go.outlines = opt_.outlines; go.bodyUnderMask = opt_.bodyMask ? 0.006f : 0.f;
+#ifdef __ANDROID__
+    go.maxTextureSize = 1024;
+#endif
+    for (const char* f : {"Seed-san.vrm", "three-vrm-girl.vrm"}) {
+        std::string path = root_ + "/assets/models/" + f;
+        if (!fs::exists(path)) continue;
+        if (std::shared_ptr<Model> m = loadGltfModel(renderer_, style_, path, go)) {
+            if (m->rig.isHumanoid()) npcModels_.push_back(m);
+            else SK_WARN("%s: no humanoid rig, skipped", f);
         }
+    }
 }
 
 void Sandbox::buildLab() {
@@ -452,6 +466,13 @@ void Sandbox::buildMotionLab() {
     lab_.build(renderer_, style_, opt_.outlines, add);
     Showcase sc{"Motion lab (world, NPCs, navmesh)", {ground_, vrm_}, vrm_, true};
     for (Entity* e : lab_.visuals) sc.entities.push_back(e);
+    spawnNpcs(sc);
+    showcases_.push_back(sc);
+}
+
+void Sandbox::spawnNpcs(Showcase& sc) {
+    auto add = [&](std::shared_ptr<Model> m, const char* name) -> Entity* {
+        auto e = std::make_unique<Entity>(); e->name = name; e->init(std::move(m)); entities_.push_back(std::move(e)); return entities_.back().get(); };
     if (vrm_->mm && lab_.navReady && !npcModels_.empty()) {
         struct Spec { int model; const char* name; Npc::Mode mode; glm::vec3 pos; float side; };
         const Spec specs[] = {{0, "NPC Seed-san (follows)", Npc::Follow, {-2.5f, 0, -3.f}, 1.f}, {1, "NPC Girl (follows)", Npc::Follow, {2.5f, 0, -3.f}, -1.f},
@@ -470,7 +491,6 @@ void Sandbox::buildMotionLab() {
             sc.entities.push_back(e);
         }
     }
-    showcases_.push_back(sc);
 }
 
 void Sandbox::setShowcase(int idx) {
@@ -1173,6 +1193,14 @@ bool Sandbox::initMobile(ANativeWindow* window, std::string& error) {
 int Sandbox::frameMobile(float dt, float x, float y, int clip) {
     if (!std::isfinite(x) || !std::isfinite(y)) x = y = 0.f;
     (void)x; (void)y; (void)clip;
+    if (mobileLoadNpcs_) {
+        mobileLoadNpcs_ = false;
+        loadNpcModels();
+        for (Showcase& sc : showcases_) if (sc.lab) { spawnNpcs(sc); break; }
+        setShowcase(showcase_);
+        mobileNpcsPendingFrame_ = !lab_.npcs.empty();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox npcs loaded %zu", lab_.npcs.size());
+    }
     touch_.setScreen((float)renderer_.width(), (float)renderer_.height());
     DeviceState dev; touch_.apply(dev);
     input_.update(dev); handleActions(dt);
@@ -1186,7 +1214,7 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
     drawUI();
     const float density = opt_.uiFontSize / 14.f;
     ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .65f, 10.f * density), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .34f, renderer_.height() * .42f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .34f, renderer_.height() * .48f), ImGuiCond_Always);
     ImGui::Begin("Sakuga mobile", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
     ImGui::TextUnformatted("Sandbox");
     ImGui::Text("Clip %d/%d", vrm_ && vrm_->mm ? vrm_->mm->debug.clip + 1 : 0, vrm_ && vrm_->mmDb ? (int)vrm_->mmDb->clipNames.size() : 0);
@@ -1206,16 +1234,27 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "imgui bloom target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
         mobileLoggedControls_ = true;
     }
-    ImGui::Checkbox("Point shadows", &light_.pointShadows);
+    ImGui::Checkbox("Point shadows", &opt_.pointShadows);
     if (ImGui::Checkbox("Sandbox editor", &showUI_)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor toggled");
     if (frame_ == 0) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
     }
+    if (!mobileNpcsRequested_) {
+        if (ImGui::Button("Load NPCs")) { mobileNpcsRequested_ = true; mobileLoadNpcs_ = true; }
+        if (frame_ == 0) {
+            ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox npcs target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+        }
+    } else ImGui::TextUnformatted("NPCs requested");
     ImGui::End();
     // The UI changes are reflected on the next frame, as with desktop sandbox controls.
     ++frame_;
-    return renderer_.renderFrame(fi) ? 1 : 0;
+    bool rendered = renderer_.renderFrame(fi);
+    if (rendered && mobileNpcsPendingFrame_) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox npcs frame presented"); mobileNpcsPendingFrame_ = false;
+    }
+    return rendered ? 1 : 0;
 }
 void Sandbox::touchMobile(bool imgui, int action, int id, float x, float y) {
     if (!imgui) {

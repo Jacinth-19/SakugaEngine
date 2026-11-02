@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a debug-signed, animation-only Android preview using the installed Android SDK and NDK.
+# Build a debug-signed experimental Android sandbox using the installed Android SDK and NDK.
 # No Gradle plugins or downloaded runtime libraries: Java and the native animation engine are built from this checkout.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -22,7 +22,7 @@ cp -R "$ROOT/android/app/res/values" "$WORK/res/"
 cp "$ROOT/assets/branding/sakuga_icon_512.png" "$WORK/res/drawable-nodpi/sakuga_icon.png"
 cp "$ROOT/assets/motion/walk1_subject1.bvh" "$ROOT/assets/motion/run1_subject2.bvh" "$WORK/assets/motion/"
 cp "$ROOT"/shaders/spv/*.spv "$WORK/assets/shaders/"
-cp "$ROOT/assets/models/AvatarSample.vrm" "$ROOT/assets/models/Fox.glb" "$ROOT/assets/models/CesiumMan.glb" "$WORK/assets/models/"
+cp "$ROOT/assets/models/AvatarSample.vrm" "$ROOT/assets/models/Seed-san.vrm" "$ROOT/assets/models/three-vrm-girl.vrm" "$ROOT/assets/models/Fox.glb" "$ROOT/assets/models/CesiumMan.glb" "$WORK/assets/models/"
 cp -R "$ROOT/assets/luts/." "$WORK/assets/luts/"
 cp -R "$ROOT/config/." "$WORK/assets/config/"
 cp "$ROOT/assets/ui/touch/joystick_base.png" "$ROOT/assets/ui/touch/joystick_knob.png" "$WORK/assets/controls/"
@@ -40,7 +40,7 @@ mapfile -t CLASSES < <(find "$WORK/classes" -name '*.class' -type f | sort)
 "$BT/aapt" package -f -M "$ROOT/android/app/AndroidManifest.xml" -S "$WORK/res" -A "$WORK/assets" -I "$JAR" -F "$WORK/unsigned.apk"
 (cd "$WORK/stage" && zip -q -0 "$WORK/unsigned.apk" classes.dex && zip -qr -0 "$WORK/unsigned.apk" lib)
 "$BT/zipalign" -f -p 4 "$WORK/unsigned.apk" "$WORK/aligned.apk"
-# Owner signing only changes the APK identity; this remains an experimental animation preview, not the full app.
+# Owner signing only changes the APK identity; the sandbox remains experimental.
 case "${SAKUGA_ANDROID_SIGNING_MODE:-debug}" in
   debug) APK="$OUT/Sakuga-Android-animation-preview-debug.apk" ;;
   owner) APK="$OUT/Sakuga-Android-animation-preview-owner-signed.apk" ;;
@@ -52,7 +52,7 @@ unzip -tq "$APK"
 "$BT/aapt" dump badging "$APK" > "$WORK/badging.txt"
 grep -F "package: name='com.sakuga.preview'" "$WORK/badging.txt"
 unzip -Z1 "$APK" > "$WORK/filelist.txt"
-for path in lib/arm64-v8a/libsakuga_mobile.so lib/x86_64/libsakuga_mobile.so assets/motion/walk1_subject1.bvh assets/motion/run1_subject2.bvh assets/models/AvatarSample.vrm assets/shaders/toon.vert.spv classes.dex; do
+for path in lib/arm64-v8a/libsakuga_mobile.so lib/x86_64/libsakuga_mobile.so assets/motion/walk1_subject1.bvh assets/motion/run1_subject2.bvh assets/models/AvatarSample.vrm assets/models/Seed-san.vrm assets/models/three-vrm-girl.vrm assets/shaders/toon.vert.spv classes.dex; do
   grep -Fx "$path" "$WORK/filelist.txt" >/dev/null || { echo "APK missing $path" >&2; exit 1; }
 done
 (cd "$OUT" && sha256sum "$(basename "$APK")" > SHA256SUMS.txt)
