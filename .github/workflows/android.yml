@@ -106,5 +106,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/blobs" -f encoding=base64 -f content="$(base64 -w 0 apk/android-preview.png)" --jq .sha)
+          python3 -c 'import base64,json; json.dump({"encoding":"base64","content":base64.b64encode(open("apk/android-preview.png","rb").read()).decode()},open("/tmp/sakuga-blob.json","w"))'
+          sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/blobs" --input /tmp/sakuga-blob.json --jq .sha)
           echo "::notice::Temporary screenshot blob: $sha"
