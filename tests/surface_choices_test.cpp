@@ -6,6 +6,8 @@ int main() {
     CHECK(sk::preferredSampleCount(7, 3) == 2);
     CHECK(sk::preferredSampleCount(5, 3) == 1);
     CHECK(sk::preferredSampleCount(4, 2) == 0);
+    CHECK(sk::preferredSurfaceTransform(15, 2) == 1);
+    CHECK(sk::preferredSurfaceTransform(2, 2) == 2);
     CHECK(sk::preferredCompositeAlpha(15) == 1);
     CHECK(sk::preferredCompositeAlpha(14) == 2);
     CHECK(sk::preferredCompositeAlpha(12) == 4);

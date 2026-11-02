@@ -12,6 +12,10 @@ inline uint32_t preferredSampleCount(uint32_t colorCounts, uint32_t depthCounts)
     if (both & 1u) return 1u;
     return 0;
 }
+inline uint32_t preferredSurfaceTransform(uint32_t supported, uint32_t current) {
+    // Identity lets the Android compositor perform its orientation transform; otherwise use the required transform.
+    return (supported & 1u) ? 1u : current;
+}
 inline uint32_t preferredCompositeAlpha(uint32_t supported) {
     for (uint32_t mode : {1u, 2u, 4u, 8u}) if (supported & mode) return mode;
     return 0;

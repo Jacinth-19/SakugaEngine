@@ -170,6 +170,7 @@ private:
     ANativeWindow* androidWindow_ = nullptr; // borrowed; lifetime is owned by the caller
 #endif
     uint32_t width_ = 0, height_ = 0;
+    int surfaceWidth_ = 0, surfaceHeight_ = 0;
     bool ui_ = false, uiVisible_ = true, uiFrameOpen_ = false;
     UiTheme uiTheme_;
 

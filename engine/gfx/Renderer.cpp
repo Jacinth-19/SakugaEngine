@@ -6,6 +6,7 @@
 #include <GLFW/glfw3.h>
 #else
 #include <android/native_window.h>
+#include <android/log.h>
 #endif
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>
@@ -225,6 +226,7 @@ void Renderer::createSwapchain() {
     for (auto& f : fmts) if (f.format == VK_FORMAT_B8G8R8A8_UNORM || f.format == VK_FORMAT_R8G8B8A8_UNORM) { chosen = f; break; }
     swapFormat_ = chosen.format;
     int fw, fh; framebufferSize(fw, fh);
+    surfaceWidth_ = fw; surfaceHeight_ = fh;
     VkExtent2D ext = caps.currentExtent;
     if (ext.width == 0xFFFFFFFFu) ext = {(uint32_t)fw, (uint32_t)fh};
     ext.width = std::clamp(ext.width, caps.minImageExtent.width, caps.maxImageExtent.width);
@@ -235,7 +237,10 @@ void Renderer::createSwapchain() {
     VkSwapchainCreateInfoKHR ci{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     ci.surface = surface_; ci.minImageCount = count; ci.imageFormat = chosen.format; ci.imageColorSpace = chosen.colorSpace;
     ci.imageExtent = ext; ci.imageArrayLayers = 1; ci.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    ci.preTransform = caps.currentTransform;
+    ci.preTransform = static_cast<VkSurfaceTransformFlagBitsKHR>(preferredSurfaceTransform(caps.supportedTransforms, caps.currentTransform));
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface dimensions window=%dx%d swap=%ux%u transform=%u supported=%u selected=%u", fw, fh, ext.width, ext.height, caps.currentTransform, caps.supportedTransforms, ci.preTransform);
+#endif
     const uint32_t alpha = preferredCompositeAlpha(caps.supportedCompositeAlpha);
     if (!alpha) SK_FATAL("no supported Vulkan composite alpha mode");
     ci.compositeAlpha = static_cast<VkCompositeAlphaFlagBitsKHR>(alpha);
@@ -721,7 +726,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     if (presenting()) {
         int fw, fh; framebufferSize(fw, fh);
         if (fw == 0 || fh == 0) { if (uiFrameOpen_) { ImGui::EndFrame(); uiFrameOpen_ = false; } return false; }   // minimised
-        if (needResize_ || (uint32_t)fw != width_ || (uint32_t)fh != height_) {
+        if (needResize_ || fw != surfaceWidth_ || fh != surfaceHeight_) {
             vkDeviceWaitIdle(dev); destroySwapchain(); destroyTargets(); createSwapchain(); createTargets(); needResize_ = false;
         }
         VkResult r = vkAcquireNextImageKHR(dev, swapchain_, UINT64_MAX, f.imageAvailable, VK_NULL_HANDLE, &imgIdx);
