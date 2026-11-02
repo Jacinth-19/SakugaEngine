@@ -3,7 +3,7 @@
 //   * the light-space texel snap really is stable under sub-texel motion (that is what stops cascade shimmering);
 //   * the ortho frustum covers the sphere it was fitted to;
 //   * the near-cascade sphere derived from the camera frustum slice contains that slice, and grows to contain the focus;
-//   * point lights: 6 finite faces, and the nearest reachable lights are the ones that get atlas slots.
+//   * point lights: 6 finite faces and all valid lights get slots, with a deterministic reduced-budget priority.
 #include "Check.h"
 #include "gfx/ShadowFit.h"
 
@@ -157,22 +157,52 @@ int main() {
         float intensity[4] = {1.f, 0.f, 1.f, 1.f};        // light 1 is switched off
         float range[4] = {4.f, 4.f, 4.f, 4.f};
         int slot[4];
-        int n = choosePointShadowLights(pos, intensity, range, glm::vec3(0.f), 2, 8.f, slot);
+        int n = choosePointShadowLights(pos, intensity, range, glm::vec3(0.f), 2, slot);
         // distances to the focus: light 1 = off, light 3 ~= 0.7 m, light 2 = 10 m (reach 6), light 0 = 100 m (reach 96)
         CHECK_NEAR(n, 2.f, 0);
         CHECK_NEAR(slot[3], 0.f, 0);                      // nearest gets slot 0
-        CHECK_NEAR(slot[2], 1.f, 0);                      // second nearest that is within reach
-        CHECK_NEAR(slot[0], -1.f, 0);                     // 96 m away: out of reach
+        CHECK_NEAR(slot[2], 1.f, 0);                      // second nearest
+        CHECK_NEAR(slot[0], -1.f, 0);                     // farther than the two allocated lights
         CHECK_NEAR(slot[1], -1.f, 0);                     // switched off: never gets a slot
 
         glm::vec3 near4[4] = {{0.5f, 0, 0}, {1.f, 0, 0}, {2.f, 0, 0}, {3.f, 0, 0}};
         float on4[4] = {1.f, 1.f, 1.f, 1.f};
-        n = choosePointShadowLights(near4, on4, range, glm::vec3(0.f), 2, 8.f, slot);
+        n = choosePointShadowLights(near4, on4, range, glm::vec3(0.f), 2, slot);
         CHECK_NEAR(n, 2.f, 0);
         CHECK(slot[0] >= 0 && slot[1] >= 0);              // the two closest
         CHECK_NEAR(slot[2], -1.f, 0);
         CHECK_NEAR(slot[3], -1.f, 0);
         CHECK(slot[0] != slot[1]);
+    }
+
+    // Every tile occupies a distinct viewport. Simulate the shader's PCF clamping at tile edges
+    // for both actual atlas resolutions; taps cannot bleed into the next face or light.
+    for (uint32_t res : {256u, 512u}) for (int row = 0; row < 4; ++row) for (int face = 0; face < 6; ++face) {
+        PointShadowTile t = pointShadowTile(face, row, res);
+        CHECK(t.x == face * int(res) && t.y == row * int(res) && t.size == res);
+        for (int edge : {0, 1}) for (int tap = -1; tap <= 1; ++tap) {
+            const float local = edge ? float(res) : 0.f;
+            const float x = std::clamp(float(t.x) + local + float(tap), float(t.x) + .5f, float(t.x + int(res)) - .5f);
+            const float y = std::clamp(float(t.y) + local + float(tap), float(t.y) + .5f, float(t.y + int(res)) - .5f);
+            CHECK(x >= t.x + .5f && x <= t.x + res - .5f);
+            CHECK(y >= t.y + .5f && y <= t.y + res - .5f);
+        }
+    }
+
+    // All four lamps cast, even when the camera/hero is far from their influence volumes.
+    {
+        glm::vec3 pos[4] = {{0, 2, 0}, {10, 2, 0}, {20, 2, 0}, {30, 2, 0}};
+        float intensity[4] = {1, 2, 3, 4}, range[4] = {4, 4, 4, 4};
+        int slot[4];
+        CHECK(choosePointShadowLights(pos, intensity, range, glm::vec3(500.f), 4, slot) == 4);
+        for (int i = 0; i < 4; ++i) {
+            CHECK(slot[i] >= 0 && slot[i] < 4);
+            for (int j = 0; j < i; ++j) CHECK(slot[i] != slot[j]);
+        }
+        intensity[0] = 0.f; range[1] = 0.f; intensity[2] = INFINITY;
+        CHECK(choosePointShadowLights(pos, intensity, range, glm::vec3(0), 20, slot) == 1);
+        CHECK(slot[0] == -1 && slot[1] == -1 && slot[2] == -1 && slot[3] == 0);
+        CHECK(choosePointShadowLights(pos, intensity, range, glm::vec3(0), 0, slot) == 0);
     }
 
     return t_.finish();

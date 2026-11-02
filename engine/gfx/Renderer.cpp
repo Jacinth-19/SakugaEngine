@@ -41,6 +41,7 @@ glm::vec3 equirectDir(float u, float v) {          // must match envDir/equirect
 }
 
 namespace {
+static_assert(kMaxPointLights == 4, "keep shaders/common.glsl point-light arrays in sync");
 struct GlobalUBO {
     glm::mat4 viewProj, view, proj, lightViewProj;
     glm::vec4 cameraPos, screenParams, lightDir, lightColor, skyColor, groundColor, fogColor, misc, split;
@@ -53,7 +54,7 @@ struct GlobalUBO {
     glm::mat4 lightViewProj1;   // far shadow cascade (atlas x range 0.5..1)
     glm::vec4 shadowCascade;    // x near radius, y far radius, z unused, w cascade count
     glm::vec4 contactPos[kMaxContacts];   // xyz = ground contact point of a character, w = radius (0 = off)
-    glm::mat4 pointViewProj[12];          // 2 shadow-casting point lights x 6 cube faces
+    glm::mat4 pointViewProj[Renderer::kMaxPointShadows * kPointShadowFaces]; // one matrix per light and cube face
     glm::vec4 pointShadow[4];             // per point light: x = shadow slot (-1 = none), y = normal offset, z = depth bias
 };
 struct PushConstants { glm::mat4 model; uint32_t boneOffset, skinned, pad0, pad1; uint32_t morphWeightOffset, morphCount, morphBase, vertexCount; };
@@ -760,20 +761,18 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         g.shadowCascade = glm::vec4(rNear, rFar, 0.f, 2.f);
     }
     for (int i = 0; i < kMaxContacts; ++i) g.contactPos[i] = L.contacts[i];
-    // Point-light shadows: the (up to) 2 lights nearest to the focus that are on and can reach it get a 6-face cube shadow atlas.
-    int pointSlotLight[kMaxPointShadows] = {-1, -1}; int nSlots = 0;
+    // Each active point light receives six atlas faces, including lights far from the hero.
+    int nSlots = 0;
     for (int i = 0; i < 4; ++i) g.pointShadow[i] = glm::vec4(-1.f, 0.f, 0.f, 0.f);
     if (L.pointShadows) {
         glm::vec3 pos[4]; float intensity[4], range[4];
         for (int i = 0; i < 4; ++i) { pos[i] = L.points[i].position; intensity[i] = L.points[i].intensity; range[i] = L.points[i].range; }
         int slotOfLight[4];
-        // the (up to) 2 lights nearest to the focus that can reach it get a cube atlas (gfx/ShadowFit.h)
-        nSlots = choosePointShadowLights(pos, intensity, range, in.shadowFocus, kMaxPointShadows, 8.f, slotOfLight);
+        nSlots = choosePointShadowLights(pos, intensity, range, in.shadowFocus, kMaxPointShadows, slotOfLight);
         for (int i = 0; i < 4; ++i) {
             if (slotOfLight[i] < 0) continue;
             int slot = slotOfLight[i];
-            pointSlotLight[slot] = i;
-            g.pointShadow[i] = glm::vec4((float)slot, 0.035f, 0.0006f, 0.f);
+            g.pointShadow[i] = glm::vec4((float)slot, 0.008f, 0.00008f, 0.f);
             for (int f = 0; f < kPointShadowFaces; ++f) g.pointViewProj[slot * 6 + f] = pointShadowFaceMatrix(pos[i], range[i], f);
         }
     }
@@ -831,7 +830,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         ctx_->endRendering(cmd);
         ctx_->barrier(cmd, shadow_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
     }
-    // point-light cube shadow atlas (6 faces x 2 lights; always cleared so the descriptor stays valid, faces only drawn for active lights)
+    // Point-light atlas: six faces per active light. Clear even when disabled so the descriptor stays valid.
     {
         ctx_->barrier(cmd, pointShadow_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
         VkRenderingAttachmentInfo da{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -845,8 +844,8 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeShadow_);
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout_, 0, 1, &f.globalSet, 0, nullptr);
             for (int s = 0; s < nSlots; ++s) for (int face = 0; face < 6; ++face) {
-                int x = face * (int)kPointShadowRes, y = s * (int)kPointShadowRes;
-                VkViewport vp{(float)x, (float)y, (float)kPointShadowRes, (float)kPointShadowRes, 0, 1}; VkRect2D sc{{x, y}, {kPointShadowRes, kPointShadowRes}};
+                const PointShadowTile tile = pointShadowTile(face, s, kPointShadowRes);
+                VkViewport vp{(float)tile.x, (float)tile.y, (float)tile.size, (float)tile.size, 0, 1}; VkRect2D sc{{tile.x, tile.y}, {tile.size, tile.size}};
                 vkCmdSetViewport(cmd, 0, 1, &vp); vkCmdSetScissor(cmd, 0, 1, &sc);
                 cascadeIdx_ = 2 + s * 6 + face;
                 drawList(cmd, in, DrawFilter::Shadow);

@@ -217,19 +217,25 @@ float pointShadowFactor(int i, vec3 P) {
     if (slot < 0.0) return 1.0;
     vec3 Lp = G.pointPos[i].xyz, v = P - Lp, a = abs(v);
     float face = a.x >= a.y && a.x >= a.z ? (v.x > 0.0 ? 0.0 : 1.0) : (a.y >= a.z ? (v.y > 0.0 ? 2.0 : 3.0) : (v.z > 0.0 ? 4.0 : 5.0));
-    vec3 Pn = P + normalize(vNormalWS) * (G.pointShadow[i].y * (0.5 + 0.5 * length(v)));          // normal offset grows with distance (texel size)
+    vec3 Pn = P + normalize(vNormalWS) * (G.pointShadow[i].y * (0.5 + 0.5 * length(v)));
     vec4 sc = G.pointViewProj[int(slot) * 6 + int(face)] * vec4(Pn, 1.0);
+    if (sc.w <= 0.0) return 1.0;
     vec3 p = sc.xyz / sc.w;
-    if (sc.w <= 0.0 || p.z > 1.0) return 1.0;
-    vec2 uv = clamp(p.xy * 0.5 + 0.5, vec2(0.004), vec2(0.996));
-    vec2 base = (uv + vec2(face, slot)) * vec2(1.0 / 6.0, 1.0 / 2.0);
-    vec2 texel = vec2(1.0 / (512.0 * 6.0), 1.0 / (512.0 * 2.0));
+    if (p.z < 0.0 || p.z > 1.0) return 1.0;
+    // Derive texel size from the actual desktop/mobile atlas. Clamp each tap to its own
+    // tile to prevent PCF (including linear filtering) from sampling a neighbouring face.
+    vec2 texel = 1.0 / vec2(textureSize(uPointShadow, 0));
+    vec2 tileSize = vec2(1.0 / 6.0, 1.0 / 4.0);
+    vec2 tileMin = vec2(face, slot) * tileSize;
+    vec2 lo = tileMin + texel * 0.5, hi = tileMin + tileSize - texel * 0.5;
+    vec2 base = tileMin + clamp(p.xy * 0.5 + 0.5, 0.0, 1.0) * tileSize;
     float lit = 0.0, ref = p.z - G.pointShadow[i].z;
-    for (int y = -1; y <= 1; ++y) for (int x = -1; x <= 1; ++x) lit += texture(uPointShadow, vec3(base + vec2(x, y) * texel, ref));
+    for (int y = -1; y <= 1; ++y) for (int x = -1; x <= 1; ++x)
+        lit += texture(uPointShadow, vec3(clamp(base + vec2(x, y) * texel, lo, hi), ref));
     return mix(lit / 9.0, 1.0, smoothstep(0.85, 1.0, length(v) / G.pointPos[i].w));          // fade at the light's range
 }
 
-// Extra point lights: smooth range window * inverse square, shadowed by the cube atlas for the (up to 2) lights that have one.
+// Extra point lights: smooth range window * inverse square, shadowed by the cube atlas.
 float pointAtten(int i, vec3 P, out vec3 Lvec) {
     Lvec = G.pointPos[i].xyz - P;
     float d2 = dot(Lvec, Lvec), r = G.pointPos[i].w, w = saturate(1.0 - (d2 * d2) / (r * r * r * r));

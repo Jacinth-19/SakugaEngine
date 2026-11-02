@@ -87,6 +87,7 @@ if [[ $renderer_result == presented ]]; then
   done
   if [[ $ui_changed != 1 ]]; then echo '::error::Sandbox editor did not respond to touch.'; exit 1; fi
   echo '::notice::Android touch opened the sandbox editor.'
+  adb exec-out screencap -p > apk/android-editor.png
 fi
 # Capture actual emulator output while exercising the on-screen preview controls.
 adb shell rm -f /sdcard/sakuga-preview.mp4
@@ -118,6 +119,24 @@ if [[ $renderer_result == presented ]]; then
     echo '::error::The clip button did not update the sandbox avatar.'; exit 1
   fi
   echo '::notice::Touch input moved the sandbox avatar and selected a clip.'
+  # Turn on the actual four night lamps and require their 24 atlas face passes to be presented.
+  ui_target=$(grep -F 'sandbox night target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*sandbox night target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo '::error::Night button target was not reported.'; exit 1; fi
+  adb shell input tap "$ui_x" "$ui_y"
+  shadow_frame=0
+  for i in $(seq 1 90); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'sandbox point shadow atlas: 4 lights 24 faces' /tmp/sakuga-android-log.txt; then shadow_frame=1; break; fi
+    if grep -q 'renderer unavailable:' /tmp/sakuga-android-log.txt; then break; fi
+    sleep 2
+  done
+  if [[ $shadow_frame != 1 ]]; then
+    adb logcat -d -s SakugaPreview:V AndroidRuntime:E '*:S' | tail -80
+    echo '::error::The four lamp shadow atlases did not render.'; exit 1
+  fi
+  echo '::notice::Presented a frame with four lamp shadow maps (24 faces).'
+  adb exec-out screencap -p > apk/android-night.png
   ui_target=$(grep -F 'sandbox npcs target x=' /tmp/sakuga-android-log.txt | tail -1)
   read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*sandbox npcs target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
   if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo '::error::NPC button target was not reported.'; exit 1; fi

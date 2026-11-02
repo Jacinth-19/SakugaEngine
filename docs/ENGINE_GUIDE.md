@@ -202,6 +202,7 @@ The Round 7 report claimed things the code did not do, and listed verification t
 * Nothing here has been rendered on a real GPU in the sandbox where this was developed: the engine compiles, all 15 shaders
   compile to SPIR-V with `glslangValidator -V --target-env vulkan1.3`, and the GPU-free suite passes - but frame-level
   visual verification still has to happen on a machine with a Vulkan device.
+* The four point lights can each cast a six-face shadow map (512 px per face on desktop, 256 px on Android), in addition to two directional cascades. This costs up to 24 extra shadow passes per frame; toggle **Point-light shadows** in Lighting / Scene (or **Point shadows** on Android), or start desktop with `--no-point-shadows`. Lamps only light up at night. Transparent objects do not cast shadows; the shadows use PCF with per-face clamping and may show seams or bias artifacts.
 * No SSAO, no local reflection probes; the near cascade is a single sphere fit (no per-cascade split tuning UI).
 * `docs/INSTALLER.md` - the installer's look, how to iterate on it locally, and what Inno cannot do.
 * `docs/UNITY_REPO_AUDIT.md` records what the reference Unity project (`Jacinth-19/MotionMatchingInUnity`) contains and which

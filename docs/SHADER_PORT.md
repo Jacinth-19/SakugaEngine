@@ -9,7 +9,7 @@ Port: `shaders/toon.vert|frag`, `shaders/outline.vert|frag`, `shaders/shadow.*`,
 |-----------------------|-----------------------------------------------------|
 | `UniversalForward`    | `toon.vert/frag` (`Cull Off`, double-sided via `_DoubleSided`) |
 | `Outline` (`Cull Front`, ZWrite On) | `outline.vert/frag`, hull extruded along the world normal, culled on the CPU when width or alpha is 0 |
-| `ShadowCaster`        | `shadow.vert/frag`, 2048² D32 ortho map, texel snapped |
+| `ShadowCaster`        | `shadow.vert/frag`, two texel-snapped directional cascades plus six atlas faces for each of up to four active point lights (desktop: 2048² per cascade, 512² per point face; Android: 1024² and 256² respectively) |
 | `DepthNormals`        | not needed (no SSAO/depth-normal consumers yet)     |
 | `EndfieldDebug`       | folded into `toon.frag` as debug modes 1-13 (+14-17 extras: PBR, LUT, NPR-lit, PBR params) |
 

@@ -58,34 +58,45 @@ void tint(UiTheme& t, const char* role, float r, float g, float b, float a = -1.
 
 UiTheme presetSakugaDark() {
     UiTheme t = baseTheme("Sakuga Dark", false);
-    t.windowRounding = 7.f; t.frameRounding = 5.f; t.grabRounding = 5.f; t.popupRounding = 6.f; t.tabRounding = 5.f;
-    t.itemSpacingX = 9.f; t.itemSpacingY = 5.f;
-    tint(t, "WindowBg", 0.075f, 0.082f, 0.098f, 0.97f);
-    tint(t, "ChildBg", 0.090f, 0.098f, 0.115f, 0.85f);
-    tint(t, "PopupBg", 0.070f, 0.077f, 0.093f, 0.97f);
-    tint(t, "TitleBg", 0.055f, 0.060f, 0.075f, 1.f);
-    tint(t, "TitleBgActive", 0.105f, 0.125f, 0.155f, 1.f);
-    tint(t, "MenuBarBg", 0.062f, 0.068f, 0.082f, 1.f);
-    tint(t, "FrameBg", 0.135f, 0.145f, 0.170f);
-    tint(t, "FrameBgHovered", 0.185f, 0.200f, 0.235f);
-    tint(t, "FrameBgActive", 0.215f, 0.235f, 0.275f);
-    tint(t, "Button", 0.150f, 0.190f, 0.240f);
-    tint(t, "ButtonHovered", 0.200f, 0.420f, 0.560f);          // cyan-leaning accent
-    tint(t, "ButtonActive", 0.235f, 0.500f, 0.660f);
-    tint(t, "Header", 0.180f, 0.290f, 0.360f, 0.85f);
-    tint(t, "HeaderHovered", 0.220f, 0.400f, 0.500f, 0.90f);
-    tint(t, "HeaderActive", 0.250f, 0.470f, 0.590f, 0.95f);
-    tint(t, "Tab", 0.105f, 0.115f, 0.135f);
-    tint(t, "TabSelected", 0.190f, 0.330f, 0.420f);
-    tint(t, "TabHovered", 0.230f, 0.420f, 0.520f);
-    tint(t, "CheckMark", 0.400f, 0.800f, 0.950f);
-    tint(t, "SliderGrab", 0.330f, 0.640f, 0.780f);
-    tint(t, "SliderGrabActive", 0.420f, 0.790f, 0.930f);
-    tint(t, "TextLink", 0.420f, 0.760f, 0.920f);
-    tint(t, "Separator", 0.220f, 0.260f, 0.320f);
-    tint(t, "TableHeaderBg", 0.130f, 0.150f, 0.180f);
-    tint(t, "TextSelectedBg", 0.230f, 0.450f, 0.580f, 0.55f);
-    t.panelAlpha = 0.97f;
+    // Ink-coloured surfaces, violet interaction states and a warm coral accent. Roles stay distinct
+    // in the collapsed editor as well as in the material inspector; the entire palette remains editable.
+    t.windowRounding = 10.f; t.childRounding = 8.f; t.frameRounding = 6.f; t.popupRounding = 8.f;
+    t.grabRounding = 6.f; t.tabRounding = 6.f; t.scrollbarRounding = 8.f;
+    t.itemSpacingX = 10.f; t.itemSpacingY = 6.f; t.panelAlpha = 1.f;
+    tint(t, "Text", 0.93f, 0.93f, 0.97f, 1.f);
+    tint(t, "TextDisabled", 0.58f, 0.60f, 0.69f, 1.f);
+    tint(t, "WindowBg", 0.055f, 0.060f, 0.090f, 0.97f);
+    tint(t, "ChildBg", 0.075f, 0.080f, 0.120f, 0.95f);
+    tint(t, "PopupBg", 0.075f, 0.078f, 0.115f, 0.99f);
+    tint(t, "Border", 0.25f, 0.26f, 0.35f, 0.65f);
+    tint(t, "TitleBg", 0.065f, 0.068f, 0.105f, 1.f);
+    tint(t, "TitleBgActive", 0.125f, 0.105f, 0.195f, 1.f);
+    tint(t, "TitleBgCollapsed", 0.065f, 0.068f, 0.105f, 0.90f);
+    tint(t, "MenuBarBg", 0.075f, 0.078f, 0.115f, 1.f);
+    tint(t, "FrameBg", 0.115f, 0.125f, 0.175f, 1.f);
+    tint(t, "FrameBgHovered", 0.195f, 0.180f, 0.285f, 1.f);
+    tint(t, "FrameBgActive", 0.255f, 0.215f, 0.375f, 1.f);
+    tint(t, "Button", 0.185f, 0.155f, 0.270f, 1.f);
+    tint(t, "ButtonHovered", 0.385f, 0.270f, 0.535f, 1.f);
+    tint(t, "ButtonActive", 0.485f, 0.315f, 0.625f, 1.f);
+    tint(t, "Header", 0.145f, 0.125f, 0.220f, 1.f);
+    tint(t, "HeaderHovered", 0.300f, 0.225f, 0.425f, 1.f);
+    tint(t, "HeaderActive", 0.380f, 0.270f, 0.505f, 1.f);
+    tint(t, "Tab", 0.105f, 0.100f, 0.160f, 1.f);
+    tint(t, "TabSelected", 0.255f, 0.195f, 0.355f, 1.f);
+    tint(t, "TabHovered", 0.400f, 0.275f, 0.510f, 1.f);
+    tint(t, "TabSelectedOverline", 0.98f, 0.56f, 0.49f, 1.f);
+    tint(t, "CheckMark", 1.00f, 0.64f, 0.55f, 1.f);
+    tint(t, "SliderGrab", 0.89f, 0.51f, 0.48f, 1.f);
+    tint(t, "SliderGrabActive", 1.00f, 0.68f, 0.57f, 1.f);
+    tint(t, "TextLink", 0.79f, 0.70f, 1.00f, 1.f);
+    tint(t, "Separator", 0.26f, 0.25f, 0.35f, 0.8f);
+    tint(t, "ScrollbarBg", 0.05f, 0.05f, 0.08f, 0.60f);
+    tint(t, "ScrollbarGrab", 0.26f, 0.24f, 0.34f, 1.f);
+    tint(t, "ScrollbarGrabHovered", 0.39f, 0.32f, 0.49f, 1.f);
+    tint(t, "ScrollbarGrabActive", 0.50f, 0.37f, 0.60f, 1.f);
+    tint(t, "TableHeaderBg", 0.13f, 0.12f, 0.19f, 1.f);
+    tint(t, "TextSelectedBg", 0.40f, 0.29f, 0.56f, 0.65f);
     return t;
 }
 

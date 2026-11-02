@@ -34,14 +34,14 @@ struct LightingSettings {
     float shadowBias = 0.0012f;
     float shadowFarRadius = 28.f;                 // second (far) cascade; both cascades share one 2x1 atlas
     glm::vec4 contacts[kMaxContacts]{};            // contact AO blobs under characters: xyz ground point, w radius (0 = unused)
-    bool pointShadows = true;                      // the (up to 2) most relevant point lights render a 6-face cube shadow atlas (512^2 per face)
+    bool pointShadows = true;                      // each active point light renders six faces into the shadow atlas
     bool fitCascadeToCamera = true;              // near cascade = bounding sphere of the camera frustum slice (+ hero) instead of a box around the hero
     float shadowRadius = 5.0f;                    // half-extent of the shadow frustum around the focus point
     float wetPreviewTime = 0.f;                   // == _ZhuangfyWetPreviewTime (0 => use real time)
     glm::vec2 splitDir{0.f};                      // == _SplitLineDirX/Y   (zero disables the split view)
     float splitOffsetPx = 0.f;                    // == _SplitLineOffsetPx
     float outlineScale = 1.0f;
-    PointLight points[kMaxPointLights];           // extra lights (additive, no shadow maps)
+    PointLight points[kMaxPointLights];           // additive lights, each can use a cube shadow map
     float envIntensity = 1.0f;                    // image based lighting: diffuse SH + roughness-LOD reflections
     float envRotation = 0.f;                      // radians around +Y
 };
@@ -93,7 +93,7 @@ public:
     static constexpr uint32_t kShadowRes = 2048;
     static constexpr uint32_t kPointShadowRes = 512;
 #endif
-    static constexpr int kMaxPointShadows = 2;
+    static constexpr int kMaxPointShadows = kMaxPointLights;
     static constexpr uint32_t kMaxBones = 16384;
     static constexpr uint32_t kMaxLineVerts = 262144;
     static constexpr uint32_t kMaxMorphVec4 = 1u << 21;      // 32 MB of morph deltas

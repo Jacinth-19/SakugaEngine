@@ -64,6 +64,14 @@ int main() {
         const glm::vec4* light = lightTheme.color("WindowBg");
         CHECK(dark && light);
         if (dark && light) CHECK_MSG(light->r > dark->r + 0.3f, "light theme has a light window background");
+        const glm::vec4* text = darkTheme.color("Text");
+        const glm::vec4* disabled = darkTheme.color("TextDisabled");
+        const glm::vec4* accent = darkTheme.color("CheckMark");
+        CHECK(text && disabled && accent);
+        if (dark && text && disabled && accent) {
+            CHECK(text->r > dark->r + .7f); CHECK(disabled->r > dark->r + .45f);
+            CHECK(accent->r > accent->b); // warm coral accent, not the stock blue
+        }
 
         // ... and the default is not just ImGui's stock dark style
         ImGuiStyle stock;

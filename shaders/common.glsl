@@ -29,7 +29,7 @@ layout(set = 0, binding = 0, std140) uniform GlobalUBO {
     mat4 lightViewProj1; // far shadow cascade (atlas: near = left half, far = right half)
     vec4 shadowCascade;  // x near radius, y far radius, w cascade count
     vec4 contactPos[6];  // xyz ground contact point of a character, w radius (0 = unused)
-    mat4 pointViewProj[12];   // cube-face matrices of the 2 shadow-casting point lights
+    mat4 pointViewProj[24];   // cube-face matrices for four shadow-casting point lights
     vec4 pointShadow[4];      // x = shadow slot of point light i (-1 none), y = normal offset, z = depth bias
 } G;
 
@@ -37,7 +37,7 @@ layout(set = 0, binding = 1, std430) readonly buffer BoneBuffer { mat4 bones[]; 
 layout(set = 0, binding = 4, std430) readonly buffer MorphDeltas { vec4 morphDelta[]; };
 layout(set = 0, binding = 5, std430) readonly buffer MorphWeights { float morphWeight[]; };
 layout(set = 0, binding = 2) uniform sampler2DShadow uShadow;
-layout(set = 0, binding = 6) uniform sampler2DShadow uPointShadow;      // 6 cube faces per light, 2 lights (rows)
+layout(set = 0, binding = 6) uniform sampler2DShadow uPointShadow;      // 6 cube faces per light, 4 lights (rows)
 layout(set = 0, binding = 3) uniform sampler2D uEnv;     // equirectangular environment, RGBA16F with mips
 
 vec3 envRotate(vec3 d) { float c = cos(G.envParams.w), s = sin(G.envParams.w); return vec3(c * d.x + s * d.z, d.y, -s * d.x + c * d.z); }

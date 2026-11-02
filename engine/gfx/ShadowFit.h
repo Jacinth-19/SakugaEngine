@@ -85,6 +85,11 @@ inline float quantiseShadowRadius(float radius, float cap) {
 
 // ------------------------------------------------------------------ point lights: 6 cube faces per light
 constexpr int kPointShadowFaces = 6;
+// Atlas geometry is mirrored in shaders/toon.frag: faces are columns and light slots are rows.
+struct PointShadowTile { int x, y; uint32_t size; };
+inline PointShadowTile pointShadowTile(int face, int slot, uint32_t resolution) {
+    return {face * static_cast<int>(resolution), slot * static_cast<int>(resolution), resolution};
+}
 inline const glm::vec3* pointShadowFaceDirs() {
     static const glm::vec3 dirs[kPointShadowFaces] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
     return dirs;
@@ -102,21 +107,24 @@ inline glm::mat4 pointShadowFaceMatrix(const glm::vec3& position, float range, i
     return proj * glm::lookAt(position, position + pointShadowFaceDirs()[face], pointShadowFaceUps()[face]);
 }
 
-// Which (up to) `maxShadows` lights get a cube atlas: the ones nearest to the focus, within `reach` metres of it.
-// Returns the number of allocated slots and fills `slotOfLight` (-1 = no shadow).
+// All active finite point lights can receive an atlas slot. If a caller supplies fewer slots than
+// lights, prefer the lights whose influence volumes are nearest the focus. Disabled lights never
+// receive a slot, even when the focus is far away or the budget exceeds the light count.
 inline int choosePointShadowLights(const glm::vec3 positions[4], const float intensity[4], const float range[4],
-                                   const glm::vec3& focus, int maxShadows, float reach, int slotOfLight[4]) {
+                                   const glm::vec3& focus, int maxShadows, int slotOfLight[4]) {
     float dist[4];
     int order[4] = {0, 1, 2, 3};
     for (int i = 0; i < 4; ++i) {
         slotOfLight[i] = -1;
-        dist[i] = intensity[i] > 0.f ? glm::length(positions[i] - focus) - range[i] : 1e9f;
+        const bool valid = std::isfinite(intensity[i]) && intensity[i] > 0.f && std::isfinite(range[i]) && range[i] > 0.f &&
+            std::isfinite(positions[i].x) && std::isfinite(positions[i].y) && std::isfinite(positions[i].z);
+        dist[i] = valid ? glm::length(positions[i] - focus) - range[i] : INFINITY;
     }
-    std::sort(order, order + 4, [&](int a, int b) { return dist[a] < dist[b]; });
+    std::stable_sort(order, order + 4, [&](int a, int b) { return dist[a] < dist[b]; });
     int n = 0;
-    for (int k = 0; k < 4 && n < maxShadows; ++k) {
-        int i = order[k];
-        if (dist[i] > reach) break;
+    for (int k = 0; k < 4 && n < std::clamp(maxShadows, 0, 4); ++k) {
+        const int i = order[k];
+        if (!std::isfinite(dist[i])) break;
         slotOfLight[i] = n++;
     }
     return n;

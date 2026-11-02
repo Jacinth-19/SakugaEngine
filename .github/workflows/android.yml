@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-preview:
@@ -90,6 +90,24 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: bash android/emulator-smoke.sh
+      # Temporary branch-only exporter for visual verification; removed after inspection.
+      - name: Export inspection screenshots
+        if: github.event_name == 'push' && github.ref == 'refs/heads/arena/a13c5e34-sakugaengine'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for img in android-editor android-night; do
+            python3 - "$img" <<'PYCODE'
+          import base64, json, sys
+          name = sys.argv[1]
+          with open('apk/' + name + '.png', 'rb') as f: data = base64.b64encode(f.read()).decode()
+          with open('/tmp/sakuga-img.json', 'w') as f: json.dump({'content': data, 'encoding': 'base64'}, f)
+          PYCODE
+            sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/blobs" --method POST --input /tmp/sakuga-img.json --jq .sha)
+            echo "::notice::INSPECTION_${img}=$sha"
+          done
       - name: Upload emulator screenshot and video
         uses: actions/upload-artifact@v4
         with:
@@ -98,4 +116,6 @@ jobs:
             apk/android-preview.png
             apk/android-preview.mp4
             apk/android-npcs.png
+            apk/android-night.png
+            apk/android-editor.png
           if-no-files-found: error

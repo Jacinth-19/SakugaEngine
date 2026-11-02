@@ -201,7 +201,7 @@ private:
 #ifdef __ANDROID__
     ANativeWindow* mobileWindow_ = nullptr;
     std::string mobileError_;
-    bool mobileLoggedControls_ = false, mobileLoggedMove_ = false;
+    bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false;
     bool mobileLoadNpcs_ = false, mobileNpcsRequested_ = false, mobileNpcsPendingFrame_ = false;
 #endif
     struct Showcase { std::string name; std::vector<Entity*> entities; Entity* hero = nullptr; bool lab = false; };
@@ -924,8 +924,14 @@ void Sandbox::drawUI() {
     ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(430, 760), ImGuiCond_FirstUseEver);
 #endif
     ImGui::Begin("Sakuga Engine");
-    ImGui::Text("%s | %.0f fps | %u draws | %u tris", ctx_.props.deviceName, fps_, renderer_.stats.drawCalls, renderer_.stats.triangles);
-    ImGui::TextDisabled("Tab: mouse-look | F1: hide UI | F2: screenshot | F3: FPS | Esc: quit");
+    ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark), "SAKUGA"); ImGui::SameLine();
+    ImGui::TextDisabled("/  CREATIVE SANDBOX");
+    ImGui::TextWrapped("%s", ctx_.props.deviceName);
+    ImGui::TextDisabled("%.0f FPS   |   %u draws   |   %u triangles", fps_, renderer_.stats.drawCalls, renderer_.stats.triangles);
+#ifndef __ANDROID__
+    ImGui::TextDisabled("Tab mouse  /  F1 hide  /  F2 capture  /  F12 theme");
+#endif
+    ImGui::Separator();
     if (ImGui::CollapsingHeader("Device and performance")) {
         // Refresh slowly: filesystem and OS queries do not belong in the per-frame hot path.
         static SysInfo device;
@@ -1004,6 +1010,8 @@ void Sandbox::drawUI() {
         if (ImGui::Button("Procedural sky")) loadEnvironment("procedural");
         { std::error_code ec; for (auto& f : fs::directory_iterator(root_ + "/assets/env", ec)) if (f.path().extension() == ".hdr") { ImGui::SameLine(); if (ImGui::Button(f.path().stem().string().substr(0, 14).c_str())) loadEnvironment(f.path().string()); } }
         ImGui::Checkbox("Extra point lights (shader lab)", &pointLightsOn_);
+        ImGui::Checkbox("Point-light shadows", &opt_.pointShadows);
+        ImGui::TextDisabled("%u / %d shadowed point lights  |  %u cube faces", renderer_.stats.pointShadowLights, kMaxPointLights, renderer_.stats.pointShadowFaces);
         ImGui::SliderFloat("Ambient", &light_.ambient, 0, 2); ImGui::SliderFloat("Exposure", &userExposure_, 0.2f, 3);
         ImGui::SliderFloat("Shadow bias", &light_.shadowBias, 0, 0.01f, "%.4f"); ImGui::Checkbox("Fit near cascade to camera", &opt_.fitCascade); ImGui::SliderFloat("Shadow radius (near cascade / split)", &light_.shadowRadius, 2, 20); ImGui::SliderFloat("Far cascade radius", &light_.shadowFarRadius, 12, 45);
         ImGui::SliderFloat("Fog", &light_.fogDensity, 0, 0.08f, "%.3f"); ImGui::SliderFloat("Outline scale", &light_.outlineScale, 0, 4);
@@ -1216,7 +1224,12 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
     ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .65f, 10.f * density), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .34f, renderer_.height() * .48f), ImGuiCond_Always);
     ImGui::Begin("Sakuga mobile", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
-    ImGui::TextUnformatted("Sandbox");
+    ImGui::TextUnformatted("Sandbox"); ImGui::SameLine();
+    if (ImGui::Button("NIGHT")) { todEnabled_ = true; tod_ = 22.f; }
+    if (frame_ == 0) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox night target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+    }
     ImGui::Text("Clip %d/%d", vrm_ && vrm_->mm ? vrm_->mm->debug.clip + 1 : 0, vrm_ && vrm_->mmDb ? (int)vrm_->mmDb->clipNames.size() : 0);
     ImGui::SameLine();
     if (ImGui::Button("NEXT") && vrm_ && vrm_->mm && vrm_->mmDb && !vrm_->mmDb->clipNames.empty()) {
@@ -1252,6 +1265,9 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
     // The UI changes are reflected on the next frame, as with desktop sandbox controls.
     ++frame_;
     bool rendered = renderer_.renderFrame(fi);
+    if (rendered && !mobileLoggedPointShadows_ && renderer_.stats.pointShadowLights == 4 && renderer_.stats.pointShadowFaces == 24) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox point shadow atlas: 4 lights 24 faces"); mobileLoggedPointShadows_ = true;
+    }
     if (rendered && mobileNpcsPendingFrame_) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox npcs frame presented"); mobileNpcsPendingFrame_ = false;
     }
@@ -1282,7 +1298,7 @@ MobileSandbox* createMobileSandbox(ANativeWindow* window, const std::string& roo
     auto m = std::make_unique<MobileSandbox>();
     try {
         Options opt;
-        opt.npcs = false; opt.springs = false; opt.pointShadows = false; opt.mmCache = false;
+        opt.npcs = false; opt.springs = false; opt.pointShadows = true; opt.mmCache = false;
         opt.uiFontSize = 14.f * std::clamp(density, .75f, 4.f);
         m->sandbox = std::make_unique<Sandbox>(opt, root, shaders);
         if (!m->sandbox->initMobile(window, error)) return nullptr;
