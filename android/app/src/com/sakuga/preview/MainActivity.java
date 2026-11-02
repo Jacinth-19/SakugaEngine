@@ -115,6 +115,7 @@ public final class MainActivity extends Activity {
                             }
                             if (frameResult < 0) {
                                 final String failure = nativeRendererError();
+                                android.util.Log.e("SakugaPreview", "renderer frame failed: " + failure);
                                 runOnUiThread(new Runnable() { @Override public void run() {
                                     if (!destroyed && generation == surfaceGeneration) {
                                         preview.setVulkanActive(false); preview.setSurfaceStatus("Canvas fallback: " + failure);
@@ -144,7 +145,11 @@ public final class MainActivity extends Activity {
                 synchronized (surfaceLock) { surfaceLive = false; ++surfaceGeneration; }
                 // Do not return while Vulkan still owns this surface or native window.
                 if (surfaceThread != null) {
-                    try { surfaceThread.join(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    boolean interrupted = false;
+                    for (;;) {
+                        try { surfaceThread.join(); break; } catch (InterruptedException e) { interrupted = true; }
+                    }
+                    if (interrupted) Thread.currentThread().interrupt();
                     surfaceThread = null;
                 }
                 uiTouches.clear();

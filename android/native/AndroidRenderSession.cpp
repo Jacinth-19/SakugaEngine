@@ -24,7 +24,7 @@ public:
     Entity hero;
     int selectedClip = -1;
     float density = 1.f;
-    bool bloom = false, pointShadows = false;
+    bool bloom = false, pointShadows = false, loggedControls = false;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now(), last = start;
     ~AndroidRenderSession() {
         try { if (rendererStarted) renderer.shutdown(); } catch (...) {}
@@ -86,6 +86,11 @@ int renderAndroidFrame(AndroidRenderSession* s, float moveX, float moveY, int cl
         ImGui::TextUnformatted("VRM scene");
         ImGui::Text("Clip: %d / %d", s->hero.mm->debug.clip + 1, (int)s->hero.mmDb->clipNames.size());
         if (ImGui::Checkbox("Bloom", &s->bloom)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "imgui bloom changed");
+        if (!s->loggedControls) {
+            ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "imgui bloom target x=%d y=%d", (int)(a.x + (b.y - a.y) * .5f), (int)((a.y + b.y) * .5f));
+            s->loggedControls = true;
+        }
         ImGui::Checkbox("Point shadows", &s->pointShadows);
         ImGui::End();
         fi.light.pointShadows = s->pointShadows; fi.shadowFocus = s->hero.pos;

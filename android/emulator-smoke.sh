@@ -60,6 +60,21 @@ if w <= h: raise SystemExit('Expected landscape screenshot')
 print(w, h)
 PYCODE
 )
+# In the engine path, tap the real ImGui checkbox and verify that the native UI received it.
+if [[ $renderer_result == presented ]]; then
+  ui_target=$(grep -F 'imgui bloom target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*imgui bloom target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo '::error::ImGui target was not reported.'; exit 1; fi
+  adb shell input tap "$ui_x" "$ui_y"
+  ui_changed=0
+  for i in $(seq 1 20); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'imgui bloom changed' /tmp/sakuga-android-log.txt; then ui_changed=1; break; fi
+    sleep 1
+  done
+  if [[ $ui_changed != 1 ]]; then echo '::error::Android ImGui checkbox did not respond to a tap.'; exit 1; fi
+  echo '::notice::Android ImGui checkbox responded to touch.'
+fi
 # Capture actual emulator output while exercising the on-screen preview controls.
 adb shell rm -f /sdcard/sakuga-preview.mp4
 adb shell screenrecord --time-limit 8 --size 1280x720 --bit-rate 1000000 /sdcard/sakuga-preview.mp4 &
