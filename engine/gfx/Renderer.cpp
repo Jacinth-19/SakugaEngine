@@ -1,5 +1,6 @@
 #include "gfx/Renderer.h"
 #include "gfx/ShadowFit.h"
+#include "gfx/SurfaceChoices.h"
 #include "core/Log.h"
 #ifndef __ANDROID__
 #include <GLFW/glfw3.h>
@@ -235,11 +236,9 @@ void Renderer::createSwapchain() {
     ci.surface = surface_; ci.minImageCount = count; ci.imageFormat = chosen.format; ci.imageColorSpace = chosen.colorSpace;
     ci.imageExtent = ext; ci.imageArrayLayers = 1; ci.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     ci.preTransform = caps.currentTransform;
-    ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    if (!(caps.supportedCompositeAlpha & ci.compositeAlpha)) {
-        for (auto mode : {VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR})
-            if (caps.supportedCompositeAlpha & mode) { ci.compositeAlpha = mode; break; }
-    }
+    const uint32_t alpha = preferredCompositeAlpha(caps.supportedCompositeAlpha);
+    if (!alpha) SK_FATAL("no supported Vulkan composite alpha mode");
+    ci.compositeAlpha = static_cast<VkCompositeAlphaFlagBitsKHR>(alpha);
     ci.presentMode = VK_PRESENT_MODE_FIFO_KHR; ci.clipped = VK_TRUE;
     VK_OK(vkCreateSwapchainKHR(dev, &ci, nullptr, &swapchain_));
     uint32_t n = 0; vkGetSwapchainImagesKHR(dev, swapchain_, &n, nullptr);

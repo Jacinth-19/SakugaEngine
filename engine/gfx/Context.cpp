@@ -1,4 +1,5 @@
 #include "gfx/Context.h"
+#include "gfx/SurfaceChoices.h"
 #include "core/Log.h"
 #include "core/FileUtil.h"
 #ifndef __ANDROID__
@@ -68,7 +69,7 @@ bool Context::init(bool wantSurface, bool validation) {
     if (!found) { SK_ERR("no suitable queue family"); return false; }
 
     VkSampleCountFlags sc = props.limits.framebufferColorSampleCounts & props.limits.framebufferDepthSampleCounts;
-    msaa = (sc & VK_SAMPLE_COUNT_4_BIT) ? VK_SAMPLE_COUNT_4_BIT : (sc & VK_SAMPLE_COUNT_2_BIT) ? VK_SAMPLE_COUNT_2_BIT : VK_SAMPLE_COUNT_1_BIT;
+    msaa = static_cast<VkSampleCountFlagBits>(preferredSampleCount(sc, sc));
 
     float prio = 1.f;
     VkDeviceQueueCreateInfo qci{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};

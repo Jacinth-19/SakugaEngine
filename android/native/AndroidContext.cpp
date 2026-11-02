@@ -1,4 +1,5 @@
 #include "gfx/Context.h"
+#include "gfx/SurfaceChoices.h"
 #include <android/native_window.h>
 #include <android/log.h>
 #include <algorithm>
@@ -47,6 +48,7 @@ bool Context::initAndroid(ANativeWindow* window, std::string& error) {
         uint32_t formats = 0;
         if (vkGetPhysicalDeviceSurfaceFormatsKHR(pd, androidSurface, &formats, nullptr) != VK_SUCCESS || !formats) { reason = "No Vulkan surface formats"; continue; }
         VkSampleCountFlags samples = p.limits.framebufferColorSampleCounts & p.limits.framebufferDepthSampleCounts;
+        if (!preferredSampleCount(p.limits.framebufferColorSampleCounts, p.limits.framebufferDepthSampleCounts)) { reason = "No common framebuffer sample count"; continue; }
         // The current renderer allocates a 4096x2048 shadow atlas and a 32 MiB storage buffer.
         if (p.limits.maxImageDimension2D < 4096) { reason = "Vulkan maximum image size is below the renderer's shadow atlas"; continue; }
         if (p.limits.maxStorageBufferRange < 32u * 1024u * 1024u) { reason = "Vulkan storage buffer range is below 32 MiB"; continue; }
@@ -58,7 +60,7 @@ bool Context::initAndroid(ANativeWindow* window, std::string& error) {
             if (queues[i].queueCount && (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
                 vkGetPhysicalDeviceSurfaceSupportKHR(pd, i, androidSurface, &present) == VK_SUCCESS && present) {
                 phys = pd; props = p; queueFamily = i;
-                msaa = (samples & VK_SAMPLE_COUNT_4_BIT) ? VK_SAMPLE_COUNT_4_BIT : (samples & VK_SAMPLE_COUNT_2_BIT) ? VK_SAMPLE_COUNT_2_BIT : VK_SAMPLE_COUNT_1_BIT;
+                msaa = static_cast<VkSampleCountFlagBits>(preferredSampleCount(samples, samples));
                 break;
             }
         }

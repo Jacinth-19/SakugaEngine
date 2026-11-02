@@ -93,4 +93,19 @@ if [[ $reprobed != 1 ]]; then
   echo '::error::Surface probe did not complete after resume.'; exit 1
 fi
 adb shell pidof com.sakuga.preview
+if [[ $renderer_result == presented ]]; then
+  # A successful pre-background frame alone is not proof the renderer survived surface recreation.
+  resumed_frame=0
+  for i in $(seq 1 90); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'engine renderer first frame presented' /tmp/sakuga-android-log.txt; then resumed_frame=1; break; fi
+    if grep -q 'renderer unavailable:' /tmp/sakuga-android-log.txt; then break; fi
+    sleep 2
+  done
+  if [[ $resumed_frame != 1 ]]; then
+    adb logcat -d -s SakugaPreview:V AndroidRuntime:E '*:S' | tail -80
+    echo '::error::The Vulkan scene did not present after surface recreation.'; exit 1
+  fi
+  echo '::notice::Engine Vulkan scene presented again after background/resume.'
+fi
 echo 'Android preview resumed and probed its recreated surface.'
