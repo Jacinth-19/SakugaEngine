@@ -27,6 +27,7 @@ if [[ $surface_probed != 1 ]]; then
   adb logcat -d -s SakugaPreview:V AndroidRuntime:E '*:S' | tail -80
   echo '::error::The live Android Vulkan surface probe did not complete.'; exit 1
 fi
+grep -F 'surface probe finished:' /tmp/sakuga-android-log.txt | tail -1 || true
 # Save an actual emulator screenshot and tap the NEXT CLIP region, using the captured dimensions.
 sleep 3
 adb exec-out screencap -p > apk/android-preview.png

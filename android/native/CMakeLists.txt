@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 get_filename_component(ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 add_library(sakuga_mobile SHARED
-  jni.cpp MobileSession.cpp AndroidVulkanSurface.cpp AndroidContext.cpp
+  jni.cpp MobileSession.cpp AndroidVulkanSurface.cpp AndroidContext.cpp AndroidRenderSession.cpp stb_image.cpp
   ${ROOT}/engine/gfx/Context.cpp ${ROOT}/engine/gfx/Renderer.cpp ${ROOT}/engine/gfx/Mesh.cpp ${ROOT}/engine/gfx/UiTheme.cpp
   ${ROOT}/engine/asset/Lut.cpp ${ROOT}/engine/core/Json.cpp
   ${ROOT}/third_party/imgui/imgui.cpp ${ROOT}/third_party/imgui/imgui_draw.cpp

@@ -70,6 +70,10 @@ bool Context::initAndroid(ANativeWindow* window, std::string& error) {
     const char* deviceExt = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
     VkDeviceCreateInfo di{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO}; di.pNext = &f2; di.queueCreateInfoCount = 1; di.pQueueCreateInfos = &qi; di.enabledExtensionCount = 1; di.ppEnabledExtensionNames = &deviceExt;
     if (vkCreateDevice(phys, &di, nullptr, &device) != VK_SUCCESS) return fail("Could not create Vulkan device");
+    beginRenderingFn = reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(device, "vkCmdBeginRendering"));
+    endRenderingFn = reinterpret_cast<PFN_vkCmdEndRendering>(vkGetDeviceProcAddr(device, "vkCmdEndRendering"));
+    barrier2Fn = reinterpret_cast<PFN_vkCmdPipelineBarrier2>(vkGetDeviceProcAddr(device, "vkCmdPipelineBarrier2"));
+    if (!beginRenderingFn || !endRenderingFn || !barrier2Fn) return fail("Vulkan 1.3 device entry points unavailable");
     vkGetDeviceQueue(device, queueFamily, 0, &queue);
     VkCommandPoolCreateInfo pi{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO}; pi.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; pi.queueFamilyIndex = queueFamily;
     if (vkCreateCommandPool(device, &pi, nullptr, &cmdPool) != VK_SUCCESS) return fail("Could not create Vulkan command pool");

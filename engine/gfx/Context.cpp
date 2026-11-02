@@ -193,6 +193,20 @@ VkShaderModule Context::loadShader(const std::string& path) {
     return m;
 }
 
+void Context::beginRendering(VkCommandBuffer cmd, const VkRenderingInfo* info) {
+#ifdef __ANDROID__
+    beginRenderingFn(cmd, info);
+#else
+    vkCmdBeginRendering(cmd, info);
+#endif
+}
+void Context::endRendering(VkCommandBuffer cmd) {
+#ifdef __ANDROID__
+    endRenderingFn(cmd);
+#else
+    vkCmdEndRendering(cmd);
+#endif
+}
 void Context::barrier(VkCommandBuffer cmd, VkImage img, VkImageAspectFlags aspect, VkImageLayout from, VkImageLayout to, uint32_t baseMip, uint32_t mipCount) {
     VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
     b.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT; b.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
@@ -202,6 +216,10 @@ void Context::barrier(VkCommandBuffer cmd, VkImage img, VkImageAspectFlags aspec
     b.subresourceRange = {aspect, baseMip, mipCount, 0, 1};
     VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     di.imageMemoryBarrierCount = 1; di.pImageMemoryBarriers = &b;
+#ifdef __ANDROID__
+    barrier2Fn(cmd, &di);
+#else
     vkCmdPipelineBarrier2(cmd, &di);
+#endif
 }
 }  // namespace sk

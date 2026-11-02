@@ -31,15 +31,34 @@ public final class MainActivity extends Activity {
     private static native float[] nativeJoints(long handle);
     private static native String nativeInfo(long handle);
     private static native String nativeProbeSurface(Surface surface);
+    private static native long nativeRendererCreate(Surface surface, String shaderDir);
+    private static native int nativeRendererFrame(long renderer, float[] joints);
+    private static native String nativeRendererError();
+    private static native void nativeRendererDestroy(long renderer);
     private volatile boolean destroyed;
     private int surfaceGeneration;
-    private boolean surfaceLive;
+    private volatile boolean surfaceLive;
+    private Thread surfaceThread;
+    private volatile float[] renderJoints;
+    private String shaderDir;
     private final Object surfaceLock = new Object();
     private PreviewView preview;
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
         preview = new PreviewView();
+        try {
+            File dir = new File(getFilesDir(), "shaders");
+            if (!dir.exists() && !dir.mkdirs()) throw new IOException("Cannot create shader directory");
+            String[] shaders = getAssets().list("shaders");
+            if (shaders == null || shaders.length == 0) throw new IOException("Shaders missing from APK");
+            for (String name : shaders) {
+                try (InputStream in = getAssets().open("shaders/" + name); FileOutputStream out = new FileOutputStream(new File(dir, name))) {
+                    byte[] buffer = new byte[32768]; int n; while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+                }
+            }
+            shaderDir = dir.getAbsolutePath();
+        } catch (IOException e) { shaderDir = null; preview.setSurfaceStatus("Shader setup failed: " + e.getMessage()); }
         // The SurfaceView is underneath the animation preview. It gives the native Vulkan port an actual Android
         // surface to probe without pretending the production renderer is already running.
         FrameLayout layout = new FrameLayout(this);
@@ -50,23 +69,64 @@ public final class MainActivity extends Activity {
                 synchronized (surfaceLock) { surfaceLive = true; generation = ++surfaceGeneration; }
                 final Surface surface = holder.getSurface();
                 preview.setSurfaceStatus("Checking Android Vulkan surface...");
-                new Thread(new Runnable() { @Override public void run() {
-                    final String status;
-                    // SurfaceHolder requires all surface work to finish before surfaceDestroyed returns. This lock
-                    // makes destruction wait for an in-flight probe and prevents late workers using a dead surface.
-                    synchronized (surfaceLock) {
-                        if (!surfaceLive || generation != surfaceGeneration) return;
-                        status = surface.isValid() ? nativeProbeSurface(surface) : "Android surface unavailable";
+                surfaceThread = new Thread(new Runnable() { @Override public void run() {
+                    long renderer = 0;
+                    try {
+                        final String status;
+                        synchronized (surfaceLock) {
+                            if (!surfaceLive || generation != surfaceGeneration) return;
+                            status = surface.isValid() ? nativeProbeSurface(surface) : "Android surface unavailable";
+                            if (surface.isValid() && shaderDir != null) renderer = nativeRendererCreate(surface, shaderDir);
+                        }
+                        if (renderer == 0) {
+                            final String failure = shaderDir == null ? "Shaders unavailable" : nativeRendererError();
+                            runOnUiThread(new Runnable() { @Override public void run() {
+                                if (!destroyed && generation == surfaceGeneration)
+                                    preview.setSurfaceStatus("Canvas fallback: " + (failure.isEmpty() ? status : failure));
+                            }});
+                            return;
+                        }
+                        boolean firstFrame = true;
+                        while (surfaceLive && !destroyed) {
+                            int frameResult;
+                            synchronized (surfaceLock) {
+                                if (!surfaceLive || generation != surfaceGeneration) break;
+                                frameResult = nativeRendererFrame(renderer, renderJoints);
+                            }
+                            if (frameResult < 0) {
+                                final String failure = nativeRendererError();
+                                runOnUiThread(new Runnable() { @Override public void run() {
+                                    if (!destroyed && generation == surfaceGeneration) {
+                                        preview.setVulkanActive(false); preview.setSurfaceStatus("Canvas fallback: " + failure);
+                                    }
+                                }});
+                                break;
+                            }
+                            if (firstFrame && frameResult > 0) {
+                                firstFrame = false;
+                                android.util.Log.i("SakugaPreview", "engine renderer first frame presented");
+                                runOnUiThread(new Runnable() { @Override public void run() {
+                                    if (!destroyed && generation == surfaceGeneration) {
+                                        preview.setVulkanActive(true); preview.setSurfaceStatus("Engine Vulkan scene (synthetic rig)");
+                                    }
+                                }});
+                            }
+                        }
+                    } finally {
+                        if (renderer != 0) nativeRendererDestroy(renderer);
                     }
-                    runOnUiThread(new Runnable() { @Override public void run() {
-                        if (!destroyed && generation == surfaceGeneration) preview.setSurfaceStatus(status);
-                    }});
-                }}, "vulkan-surface-probe").start();
+                }}, "vulkan-renderer");
+                surfaceThread.start();
             }
             @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) { }
             @Override public void surfaceDestroyed(SurfaceHolder holder) {
                 synchronized (surfaceLock) { surfaceLive = false; ++surfaceGeneration; }
-                if (!destroyed) preview.setSurfaceStatus("Android surface inactive");
+                // Do not return while Vulkan still owns this surface or native window.
+                if (surfaceThread != null) {
+                    try { surfaceThread.join(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    surfaceThread = null;
+                }
+                if (!destroyed) { preview.setVulkanActive(false); preview.setSurfaceStatus("Android surface inactive"); }
             }
         });
         layout.addView(surfaceView, new FrameLayout.LayoutParams(-1, -1));
@@ -110,6 +170,7 @@ public final class MainActivity extends Activity {
         private long handle; private long lastNs; private boolean running;
         private String message = "Loading two sample animations...";
         private String surfaceStatus = "Waiting for Android surface...";
+        private boolean vulkanActive;
         private float stickX, stickY;
         private final float density = getResources().getDisplayMetrics().density;
         PreviewView() {
@@ -122,6 +183,7 @@ public final class MainActivity extends Activity {
         }
         void setSession(long h, String error) { handle = h; message = error; lastNs = 0; invalidate(); }
         void setSurfaceStatus(String status) { surfaceStatus = status; invalidate(); }
+        void setVulkanActive(boolean active) { vulkanActive = active; setBackgroundColor(active ? Color.TRANSPARENT : Color.rgb(11,14,20)); invalidate(); }
         void setRunning(boolean enabled) {
             running = enabled; lastNs = 0;
             if (!enabled) { touch(3, -1, 0, 0); stickX = stickY = 0; }
@@ -135,12 +197,13 @@ public final class MainActivity extends Activity {
             super.onDraw(c); int w = getWidth(), h = getHeight();
             float margin = 18 * density;
             text(c, "SAKUGA  /  ANIMATION PREVIEW", margin, 28 * density, 17, Color.rgb(184,235,250));
-            text(c, "2 sample clips  •  synthetic rig  •  not the Vulkan renderer", margin, 48 * density, 11, Color.LTGRAY);
+            text(c, vulkanActive ? "2 sample clips  •  synthetic rig  •  engine Vulkan scene" : "2 sample clips  •  synthetic rig  •  Canvas fallback", margin, 48 * density, 11, Color.LTGRAY);
             if (handle == 0) { text(c, message == null ? "Loading..." : message, margin, h * .5f, 14, Color.WHITE); return; }
             long now = System.nanoTime(); float dt = lastNs == 0 ? 0 : (now - lastNs) / 1000000000f; lastNs = now;
             if (running) nativeUpdate(handle, dt, stickX, -stickY);
             float[] j = nativeJoints(handle);
-            if (j != null && j.length == 66) {
+            renderJoints = j;
+            if (!vulkanActive && j != null && j.length == 66) {
                 float scale = Math.min(h * .38f, w * .20f), centerX = w * .5f, bottomY = h * .85f;
                 paint.setColor(Color.rgb(86,207,241)); paint.setStrokeWidth(Math.max(3, 2.5f * density)); paint.setStyle(Paint.Style.STROKE);
                 for (int[] b : bones) c.drawLine(centerX + (j[b[0]*3] + j[b[0]*3+2] * .35f)*scale, bottomY-j[b[0]*3+1]*scale,

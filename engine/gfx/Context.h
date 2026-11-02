@@ -1,6 +1,9 @@
 #pragma once
 #include <vulkan/vulkan.h>
 #include <functional>
+#include <stdexcept>
+#include <cstdio>
+#include <cstdlib>
 #include <vector>
 #include <string>
 struct GLFWwindow;
@@ -35,6 +38,9 @@ public:
     // The Android surface belongs to this context and remains valid until shutdown().
     bool initAndroid(ANativeWindow* window, std::string& error);
     VkSurfaceKHR androidSurface = VK_NULL_HANDLE;
+    PFN_vkCmdBeginRendering beginRenderingFn = nullptr;
+    PFN_vkCmdEndRendering endRenderingFn = nullptr;
+    PFN_vkCmdPipelineBarrier2 barrier2Fn = nullptr;
 #endif
     void shutdown();
 
@@ -58,10 +64,17 @@ public:
     void immediate(const std::function<void(VkCommandBuffer)>& fn);
     VkShaderModule loadShader(const std::string& spvPath);
 
-    static void barrier(VkCommandBuffer cmd, VkImage img, VkImageAspectFlags aspect, VkImageLayout from, VkImageLayout to,
+    void beginRendering(VkCommandBuffer cmd, const VkRenderingInfo* info);
+    void endRendering(VkCommandBuffer cmd);
+    void barrier(VkCommandBuffer cmd, VkImage img, VkImageAspectFlags aspect, VkImageLayout from, VkImageLayout to,
                         uint32_t baseMip = 0, uint32_t mipCount = VK_REMAINING_MIP_LEVELS);
 };
 
+#ifdef __ANDROID__
+// Let the Android activity tear down the current renderer and show an error rather than killing the process.
+#define VK_OK(expr) do { VkResult _r = (expr); if (_r != VK_SUCCESS) { std::fprintf(stderr, "[sakuga:error] Vulkan %s failed: %d (%s:%d)\n", #expr, (int)_r, __FILE__, __LINE__); throw std::runtime_error("Vulkan operation failed: " #expr); } } while (0)
+#else
 #define VK_OK(expr) do { VkResult _r = (expr); if (_r != VK_SUCCESS) { std::fprintf(stderr, "[sakuga:error] Vulkan %s failed: %d (%s:%d)\n", #expr, (int)_r, __FILE__, __LINE__); std::abort(); } } while (0)
+#endif
 
 }  // namespace sk

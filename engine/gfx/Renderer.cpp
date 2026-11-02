@@ -216,9 +216,10 @@ void Renderer::createSwapchain() {
 #ifndef __ANDROID__
     if (!surface_) VK_OK(glfwCreateWindowSurface(ctx_->instance, window_, nullptr, &surface_));
 #endif
-    VkSurfaceCapabilitiesKHR caps; vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ctx_->phys, surface_, &caps);
-    uint32_t fc = 0; vkGetPhysicalDeviceSurfaceFormatsKHR(ctx_->phys, surface_, &fc, nullptr);
-    std::vector<VkSurfaceFormatKHR> fmts(fc); vkGetPhysicalDeviceSurfaceFormatsKHR(ctx_->phys, surface_, &fc, fmts.data());
+    VkSurfaceCapabilitiesKHR caps; VK_OK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ctx_->phys, surface_, &caps));
+    uint32_t fc = 0; VK_OK(vkGetPhysicalDeviceSurfaceFormatsKHR(ctx_->phys, surface_, &fc, nullptr));
+    if (!fc) SK_FATAL("no Vulkan surface formats");
+    std::vector<VkSurfaceFormatKHR> fmts(fc); VK_OK(vkGetPhysicalDeviceSurfaceFormatsKHR(ctx_->phys, surface_, &fc, fmts.data()));
     VkSurfaceFormatKHR chosen = fmts[0];
     for (auto& f : fmts) if (f.format == VK_FORMAT_B8G8R8A8_UNORM || f.format == VK_FORMAT_R8G8B8A8_UNORM) { chosen = f; break; }
     swapFormat_ = chosen.format;
@@ -412,20 +413,20 @@ Texture* Renderer::createTexture(const std::string& name, const uint8_t* rgba, u
     Buffer staging = ctx_->createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
     std::memcpy(staging.mapped, rgba, size);
     ctx_->immediate([&](VkCommandBuffer c) {
-        Context::barrier(c, t->image.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, levels);
+        ctx_->barrier(c, t->image.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, levels);
         VkBufferImageCopy r{}; r.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; r.imageExtent = {w, h, 1};
         vkCmdCopyBufferToImage(c, staging.buffer, t->image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &r);
         int32_t mw = (int32_t)w, mh = (int32_t)h;
         for (uint32_t i = 1; i < levels; ++i) {
-            Context::barrier(c, t->image.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, i - 1, 1);
+            ctx_->barrier(c, t->image.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, i - 1, 1);
             VkImageBlit b{};
             b.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, i - 1, 0, 1}; b.srcOffsets[1] = {mw, mh, 1};
             mw = std::max(1, mw / 2); mh = std::max(1, mh / 2);
             b.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, i, 0, 1}; b.dstOffsets[1] = {mw, mh, 1};
             vkCmdBlitImage(c, t->image.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, t->image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b, VK_FILTER_LINEAR);
         }
-        if (levels > 1) Context::barrier(c, t->image.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, levels - 1);
-        Context::barrier(c, t->image.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, levels - 1, 1);
+        if (levels > 1) ctx_->barrier(c, t->image.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, levels - 1);
+        ctx_->barrier(c, t->image.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, levels - 1, 1);
     });
     ctx_->destroyBuffer(staging);
     VkSamplerCreateInfo sc{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
@@ -680,12 +681,12 @@ void Renderer::uploadEnvironment(const std::vector<float>& rgba, int w, int h) {
         for (size_t k = 0; k < mips[i].size(); ++k) o[k] = floatToHalf(mips[i][k]);
     }
     ctx_->immediate([&](VkCommandBuffer c) {
-        Context::barrier(c, env_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        ctx_->barrier(c, env_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         for (size_t i = 0; i < mips.size(); ++i) {
             VkBufferImageCopy r{}; r.bufferOffset = off[i]; r.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, (uint32_t)i, 0, 1}; r.imageExtent = {(uint32_t)dims[i].x, (uint32_t)dims[i].y, 1};
             vkCmdCopyBufferToImage(c, staging.buffer, env_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &r);
         }
-        Context::barrier(c, env_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        ctx_->barrier(c, env_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     });
     ctx_->destroyBuffer(staging);
 }
@@ -792,13 +793,13 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
 
     // shadow pass
     {
-        Context::barrier(cmd, shadow_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+        ctx_->barrier(cmd, shadow_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
         VkRenderingAttachmentInfo da{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         da.imageView = shadow_.view; da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
         da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; da.storeOp = VK_ATTACHMENT_STORE_OP_STORE; da.clearValue.depthStencil = {1.f, 0};
         VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
         ri.renderArea = {{0, 0}, {kShadowRes * 2, kShadowRes}}; ri.layerCount = 1; ri.pDepthAttachment = &da;
-        vkCmdBeginRendering(cmd, &ri);
+        ctx_->beginRendering(cmd, &ri);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeShadow_);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout_, 0, 1, &f.globalSet, 0, nullptr);
         for (int c = 0; c < 2; ++c) {
@@ -808,18 +809,18 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
             drawList(cmd, in, DrawFilter::Shadow);
         }
         cascadeIdx_ = 0;
-        vkCmdEndRendering(cmd);
-        Context::barrier(cmd, shadow_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+        ctx_->endRendering(cmd);
+        ctx_->barrier(cmd, shadow_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
     }
     // point-light cube shadow atlas (6 faces x 2 lights; always cleared so the descriptor stays valid, faces only drawn for active lights)
     {
-        Context::barrier(cmd, pointShadow_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+        ctx_->barrier(cmd, pointShadow_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
         VkRenderingAttachmentInfo da{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         da.imageView = pointShadow_.view; da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
         da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; da.storeOp = VK_ATTACHMENT_STORE_OP_STORE; da.clearValue.depthStencil = {1.f, 0};
         VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
         ri.renderArea = {{0, 0}, {kPointShadowRes * 6, kPointShadowRes * kMaxPointShadows}}; ri.layerCount = 1; ri.pDepthAttachment = &da;
-        vkCmdBeginRendering(cmd, &ri);
+        ctx_->beginRendering(cmd, &ri);
         stats.pointShadowFaces = 0;
         if (nSlots > 0) {
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeShadow_);
@@ -834,15 +835,15 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
             }
             cascadeIdx_ = 0;
         }
-        vkCmdEndRendering(cmd);
-        Context::barrier(cmd, pointShadow_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+        ctx_->endRendering(cmd);
+        ctx_->barrier(cmd, pointShadow_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
     }
 
     // main pass (MSAA -> resolve into sceneColor)
     {
-        Context::barrier(cmd, msaaColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        Context::barrier(cmd, msaaDepth_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-        Context::barrier(cmd, sceneColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        ctx_->barrier(cmd, msaaColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        ctx_->barrier(cmd, msaaDepth_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+        ctx_->barrier(cmd, sceneColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         VkRenderingAttachmentInfo ca{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}, da{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         ca.imageView = msaaColor_.view; ca.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         ca.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT; ca.resolveImageView = sceneColor_.view; ca.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -851,7 +852,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; da.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; da.clearValue.depthStencil = {1.f, 0};
         VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
         ri.renderArea = {{0, 0}, {width_, height_}}; ri.layerCount = 1; ri.colorAttachmentCount = 1; ri.pColorAttachments = &ca; ri.pDepthAttachment = &da;
-        vkCmdBeginRendering(cmd, &ri);
+        ctx_->beginRendering(cmd, &ri);
         VkViewport vp{0, 0, (float)width_, (float)height_, 0, 1}; VkRect2D sc{{0, 0}, {width_, height_}};
         vkCmdSetViewport(cmd, 0, 1, &vp); vkCmdSetScissor(cmd, 0, 1, &sc);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout_, 0, 1, &f.globalSet, 0, nullptr);
@@ -870,7 +871,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
             vkCmdBindVertexBuffers(cmd, 0, 1, &f.lines.buffer, &zero);
             vkCmdDraw(cmd, (uint32_t)nl, 1, 0, 0);
         }
-        vkCmdEndRendering(cmd);
+        ctx_->endRendering(cmd);
     }
 
     // post-processing: bloom chain + composite (tonemap, grade, vignette, sRGB) into finalColor_
@@ -885,26 +886,26 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
             ca.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; ca.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
             ri.renderArea = {{0, 0}, {width_, height_}}; ri.layerCount = 1; ri.colorAttachmentCount = 1; ri.pColorAttachments = &ca;
-            vkCmdBeginRendering(cmd, &ri);
+            ctx_->beginRendering(cmd, &ri);
             ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
-            vkCmdEndRendering(cmd);
+            ctx_->endRendering(cmd);
         }
         uiFrameOpen_ = false;
     }
 
     // present / capture
-    Context::barrier(cmd, finalColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    ctx_->barrier(cmd, finalColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     if (capture || !presenting()) {
         VkBufferImageCopy r{}; r.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; r.imageExtent = {width_, height_, 1};
         vkCmdCopyImageToBuffer(cmd, finalColor_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_.buffer, 1, &r);
     }
     if (presenting()) {
         VkImage sw = swapImages_[imgIdx];
-        Context::barrier(cmd, sw, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        ctx_->barrier(cmd, sw, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         VkImageBlit b{}; b.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; b.srcOffsets[1] = {(int32_t)width_, (int32_t)height_, 1};
         b.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; b.dstOffsets[1] = {(int32_t)width_, (int32_t)height_, 1};
         vkCmdBlitImage(cmd, finalColor_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, sw, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b, VK_FILTER_NEAREST);
-        Context::barrier(cmd, sw, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        ctx_->barrier(cmd, sw, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     }
     VK_OK(vkEndCommandBuffer(cmd));
 
@@ -916,11 +917,15 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         si.signalSemaphoreCount = 1; si.pSignalSemaphores = &renderDone_[imgIdx];
     }
     VK_OK(vkQueueSubmit(ctx_->queue, 1, &si, f.fence));
+    bool presented = true;
     if (presenting()) {
         VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
         pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &renderDone_[imgIdx]; pi.swapchainCount = 1; pi.pSwapchains = &swapchain_; pi.pImageIndices = &imgIdx;
         VkResult r = vkQueuePresentKHR(ctx_->queue, &pi);
-        if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) needResize_ = true;
+        if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
+            needResize_ = true;
+            if (r == VK_ERROR_OUT_OF_DATE_KHR) presented = false;
+        } else if (r != VK_SUCCESS) VK_OK(r);
     }
     if (capture || !presenting()) {
         VK_OK(vkWaitForFences(dev, 1, &f.fence, VK_TRUE, UINT64_MAX));
@@ -928,29 +933,29 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     }
     frameIndex_ = (frameIndex_ + 1) % kFramesInFlight;
     stats.cpuMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
-    return true;
+    return presented;
 }
 
 void Renderer::recordPost(VkCommandBuffer cmd, const FrameInput& in) {
     const PostSettings& P = in.post;
     const VkImageAspectFlags col = VK_IMAGE_ASPECT_COLOR_BIT;
-    Context::barrier(cmd, sceneColor_.image, col, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    ctx_->barrier(cmd, sceneColor_.image, col, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     auto pass = [&](Image& target, VkImageLayout from, VkPipeline pipe, VkDescriptorSet set, const PostPC& pc, bool load, bool toRead) {
-        Context::barrier(cmd, target.image, col, from, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        ctx_->barrier(cmd, target.image, col, from, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         VkRenderingAttachmentInfo ca{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         ca.imageView = target.view; ca.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         ca.loadOp = load ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE; ca.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
         ri.renderArea = {{0, 0}, {target.width, target.height}}; ri.layerCount = 1; ri.colorAttachmentCount = 1; ri.pColorAttachments = &ca;
-        vkCmdBeginRendering(cmd, &ri);
+        ctx_->beginRendering(cmd, &ri);
         VkViewport vp{0, 0, (float)target.width, (float)target.height, 0, 1}; VkRect2D sc{{0, 0}, {target.width, target.height}};
         vkCmdSetViewport(cmd, 0, 1, &vp); vkCmdSetScissor(cmd, 0, 1, &sc);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &set, 0, nullptr);
         vkCmdPushConstants(cmd, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
         vkCmdDraw(cmd, 3, 1, 0, 0);
-        vkCmdEndRendering(cmd);
-        if (toRead) Context::barrier(cmd, target.image, col, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        ctx_->endRendering(cmd);
+        if (toRead) ctx_->barrier(cmd, target.image, col, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     };
     bool bloomOn = P.enabled && P.bloom && P.bloomIntensity > 0.f;
     // prefilter (soft threshold) into level 0; when bloom is off the threshold is infinite so level 0 is black

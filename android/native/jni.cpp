@@ -1,5 +1,6 @@
 #include "MobileSession.h"
 #include "AndroidVulkanSurface.h"
+#include "AndroidRenderSession.h"
 #include <android/native_window_jni.h>
 #include <jni.h>
 #include <memory>
@@ -67,3 +68,40 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_sakuga_preview_MainActivity_native
     __android_log_print(ANDROID_LOG_INFO, tag, "surface probe finished: %s", status.c_str());
     return env->NewStringUTF(status.c_str());
 }
+
+namespace {
+struct RendererHandle {
+    ANativeWindow* window = nullptr;
+    sk::AndroidRenderSession* session = nullptr;
+    ~RendererHandle() { sk::destroyAndroidRenderSession(session); if (window) ANativeWindow_release(window); }
+};
+thread_local std::string rendererError;
+RendererHandle* renderer(jlong h) { return reinterpret_cast<RendererHandle*>(static_cast<intptr_t>(h)); }
+}
+extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererCreate(JNIEnv* env, jclass, jobject surface, jstring shaderDir) {
+    rendererError.clear();
+    if (!surface || !shaderDir) { rendererError = "Surface or shaders unavailable"; return 0; }
+    try {
+        auto h = std::make_unique<RendererHandle>();
+        h->window = ANativeWindow_fromSurface(env, surface);
+        if (env->ExceptionCheck()) { env->ExceptionClear(); rendererError = "Android surface unavailable"; return 0; }
+        const char* path = env->GetStringUTFChars(shaderDir, nullptr);
+        if (!path) { rendererError = "Shader path unavailable"; return 0; }
+        std::string directory(path); env->ReleaseStringUTFChars(shaderDir, path);
+        h->session = sk::createAndroidRenderSession(h->window, directory, rendererError);
+        if (!h->session) { __android_log_print(ANDROID_LOG_WARN, tag, "renderer unavailable: %s", rendererError.c_str()); return 0; }
+        __android_log_print(ANDROID_LOG_INFO, tag, "engine renderer initialized");
+        return static_cast<jlong>(reinterpret_cast<intptr_t>(h.release()));
+    } catch (const std::exception& e) { rendererError = e.what(); return 0; }
+}
+extern "C" JNIEXPORT jint JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererFrame(JNIEnv* env, jclass, jlong handle, jfloatArray joints) {
+    auto* h = renderer(handle); if (!h) return -1;
+    float data[66]; int count = 0;
+    if (joints && env->GetArrayLength(joints) >= 66) { env->GetFloatArrayRegion(joints, 0, 66, data); count = 66; }
+    if (env->ExceptionCheck()) return -1;
+    return sk::renderAndroidFrame(h->session, data, count, rendererError);
+}
+extern "C" JNIEXPORT jstring JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererError(JNIEnv* env, jclass) {
+    return env->NewStringUTF(rendererError.c_str());
+}
+extern "C" JNIEXPORT void JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererDestroy(JNIEnv*, jclass, jlong h) { delete renderer(h); }
