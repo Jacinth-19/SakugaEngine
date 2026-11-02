@@ -322,7 +322,12 @@ public final class MainActivity extends Activity {
             } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
                 int id = e.getPointerId(index); float x = e.getX(index), y = e.getY(index);
                 if (id == uiPointer) { uiTouches.add(new UiTouch(true, 2, id, x, y)); uiPointer = -1; }
-                else if (gamePointers.remove(id)) uiTouches.add(new UiTouch(false, 2, id, x, y));
+                else if (gamePointers.remove(id)) {
+                    // ACTION_UP may carry the only final swipe position on a slow device. Deliver it as a move first;
+                    // the render thread defers the release so the engine observes that position for a frame.
+                    uiTouches.add(new UiTouch(false, 1, id, x, y));
+                    uiTouches.add(new UiTouch(false, 2, id, x, y));
+                }
                 else if (!vulkanActive) touch(2, id, x, y);
             } else if (action == MotionEvent.ACTION_CANCEL) { touch(3, -1, 0, 0); cancelAllTouches(); }
             invalidate(); return true;
