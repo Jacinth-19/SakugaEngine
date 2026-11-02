@@ -14,6 +14,7 @@
 #include "platform/SysInfo.h"
 #include "platform/Window.h"
 #include "platform/TouchControls.h"
+#include "platform/FrameTiming.h"
 #include "scene/Scene.h"
 #include "MotionLab.h"
 #ifdef __ANDROID__
@@ -171,7 +172,7 @@ public:
     void shutdown();
 #ifdef __ANDROID__
     bool initMobile(ANativeWindow* window, std::string& error);
-    int frameMobile(float dt, float x, float y, int clip);
+    int frameMobile(float dt, float wallDt, float x, float y, int clip);
     void touchMobile(bool imgui, int action, int id, float x, float y);
 #endif
 
@@ -190,7 +191,7 @@ private:
     void handleActions(float dt);
     void updateScene(float dt);
     FrameInput buildFrame(float dt);
-    void drawUI();
+    void drawUI(float wallDt = 1.f / 60.f);
     void drawUiThemeWindow();
     void loadUiTheme();
     void applyRain(float amount);
@@ -230,7 +231,7 @@ private:
     int debugMode_ = 0; bool skeleton_ = false, trajectory_ = false, showUI_ = true, split_ = false; float splitOffset_ = 0;
     glm::vec3 desiredVel_{0};
     int selectedMat_ = 0; bool syncMat_ = true;
-    float fps_ = 60; bool cursorFree_ = true;
+    float fps_ = 0; FrameTiming frameTiming_; bool cursorFree_ = true;
     int matForcedMode_ = -1;
     // UI look: the preset/file this session started from, and the live state the F12 editor writes back to it
     UiTheme uiTheme_; std::string uiThemePath_, uiThemeError_; fs::file_time_type uiThemeStamp_{};
@@ -885,9 +886,9 @@ void Sandbox::drawUiThemeWindow() {
     ImGui::End();
 }
 
-void Sandbox::drawUI() {
+void Sandbox::drawUI(float wallDt) {
     if (!renderer_.uiEnabled()) return;
-    renderer_.beginUI();
+    renderer_.beginUI(wallDt);
     if (showFps_) {
         ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 12, 12), ImGuiCond_Always, ImVec2(1, 0)); ImGui::SetNextWindowBgAlpha(0.45f);
         ImGui::Begin("##fps", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav);
@@ -1092,8 +1093,9 @@ void Sandbox::run() {
             if (window_.shouldClose()) break;
             window_.poll();
             auto now = std::chrono::steady_clock::now();
-            dt = std::min(0.05f, std::chrono::duration<float>(now - last).count()); last = now;
-            fps_ = glm::mix(fps_, 1.f / std::max(dt, 1e-4f), 0.05f);
+            float wallDt = std::chrono::duration<float>(now - last).count(); last = now;
+            dt = std::min(0.05f, wallDt);
+            if (frame_ > 0) fps_ = frameTiming_.update(wallDt);
             dev = window_.device();
             {   // touch controls: the mouse acts as touch id 0 (desktop GLFW has no multi-touch); real touch front ends call touch_.injectTouch()
                 int fw, fh; window_.framebufferSize(fw, fh); touch_.setScreen((float)fw, (float)fh);
@@ -1198,7 +1200,7 @@ bool Sandbox::initMobile(ANativeWindow* window, std::string& error) {
     touch_.enabled = true; touch_.setScreen((float)renderer_.width(), (float)renderer_.height());
     return true;
 }
-int Sandbox::frameMobile(float dt, float x, float y, int clip) {
+int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     if (!std::isfinite(x) || !std::isfinite(y)) x = y = 0.f;
     (void)x; (void)y; (void)clip;
     if (mobileLoadNpcs_) {
@@ -1218,8 +1220,8 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox movement reached the avatar"); mobileLoggedMove_ = true;
     }
     FrameInput fi = buildFrame(dt);
-    fps_ = glm::mix(fps_, 1.f / std::max(dt, 1e-4f), .05f);
-    drawUI();
+    if (frame_ > 0) fps_ = frameTiming_.update(wallDt);
+    drawUI(wallDt);
     const float density = opt_.uiFontSize / 14.f;
     ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .65f, 10.f * density), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .34f, renderer_.height() * .48f), ImGuiCond_Always);
@@ -1311,8 +1313,8 @@ int mobileSandboxFrame(MobileSandbox* m, float x, float y, int clip, std::string
     if (!m || !m->sandbox) { error = "Sandbox unavailable"; return -1; }
     try {
         auto now = std::chrono::steady_clock::now();
-        float dt = std::clamp(std::chrono::duration<float>(now - m->last).count(), 1e-5f, .05f); m->last = now;
-        return m->sandbox->frameMobile(dt, x, y, clip);
+        float wallDt = std::max(std::chrono::duration<float>(now - m->last).count(), 1e-5f); m->last = now;
+        return m->sandbox->frameMobile(std::min(wallDt, .05f), wallDt, x, y, clip);
     } catch (const std::exception& e) { error = e.what(); return -1; }
 }
 void mobileSandboxTouch(MobileSandbox* m, bool imgui, int action, int id, float x, float y) { if (m && m->sandbox) m->sandbox->touchMobile(imgui, action, id, x, y); }

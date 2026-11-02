@@ -59,6 +59,10 @@ if(NOT MSVC)
   target_compile_options(sakuga_headless PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
+add_executable(frame_timing_test ${CMAKE_CURRENT_SOURCE_DIR}/frame_timing_test.cpp)
+target_link_libraries(frame_timing_test PRIVATE sakuga_headless)
+add_test(NAME frame_timing_test COMMAND frame_timing_test)
+
 # ---------------------------------------------------------------- dear imgui (core only)
 # The UI theme is data plus an apply() into ImGuiStyle, so its test needs ImGui's core library but not the GLFW/Vulkan
 # backends - which keeps ui_theme_test GPU-free like the rest of the suite.
