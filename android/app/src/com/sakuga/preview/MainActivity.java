@@ -305,7 +305,7 @@ public final class MainActivity extends Activity {
             int action = e.getActionMasked(), index = e.getActionIndex();
             if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
                 int id = e.getPointerId(index); float x = e.getX(index), y = e.getY(index);
-                boolean panel = y < getHeight() * .50f && (x >= getWidth() * .65f || y < getHeight() * .42f);
+                boolean panel = (x >= getWidth() * .65f && y < getHeight() * .55f) || (x < getWidth() * .65f && y < getHeight() * .42f);
                 if (vulkanActive && panel) {
                     if (uiPointer == -1) { uiPointer = id; uiTouches.add(new UiTouch(true, 0, id, x, y)); }
                 } else if (vulkanActive) {

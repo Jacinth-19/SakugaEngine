@@ -1234,19 +1234,20 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "imgui bloom target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
         mobileLoggedControls_ = true;
     }
+    ImGui::SameLine();
+    if (!mobileNpcsRequested_) {
+        if (ImGui::Button("NPCs")) { mobileNpcsRequested_ = true; mobileLoadNpcs_ = true; }
+        if (frame_ == 0) {
+            ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox npcs target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+        }
+    } else ImGui::TextUnformatted("NPCs on");
     ImGui::Checkbox("Point shadows", &opt_.pointShadows);
     if (ImGui::Checkbox("Sandbox editor", &showUI_)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor toggled");
     if (frame_ == 0) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
     }
-    if (!mobileNpcsRequested_) {
-        if (ImGui::Button("Load NPCs")) { mobileNpcsRequested_ = true; mobileLoadNpcs_ = true; }
-        if (frame_ == 0) {
-            ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
-            __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox npcs target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
-        }
-    } else ImGui::TextUnformatted("NPCs requested");
     ImGui::End();
     // The UI changes are reflected on the next frame, as with desktop sandbox controls.
     ++frame_;
