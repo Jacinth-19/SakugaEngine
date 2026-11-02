@@ -87,6 +87,7 @@ if [[ $renderer_result == presented ]]; then
   done
   if [[ $ui_changed != 1 ]]; then echo '::error::Sandbox editor did not respond to touch.'; exit 1; fi
   echo '::notice::Android touch opened the sandbox editor.'
+  sleep 4 # the log is emitted while recording the frame, before it reaches the display
   adb exec-out screencap -p > apk/android-editor.png
 fi
 # Capture actual emulator output while exercising the on-screen preview controls.

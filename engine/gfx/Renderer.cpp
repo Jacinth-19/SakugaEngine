@@ -507,6 +507,8 @@ void Renderer::flushMaterial(Material* m) {
 std::vector<std::string> Renderer::uiFontCandidates() {
 #if defined(_WIN32)
     return {"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/tahoma.ttf", "C:/Windows/Fonts/verdana.ttf"};
+#elif defined(__ANDROID__)
+    return {"/system/fonts/Roboto-Regular.ttf", "/system/fonts/NotoSans-Regular.ttf"};
 #elif defined(__APPLE__)
     return {"/System/Library/Fonts/Helvetica.ttc", "/Library/Fonts/Arial.ttf"};
 #else

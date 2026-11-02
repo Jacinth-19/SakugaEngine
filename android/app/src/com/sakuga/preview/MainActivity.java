@@ -21,7 +21,7 @@ import java.io.IOException;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.HashSet;
 
-/** Experimental Android scene with a Canvas animation fallback. Not the complete desktop sandbox. */
+/** Shared Android Vulkan sandbox, with a separate Canvas animation fallback. */
 public final class MainActivity extends Activity {
     static { System.loadLibrary("sakuga_mobile"); }
     private static native long nativeCreate(String[] paths);
@@ -59,6 +59,10 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        // Keep system bars from covering the editor and touch controls; a swipe can reveal them temporarily.
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
+                View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         preview = new PreviewView();
         try {
             File dir = new File(getFilesDir(), "shaders");
@@ -255,7 +259,11 @@ public final class MainActivity extends Activity {
             paint.setStyle(Paint.Style.FILL); paint.setColor(color); paint.setTextSize(size * density); c.drawText(value, x, y, paint);
         }
         @Override protected void onDraw(Canvas c) {
-            super.onDraw(c); int w = getWidth(), h = getHeight();
+            super.onDraw(c);
+            // The Vulkan sandbox draws its own ImGui and virtual controls. The Canvas view is only
+            // an input overlay in that mode; drawing fallback labels here obscures the editor.
+            if (vulkanActive) return;
+            int w = getWidth(), h = getHeight();
             float margin = 18 * density;
             text(c, "SAKUGA  /  ANIMATION PREVIEW", margin, 28 * density, 17, Color.rgb(184,235,250));
             text(c, vulkanActive ? "2 sample clips  •  bundled VRM  •  engine sandbox" : "2 sample clips  •  synthetic rig  •  Canvas fallback", margin, 48 * density, 11, Color.LTGRAY);

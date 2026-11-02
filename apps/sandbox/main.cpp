@@ -1223,9 +1223,11 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
     const float density = opt_.uiFontSize / 14.f;
     ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .65f, 10.f * density), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .34f, renderer_.height() * .48f), ImGuiCond_Always);
-    ImGui::Begin("Sakuga mobile", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::Begin("SAKUGA / MOBILE", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
     ImGui::TextUnformatted("Sandbox"); ImGui::SameLine();
-    if (ImGui::Button("NIGHT")) { todEnabled_ = true; tod_ = 22.f; }
+    if (ImGui::Button((tod_ >= 19.f || tod_ < 5.f) ? "DAY" : "NIGHT")) {
+        todEnabled_ = true; tod_ = (tod_ >= 19.f || tod_ < 5.f) ? 15.f : 22.f;
+    }
     if (frame_ == 0) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox night target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
