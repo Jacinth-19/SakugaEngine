@@ -1241,7 +1241,7 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
             ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
             __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox npcs target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
         }
-    } else ImGui::TextUnformatted("NPCs on");
+    } else ImGui::TextUnformatted(lab_.npcs.empty() ? "NPCs unavailable" : "NPCs on");
     ImGui::Checkbox("Point shadows", &opt_.pointShadows);
     if (ImGui::Checkbox("Sandbox editor", &showUI_)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor toggled");
     if (frame_ == 0) {

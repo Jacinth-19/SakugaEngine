@@ -21,6 +21,14 @@ OUT=$(cd "$OUT" && pwd)
 cp -R "$ROOT/android/app/res/values" "$WORK/res/"
 cp "$ROOT/assets/branding/sakuga_icon_512.png" "$WORK/res/drawable-nodpi/sakuga_icon.png"
 cp "$ROOT/assets/motion/walk1_subject1.bvh" "$ROOT/assets/motion/run1_subject2.bvh" "$WORK/assets/motion/"
+# Optional external, separately licensed motion library. The shipped two samples win basename collisions.
+if [[ -n ${SAKUGA_ANDROID_MOTION_DIR:-} ]]; then
+  [[ -d "$SAKUGA_ANDROID_MOTION_DIR" ]] || { echo "Motion directory not found: $SAKUGA_ANDROID_MOTION_DIR" >&2; exit 1; }
+  while IFS= read -r -d '' clip; do
+    name=$(basename "$clip")
+    [[ -e "$WORK/assets/motion/$name" ]] || cp "$clip" "$WORK/assets/motion/$name"
+  done < <(find "$SAKUGA_ANDROID_MOTION_DIR" -type f -name '*.bvh' -print0 | sort -z)
+fi
 cp "$ROOT"/shaders/spv/*.spv "$WORK/assets/shaders/"
 cp "$ROOT/assets/models/AvatarSample.vrm" "$ROOT/assets/models/Seed-san.vrm" "$ROOT/assets/models/three-vrm-girl.vrm" "$ROOT/assets/models/Fox.glb" "$ROOT/assets/models/CesiumMan.glb" "$WORK/assets/models/"
 cp -R "$ROOT/assets/luts/." "$WORK/assets/luts/"
