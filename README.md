@@ -51,7 +51,7 @@ These are existing desktop sandbox captures, not the illustrative banner above. 
 
 ![Android Vulkan sandbox and ImGui editor on an emulator](docs/media/android_sandbox_editor.png)
 
-Captured from the x86_64 Android emulator using SwiftShader on 2 November 2026. The [build and emulator run](https://github.com/Jacinth-19/SakugaEngine/actions/runs/41520145068) checked editor input, avatar movement, clip selection, four point-light shadow maps, NPC loading and background/resume. This is not a physical-phone test. The [earlier Canvas-only preview](docs/media/android_preview.mp4) and its [provenance](docs/media/README.md) remain available.
+Captured from the x86_64 Android emulator using SwiftShader on 2 November 2026. The [build and emulator run](https://github.com/Jacinth-19/SakugaEngine/actions/runs/41520145068) checked editor input, avatar movement, clip selection, four point-light shadow maps, NPC loading and background/resume. This is not a physical-phone test. The screenshot predates a frame-timing correction, so its FPS figure is not a performance measurement. The [earlier Canvas-only preview](docs/media/android_preview.mp4) and its [provenance](docs/media/README.md) remain available.
 
 ## Explore
 
