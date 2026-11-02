@@ -72,7 +72,7 @@ int renderAndroidFrame(AndroidRenderSession* s, float moveX, float moveY, int cl
         fi.view = glm::lookAt(fi.cameraPos, target, glm::vec3(0.f, 1.f, 0.f));
         fi.proj = Renderer::perspective(glm::radians(45.f), s->renderer.aspect(), .05f, 100.f);
         fi.time = std::chrono::duration<float>(now - s->start).count();
-        fi.light.pointShadows = false; fi.light.shadowFocus = s->hero.pos;
+        fi.light.pointShadows = false; fi.shadowFocus = s->hero.pos;
         fi.post.bloom = false;
         DrawItem ground; ground.mesh = s->ground; ground.material = s->material; fi.draws.push_back(ground);
         s->hero.collect(fi);

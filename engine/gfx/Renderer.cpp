@@ -234,7 +234,12 @@ void Renderer::createSwapchain() {
     VkSwapchainCreateInfoKHR ci{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     ci.surface = surface_; ci.minImageCount = count; ci.imageFormat = chosen.format; ci.imageColorSpace = chosen.colorSpace;
     ci.imageExtent = ext; ci.imageArrayLayers = 1; ci.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    ci.preTransform = caps.currentTransform; ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    ci.preTransform = caps.currentTransform;
+    ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    if (!(caps.supportedCompositeAlpha & ci.compositeAlpha)) {
+        for (auto mode : {VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR})
+            if (caps.supportedCompositeAlpha & mode) { ci.compositeAlpha = mode; break; }
+    }
     ci.presentMode = VK_PRESENT_MODE_FIFO_KHR; ci.clipped = VK_TRUE;
     VK_OK(vkCreateSwapchainKHR(dev, &ci, nullptr, &swapchain_));
     uint32_t n = 0; vkGetSwapchainImagesKHR(dev, swapchain_, &n, nullptr);
@@ -845,9 +850,14 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         ctx_->barrier(cmd, msaaDepth_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
         ctx_->barrier(cmd, sceneColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         VkRenderingAttachmentInfo ca{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}, da{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        ca.imageView = msaaColor_.view; ca.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        ca.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT; ca.resolveImageView = sceneColor_.view; ca.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        ca.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; ca.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; ca.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.f}};
+        ca.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        if (ctx_->msaa == VK_SAMPLE_COUNT_1_BIT) {
+            ca.imageView = sceneColor_.view; ca.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        } else {
+            ca.imageView = msaaColor_.view; ca.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            ca.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT; ca.resolveImageView = sceneColor_.view; ca.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        }
+        ca.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; ca.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.f}};
         da.imageView = msaaDepth_.view; da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
         da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; da.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; da.clearValue.depthStencil = {1.f, 0};
         VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
