@@ -1,7 +1,9 @@
 #include "gfx/Context.h"
 #include "core/Log.h"
 #include "core/FileUtil.h"
+#ifndef __ANDROID__
 #include <GLFW/glfw3.h>
+#endif
 #include <cstring>
 #include <algorithm>
 
@@ -12,6 +14,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL dbgCb(VkDebugUtilsMessageSeverityFlagBitsE
     return VK_FALSE;
 }
 
+#ifndef __ANDROID__
 bool Context::init(bool wantSurface, bool validation) {
     std::vector<const char*> exts, layers;
     if (wantSurface) {
@@ -95,13 +98,21 @@ bool Context::init(bool wantSurface, bool validation) {
     return true;
 }
 
+#else
+bool Context::init(bool, bool) { return false; } // Android callers use initAndroid with a real native window.
+#endif
+
 void Context::shutdown() {
     if (device) vkDeviceWaitIdle(device);
     if (cmdPool) vkDestroyCommandPool(device, cmdPool, nullptr);
     if (device) vkDestroyDevice(device, nullptr);
     if (messenger) { auto fn = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT"); if (fn) fn(instance, messenger, nullptr); }
+#ifdef __ANDROID__
+    if (androidSurface && instance) vkDestroySurfaceKHR(instance, androidSurface, nullptr);
+    androidSurface = VK_NULL_HANDLE;
+#endif
     if (instance) vkDestroyInstance(instance, nullptr);
-    device = VK_NULL_HANDLE; instance = VK_NULL_HANDLE;
+    device = VK_NULL_HANDLE; instance = VK_NULL_HANDLE; cmdPool = VK_NULL_HANDLE; phys = VK_NULL_HANDLE; messenger = VK_NULL_HANDLE;
 }
 
 uint32_t Context::findMemoryType(uint32_t bits, VkMemoryPropertyFlags flags) const {

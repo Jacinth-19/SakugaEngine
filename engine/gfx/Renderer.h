@@ -95,6 +95,9 @@ public:
     static constexpr int kBloomLevels = 6;
 
     bool init(Context& ctx, GLFWwindow* window, uint32_t width, uint32_t height, const std::string& shaderDir);
+#ifdef __ANDROID__
+    bool initAndroid(Context& ctx, ANativeWindow* window, uint32_t width, uint32_t height, const std::string& shaderDir);
+#endif
     void shutdown();
 
     // --- resources
@@ -147,6 +150,8 @@ public:
 
 private:
     struct FrameData;
+    bool presenting() const;
+    void framebufferSize(int& w, int& h) const;
     void createTargets();
     void destroyTargets();
     void createSwapchain();
@@ -161,6 +166,9 @@ private:
 
     Context* ctx_ = nullptr;
     GLFWwindow* window_ = nullptr;
+#ifdef __ANDROID__
+    ANativeWindow* androidWindow_ = nullptr; // borrowed; lifetime is owned by the caller
+#endif
     uint32_t width_ = 0, height_ = 0;
     bool ui_ = false, uiVisible_ = true, uiFrameOpen_ = false;
     UiTheme uiTheme_;

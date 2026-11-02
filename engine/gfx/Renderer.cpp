@@ -1,11 +1,17 @@
 #include "gfx/Renderer.h"
 #include "gfx/ShadowFit.h"
 #include "core/Log.h"
+#ifndef __ANDROID__
 #include <GLFW/glfw3.h>
+#else
+#include <android/native_window.h>
+#endif
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>
 #include <imgui.h>
+#ifndef __ANDROID__
 #include <backends/imgui_impl_glfw.h>
+#endif
 #include <backends/imgui_impl_vulkan.h>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
@@ -64,12 +70,34 @@ bool Renderer::savePNG(const std::string& path, const std::vector<uint8_t>& rgba
     return stbi_write_png(path.c_str(), (int)w, (int)h, 4, rgba.data(), (int)w * 4) != 0;
 }
 
+bool Renderer::presenting() const {
+#ifdef __ANDROID__
+    return androidWindow_ != nullptr;
+#else
+    return window_ != nullptr;
+#endif
+}
+void Renderer::framebufferSize(int& w, int& h) const {
+#ifdef __ANDROID__
+    w = ANativeWindow_getWidth(androidWindow_); h = ANativeWindow_getHeight(androidWindow_);
+#else
+    glfwGetFramebufferSize(window_, &w, &h);
+#endif
+}
+#ifdef __ANDROID__
+bool Renderer::initAndroid(Context& ctx, ANativeWindow* window, uint32_t w, uint32_t h, const std::string& shaderDir) {
+    if (!window || !ctx.androidSurface) return false;
+    androidWindow_ = window; surface_ = ctx.androidSurface;
+    return init(ctx, nullptr, w, h, shaderDir);
+}
+#endif
+
 // ===================================================================================== init
 bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, const std::string& shaderDir) {
     ctx_ = &ctx; window_ = window; width_ = w; height_ = h;
     VkDevice dev = ctx.device;
 
-    if (window_) createSwapchain();
+    if (presenting()) createSwapchain();
 
     // --- descriptor layouts
     {
@@ -185,14 +213,16 @@ bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, co
 // ===================================================================================== swapchain / targets
 void Renderer::createSwapchain() {
     VkDevice dev = ctx_->device;
+#ifndef __ANDROID__
     if (!surface_) VK_OK(glfwCreateWindowSurface(ctx_->instance, window_, nullptr, &surface_));
+#endif
     VkSurfaceCapabilitiesKHR caps; vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ctx_->phys, surface_, &caps);
     uint32_t fc = 0; vkGetPhysicalDeviceSurfaceFormatsKHR(ctx_->phys, surface_, &fc, nullptr);
     std::vector<VkSurfaceFormatKHR> fmts(fc); vkGetPhysicalDeviceSurfaceFormatsKHR(ctx_->phys, surface_, &fc, fmts.data());
     VkSurfaceFormatKHR chosen = fmts[0];
     for (auto& f : fmts) if (f.format == VK_FORMAT_B8G8R8A8_UNORM || f.format == VK_FORMAT_R8G8B8A8_UNORM) { chosen = f; break; }
     swapFormat_ = chosen.format;
-    int fw, fh; glfwGetFramebufferSize(window_, &fw, &fh);
+    int fw, fh; framebufferSize(fw, fh);
     VkExtent2D ext = caps.currentExtent;
     if (ext.width == 0xFFFFFFFFu) ext = {(uint32_t)fw, (uint32_t)fh};
     ext.width = std::clamp(ext.width, caps.minImageExtent.width, caps.maxImageExtent.width);
@@ -261,7 +291,7 @@ void Renderer::createPostSets() {
     postCompSet_ = make(sceneColor_.view, bloom_[0].view);
 }
 void Renderer::resize(uint32_t w, uint32_t h) {
-    if (!window_) {                     // headless: just rebuild targets
+    if (!presenting()) {                     // headless: just rebuild targets
         vkDeviceWaitIdle(ctx_->device); destroyTargets(); width_ = w; height_ = h; createTargets(); return;
     }
     needResize_ = true;
@@ -493,7 +523,9 @@ void Renderer::initUI(GLFWwindow* window, const UiTheme& theme, const std::strin
     if (!font) { io.Fonts->AddFontDefault(); SK_LOG("ui: built-in font (no system UI font found)"); }
     io.FontGlobalScale = uiTheme_.fontScale;
     applyUiTheme(uiTheme_, ImGui::GetStyle());
+#ifndef __ANDROID__
     ImGui_ImplGlfw_InitForVulkan(window, true);
+#endif
     ImGui_ImplVulkan_InitInfo ii{};
     ii.Instance = ctx_->instance; ii.PhysicalDevice = ctx_->phys; ii.Device = ctx_->device;
     ii.QueueFamily = ctx_->queueFamily; ii.Queue = ctx_->queue;
@@ -517,7 +549,12 @@ void Renderer::setUiTheme(const UiTheme& theme) {
 void Renderer::beginUI() {
     if (!ui_ || uiFrameOpen_) return;
     ImGui_ImplVulkan_NewFrame();
+#ifndef __ANDROID__
     ImGui_ImplGlfw_NewFrame();
+#else
+    ImGui::GetIO().DisplaySize = ImVec2((float)width_, (float)height_);
+    ImGui::GetIO().DeltaTime = 1.f / 60.f;
+#endif
     ImGui::NewFrame();
     uiFrameOpen_ = true;
 }
@@ -668,8 +705,8 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     }
 
     uint32_t imgIdx = 0;
-    if (window_) {
-        int fw, fh; glfwGetFramebufferSize(window_, &fw, &fh);
+    if (presenting()) {
+        int fw, fh; framebufferSize(fw, fh);
         if (fw == 0 || fh == 0) { if (uiFrameOpen_) { ImGui::EndFrame(); uiFrameOpen_ = false; } return false; }   // minimised
         if (needResize_ || (uint32_t)fw != width_ || (uint32_t)fh != height_) {
             vkDeviceWaitIdle(dev); destroySwapchain(); destroyTargets(); createSwapchain(); createTargets(); needResize_ = false;
@@ -857,11 +894,11 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
 
     // present / capture
     Context::barrier(cmd, finalColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    if (capture || !window_) {
+    if (capture || !presenting()) {
         VkBufferImageCopy r{}; r.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; r.imageExtent = {width_, height_, 1};
         vkCmdCopyImageToBuffer(cmd, finalColor_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_.buffer, 1, &r);
     }
-    if (window_) {
+    if (presenting()) {
         VkImage sw = swapImages_[imgIdx];
         Context::barrier(cmd, sw, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         VkImageBlit b{}; b.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; b.srcOffsets[1] = {(int32_t)width_, (int32_t)height_, 1};
@@ -874,18 +911,18 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     VkPipelineStageFlags wait = VK_PIPELINE_STAGE_TRANSFER_BIT;
     si.commandBufferCount = 1; si.pCommandBuffers = &cmd;
-    if (window_) {
+    if (presenting()) {
         si.waitSemaphoreCount = 1; si.pWaitSemaphores = &f.imageAvailable; si.pWaitDstStageMask = &wait;
         si.signalSemaphoreCount = 1; si.pSignalSemaphores = &renderDone_[imgIdx];
     }
     VK_OK(vkQueueSubmit(ctx_->queue, 1, &si, f.fence));
-    if (window_) {
+    if (presenting()) {
         VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
         pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &renderDone_[imgIdx]; pi.swapchainCount = 1; pi.pSwapchains = &swapchain_; pi.pImageIndices = &imgIdx;
         VkResult r = vkQueuePresentKHR(ctx_->queue, &pi);
         if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) needResize_ = true;
     }
-    if (capture || !window_) {
+    if (capture || !presenting()) {
         VK_OK(vkWaitForFences(dev, 1, &f.fence, VK_TRUE, UINT64_MAX));
         if (capture) { capture->resize((size_t)width_ * height_ * 4); std::memcpy(capture->data(), readback_.mapped, capture->size()); }
     }
@@ -943,7 +980,11 @@ void Renderer::shutdown() {
     if (!ctx_ || !ctx_->device) return;
     VkDevice dev = ctx_->device;
     vkDeviceWaitIdle(dev);
-    if (ui_) { ImGui_ImplVulkan_Shutdown(); ImGui_ImplGlfw_Shutdown(); ImGui::DestroyContext(); ui_ = false; }
+    if (ui_) { ImGui_ImplVulkan_Shutdown();
+#ifndef __ANDROID__
+        ImGui_ImplGlfw_Shutdown();
+#endif
+        ImGui::DestroyContext(); ui_ = false; }
     for (auto& t : textures_) { vkDestroySampler(dev, t->sampler, nullptr); ctx_->destroyImage(t->image); }
     for (auto& m : materials_) ctx_->destroyBuffer(m->ubo);
     for (auto& m : meshes_) { ctx_->destroyBuffer(m->vertex); ctx_->destroyBuffer(m->index); }
@@ -960,7 +1001,13 @@ void Renderer::shutdown() {
     vkDestroyDescriptorSetLayout(dev, globalLayout_, nullptr); vkDestroyDescriptorSetLayout(dev, materialLayout_, nullptr);
     vkDestroySampler(dev, shadowSampler_, nullptr); vkDestroySampler(dev, envSampler_, nullptr); ctx_->destroyImage(env_);
     destroyTargets(); ctx_->destroyImage(shadow_); ctx_->destroyImage(pointShadow_); vkDestroyDescriptorPool(dev, postPool_, nullptr); postPool_ = VK_NULL_HANDLE;
-    if (window_) { destroySwapchain(); vkDestroySurfaceKHR(ctx_->instance, surface_, nullptr); }
+    if (presenting()) {
+        destroySwapchain();
+#ifndef __ANDROID__
+        vkDestroySurfaceKHR(ctx_->instance, surface_, nullptr);
+#endif
+        surface_ = VK_NULL_HANDLE;
+    }
 }
 
 }  // namespace sk

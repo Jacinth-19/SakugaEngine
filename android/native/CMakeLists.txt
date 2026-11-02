@@ -4,10 +4,15 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 get_filename_component(ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 add_library(sakuga_mobile SHARED
-  jni.cpp MobileSession.cpp AndroidVulkanSurface.cpp
+  jni.cpp MobileSession.cpp AndroidVulkanSurface.cpp AndroidContext.cpp
+  ${ROOT}/engine/gfx/Context.cpp ${ROOT}/engine/gfx/Renderer.cpp ${ROOT}/engine/gfx/Mesh.cpp ${ROOT}/engine/gfx/UiTheme.cpp
+  ${ROOT}/engine/asset/Lut.cpp ${ROOT}/engine/core/Json.cpp
+  ${ROOT}/third_party/imgui/imgui.cpp ${ROOT}/third_party/imgui/imgui_draw.cpp
+  ${ROOT}/third_party/imgui/imgui_tables.cpp ${ROOT}/third_party/imgui/imgui_widgets.cpp
+  ${ROOT}/third_party/imgui/backends/imgui_impl_vulkan.cpp
   ${ROOT}/engine/anim/Bvh.cpp ${ROOT}/engine/anim/Rig.cpp ${ROOT}/engine/anim/MotionMatching.cpp
   ${ROOT}/engine/core/FileUtil.cpp)
-target_include_directories(sakuga_mobile PRIVATE ${ROOT}/engine ${ROOT}/third_party/glm)
+target_include_directories(sakuga_mobile PRIVATE ${ROOT}/engine ${ROOT}/third_party ${ROOT}/third_party/glm ${ROOT}/third_party/imgui)
 target_compile_definitions(sakuga_mobile PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RADIANS GLM_ENABLE_EXPERIMENTAL)
 target_compile_definitions(sakuga_mobile PRIVATE VK_USE_PLATFORM_ANDROID_KHR)
 target_link_libraries(sakuga_mobile PRIVATE log android vulkan)

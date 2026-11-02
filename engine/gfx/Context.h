@@ -4,6 +4,9 @@
 #include <vector>
 #include <string>
 struct GLFWwindow;
+#ifdef __ANDROID__
+struct ANativeWindow;
+#endif
 
 namespace sk {
 
@@ -28,6 +31,11 @@ struct Image {
 class Context {
 public:
     bool init(bool wantSurface, bool validation);
+#ifdef __ANDROID__
+    // The Android surface belongs to this context and remains valid until shutdown().
+    bool initAndroid(ANativeWindow* window, std::string& error);
+    VkSurfaceKHR androidSurface = VK_NULL_HANDLE;
+#endif
     void shutdown();
 
     VkInstance instance = VK_NULL_HANDLE;
