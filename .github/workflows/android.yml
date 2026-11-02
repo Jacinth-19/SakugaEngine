@@ -1,6 +1,6 @@
-name: Android animation preview
+name: Android sandbox
 
-# This builds a native animation-only preview, NOT the full GLFW/Vulkan desktop sandbox.
+# Builds the shared Vulkan sandbox and exercises it on an Android emulator.
 on:
   push:
   pull_request:

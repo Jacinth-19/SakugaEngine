@@ -42,7 +42,7 @@ if [[ $renderer_result == presented ]]; then
   echo '::notice::Engine Vulkan scene presented a frame on the Android emulator.'
 elif [[ $renderer_result == unavailable ]]; then
   renderer_line=$(grep -F 'renderer unavailable:' /tmp/sakuga-android-log.txt | tail -1)
-  echo "::notice::Android emulator used Canvas fallback: $renderer_line"
+  echo "::error::The emulator fell back to Canvas; this check requires a sandbox Vulkan frame: $renderer_line"; exit 1
 else
   echo '::error::Android renderer neither presented nor reported an incompatibility.'; exit 1
 fi

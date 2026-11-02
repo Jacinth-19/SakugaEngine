@@ -77,7 +77,7 @@ On Windows, use a Bash environment such as Git Bash. The script belongs to the *
 | Platform | Status |
 | :--- | :--- |
 | **Windows x64** | Preview installer and portable archive; CI build and GPU-free smoke tests pass. Real-device visual testing remains. |
-| **Android** | An **experimental Android debug APK** includes a small engine-rendered VRM scene on compatible Vulkan devices and a Canvas fallback; see the [Android notes](docs/ANDROID_AND_DIAGNOSTICS.md). It is not the full desktop sandbox or a production release. |
+| **Android** | An **experimental Android debug APK** runs the shared Vulkan sandbox, MotionLab, VRM and ImGui editor on compatible devices, with mobile touch controls and a Canvas fallback if Vulkan setup fails. Some desktop features and assets are disabled or omitted on mobile; see the [Android notes](docs/ANDROID_AND_DIAGNOSTICS.md). No physical phone has been tested. |
 | **Linux** | Source build exists; no release package is provided yet. |
 | **macOS** | No release package or verified build is provided yet. |
 
@@ -95,7 +95,7 @@ cmake --build build-tests --parallel
 ctest --test-dir build-tests --output-on-failure
 ```
 
-The Android preview build is available as an artifact on successful **Android animation preview** workflow runs. The full-motion tests skip if the separately downloaded clip library is absent. Passing GPU-free tests does **not** replace visual testing on a real device.
+The Android debug APK is available as an artifact on successful **Android sandbox** workflow runs. The full-motion tests skip if the separately downloaded clip library is absent. Passing GPU-free tests does **not** replace visual testing on a real device.
 
 ## More information
 
