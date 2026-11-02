@@ -81,7 +81,7 @@ struct RendererHandle {
 thread_local std::string rendererError;
 RendererHandle* renderer(jlong h) { return reinterpret_cast<RendererHandle*>(static_cast<intptr_t>(h)); }
 }
-extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererCreate(JNIEnv* env, jclass, jobject surface, jstring shaderDir, jstring modelPath, jobjectArray motionPaths) {
+extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererCreate(JNIEnv* env, jclass, jobject surface, jstring shaderDir, jstring modelPath, jobjectArray motionPaths, jfloat density) {
     rendererError.clear();
     if (!surface || !shaderDir || !modelPath || !motionPaths) { rendererError = "Surface or assets unavailable"; return 0; }
     try {
@@ -102,7 +102,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeRe
             if (!value) { env->DeleteLocalRef(str); rendererError = "Motion path unavailable"; return 0; }
             motion.emplace_back(value); env->ReleaseStringUTFChars(str, value); env->DeleteLocalRef(str);
         }
-        h->session = sk::createAndroidRenderSession(h->window, directory, model, motion, rendererError);
+        h->session = sk::createAndroidRenderSession(h->window, directory, model, motion, density, rendererError);
         if (!h->session) { __android_log_print(ANDROID_LOG_WARN, tag, "renderer unavailable: %s", rendererError.c_str()); return 0; }
         __android_log_print(ANDROID_LOG_INFO, tag, "engine renderer initialized");
         return static_cast<jlong>(reinterpret_cast<intptr_t>(h.release()));
@@ -111,6 +111,11 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeRe
 extern "C" JNIEXPORT jint JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererFrame(JNIEnv*, jclass, jlong handle, jfloat x, jfloat y, jint clip) {
     auto* h = renderer(handle); if (!h) return -1;
     return sk::renderAndroidFrame(h->session, x, y, clip, rendererError);
+}
+extern "C" JNIEXPORT void JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererTouch(JNIEnv*, jclass, jlong handle, jint action, jfloat x, jfloat y) {
+    auto* h = renderer(handle);
+    if (!h) return;
+    try { sk::touchAndroidRenderSession(h->session, action, x, y); } catch (const std::exception& e) { rendererError = e.what(); }
 }
 extern "C" JNIEXPORT jstring JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererError(JNIEnv* env, jclass) {
     return env->NewStringUTF(rendererError.c_str());

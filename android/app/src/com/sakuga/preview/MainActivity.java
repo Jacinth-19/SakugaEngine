@@ -18,6 +18,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.IOException;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /** Experimental Android scene with a Canvas animation fallback. Not the complete desktop sandbox. */
 public final class MainActivity extends Activity {
@@ -32,8 +33,9 @@ public final class MainActivity extends Activity {
     private static native String nativeInfo(long handle);
     private static native int nativeClipIndex(long handle);
     private static native String nativeProbeSurface(Surface surface);
-    private static native long nativeRendererCreate(Surface surface, String shaderDir, String modelPath, String[] motionPaths);
+    private static native long nativeRendererCreate(Surface surface, String shaderDir, String modelPath, String[] motionPaths, float density);
     private static native int nativeRendererFrame(long renderer, float x, float y, int clip);
+    private static native void nativeRendererTouch(long renderer, int action, float x, float y);
     private static native String nativeRendererError();
     private static native void nativeRendererDestroy(long renderer);
     private volatile boolean destroyed;
@@ -45,6 +47,11 @@ public final class MainActivity extends Activity {
     private volatile boolean assetsFailed;
     private volatile float renderMoveX, renderMoveY;
     private volatile int renderClip = -1;
+    private static final class UiTouch {
+        final int action; final float x, y;
+        UiTouch(int action, float x, float y) { this.action = action; this.x = x; this.y = y; }
+    }
+    private final ConcurrentLinkedQueue<UiTouch> uiTouches = new ConcurrentLinkedQueue<>();
     private String shaderDir;
     private final Object surfaceLock = new Object();
     private PreviewView preview;
@@ -87,7 +94,7 @@ public final class MainActivity extends Activity {
                         synchronized (surfaceLock) {
                             if (!surfaceLive || generation != surfaceGeneration) return;
                             if (surface.isValid() && shaderDir != null && motionPaths != null && modelPath != null)
-                                renderer = nativeRendererCreate(surface, shaderDir, modelPath, motionPaths);
+                                renderer = nativeRendererCreate(surface, shaderDir, modelPath, motionPaths, getResources().getDisplayMetrics().density);
                         }
                         if (renderer == 0) {
                             final String failure = shaderDir == null ? "Shaders unavailable" : nativeRendererError();
@@ -102,6 +109,8 @@ public final class MainActivity extends Activity {
                             int frameResult;
                             synchronized (surfaceLock) {
                                 if (!surfaceLive || generation != surfaceGeneration) break;
+                                UiTouch input;
+                                while ((input = uiTouches.poll()) != null) nativeRendererTouch(renderer, input.action, input.x, input.y);
                                 frameResult = nativeRendererFrame(renderer, renderMoveX, renderMoveY, renderClip);
                             }
                             if (frameResult < 0) {
@@ -138,6 +147,7 @@ public final class MainActivity extends Activity {
                     try { surfaceThread.join(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
                     surfaceThread = null;
                 }
+                uiTouches.clear();
                 if (!destroyed) { preview.setVulkanActive(false); preview.setSurfaceStatus("Android surface inactive"); }
             }
         });
@@ -190,6 +200,7 @@ public final class MainActivity extends Activity {
         private String surfaceStatus = "Waiting for Android surface...";
         private boolean vulkanActive;
         private float stickX, stickY;
+        private int uiPointer = -1;
         private final float density = getResources().getDisplayMetrics().density;
         PreviewView() {
             super(MainActivity.this); setBackgroundColor(Color.rgb(11,14,20));
@@ -201,10 +212,13 @@ public final class MainActivity extends Activity {
         }
         void setSession(long h, String error) { handle = h; message = error; lastNs = 0; invalidate(); }
         void setSurfaceStatus(String status) { surfaceStatus = status; invalidate(); }
-        void setVulkanActive(boolean active) { vulkanActive = active; setBackgroundColor(active ? Color.TRANSPARENT : Color.rgb(11,14,20)); invalidate(); }
+        void setVulkanActive(boolean active) {
+            if (!active) cancelUiTouch();
+            vulkanActive = active; setBackgroundColor(active ? Color.TRANSPARENT : Color.rgb(11,14,20)); invalidate();
+        }
         void setRunning(boolean enabled) {
             running = enabled; lastNs = 0;
-            if (!enabled) { touch(3, -1, 0, 0); stickX = stickY = 0; }
+            if (!enabled) { touch(3, -1, 0, 0); stickX = stickY = 0; cancelUiTouch(); }
             invalidate();
         }
         void close() { running = false; if (handle != 0) { nativeDestroy(handle); handle = 0; } }
@@ -251,17 +265,30 @@ public final class MainActivity extends Activity {
             float[] position = nativeTouch(handle, action, id, x, y, getWidth(), getHeight(), density);
             if (position != null && position.length == 2) { stickX = position[0]; stickY = position[1]; renderMoveX = stickX; renderMoveY = -stickY; }
         }
+        private void cancelUiTouch() {
+            if (uiPointer != -1) uiTouches.add(new UiTouch(3, 0, 0));
+            uiPointer = -1;
+        }
         @Override public boolean onTouchEvent(MotionEvent e) {
             int action = e.getActionMasked(), index = e.getActionIndex();
-            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN)
-                touch(0, e.getPointerId(index), e.getX(index), e.getY(index));
-            else if (action == MotionEvent.ACTION_MOVE) {
+            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
+                int id = e.getPointerId(index); float x = e.getX(index), y = e.getY(index);
+                // The Vulkan settings panel owns the top-right region; the stick and clip button own the bottom.
+                if (vulkanActive && uiPointer == -1 && x >= getWidth() * .65f && y < getHeight() * .50f) {
+                    uiPointer = id; uiTouches.add(new UiTouch(0, x, y));
+                } else touch(0, id, x, y);
+            } else if (action == MotionEvent.ACTION_MOVE) {
                 // Every pointer is updated independently; Android may reorder pointer indices between events.
-                for (int i = 0; i < e.getPointerCount(); ++i)
-                    touch(1, e.getPointerId(i), e.getX(i), e.getY(i));
-            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP)
-                touch(2, e.getPointerId(index), e.getX(index), e.getY(index));
-            else if (action == MotionEvent.ACTION_CANCEL) touch(3, -1, 0, 0);
+                for (int i = 0; i < e.getPointerCount(); ++i) {
+                    int id = e.getPointerId(i); float x = e.getX(i), y = e.getY(i);
+                    if (id == uiPointer) uiTouches.add(new UiTouch(1, x, y));
+                    else touch(1, id, x, y);
+                }
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
+                int id = e.getPointerId(index); float x = e.getX(index), y = e.getY(index);
+                if (id == uiPointer) { uiTouches.add(new UiTouch(2, x, y)); uiPointer = -1; }
+                else touch(2, id, x, y);
+            } else if (action == MotionEvent.ACTION_CANCEL) { touch(3, -1, 0, 0); cancelUiTouch(); }
             invalidate(); return true;
         }
     }

@@ -526,7 +526,14 @@ void Renderer::initUI(GLFWwindow* window, const UiTheme& theme, const std::strin
     };
     tryFont(fontPath);
     if (fontPath.empty()) for (const std::string& c : uiFontCandidates()) { tryFont(c); if (font) break; }
-    if (!font) { io.Fonts->AddFontDefault(); SK_LOG("ui: built-in font (no system UI font found)"); }
+    if (!font) {
+#ifdef __ANDROID__
+        ImFontConfig cfg; cfg.SizePixels = fontPx; io.Fonts->AddFontDefault(&cfg);
+#else
+        io.Fonts->AddFontDefault();
+#endif
+        SK_LOG("ui: built-in font (no system UI font found)");
+    }
     io.FontGlobalScale = uiTheme_.fontScale;
     applyUiTheme(uiTheme_, ImGui::GetStyle());
 #ifndef __ANDROID__
@@ -552,14 +559,15 @@ void Renderer::setUiTheme(const UiTheme& theme) {
     ImGui::GetIO().FontGlobalScale = uiTheme_.fontScale;
 }
 
-void Renderer::beginUI() {
+void Renderer::beginUI(float deltaTime) {
     if (!ui_ || uiFrameOpen_) return;
     ImGui_ImplVulkan_NewFrame();
 #ifndef __ANDROID__
+    (void)deltaTime;
     ImGui_ImplGlfw_NewFrame();
 #else
     ImGui::GetIO().DisplaySize = ImVec2((float)width_, (float)height_);
-    ImGui::GetIO().DeltaTime = 1.f / 60.f;
+    ImGui::GetIO().DeltaTime = std::max(deltaTime, 1e-6f);
 #endif
     ImGui::NewFrame();
     uiFrameOpen_ = true;

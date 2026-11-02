@@ -126,7 +126,7 @@ public:
     // and applies `theme` (gfx/UiTheme.h). Must be called before the first frame.
     void initUI(GLFWwindow* window, const UiTheme& theme = UiTheme{}, const std::string& fontPath = {},
                 float fontPx = 15.f);
-    void beginUI();                               // starts an ImGui frame
+    void beginUI(float deltaTime = 1.f / 60.f);  // starts an ImGui frame
     bool uiEnabled() const { return ui_; }
     void setUIVisible(bool v) { uiVisible_ = v; }
     // Applies a theme to the running UI (F12 in the sandbox edits the live style, this pushes a saved one back).

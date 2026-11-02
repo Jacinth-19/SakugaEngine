@@ -3,6 +3,9 @@
 #include "asset/GltfLoader.h"
 #include "scene/Scene.h"
 #include <android/native_window.h>
+#include <android/log.h>
+#include <imgui.h>
+#include <cfloat>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <chrono>
@@ -20,6 +23,8 @@ public:
     Material* material = nullptr;
     Entity hero;
     int selectedClip = -1;
+    float density = 1.f;
+    bool bloom = false, pointShadows = false;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now(), last = start;
     ~AndroidRenderSession() {
         try { if (rendererStarted) renderer.shutdown(); } catch (...) {}
@@ -27,7 +32,7 @@ public:
     }
 };
 AndroidRenderSession* createAndroidRenderSession(ANativeWindow* window, const std::string& shaderDir, const std::string& modelPath,
-                                                  const std::vector<std::string>& motionPaths, std::string& error) {
+                                                  const std::vector<std::string>& motionPaths, float density, std::string& error) {
     auto s = std::make_unique<AndroidRenderSession>();
     try {
         if (!s->ctx.initAndroid(window, error)) return nullptr;
@@ -35,6 +40,8 @@ AndroidRenderSession* createAndroidRenderSession(ANativeWindow* window, const st
         if (width <= 0 || height <= 0) { error = "Android surface has no size"; return nullptr; }
         s->rendererStarted = true;
         if (!s->renderer.initAndroid(s->ctx, window, width, height, shaderDir)) { error = "Renderer initialization failed"; return nullptr; }
+        s->density = std::clamp(density, .75f, 4.f);
+        s->renderer.initUI(nullptr, UiTheme{}, "", 14.f * s->density);
         auto style = createStyleTextures(s->renderer);
         GltfOptions options; options.maxTextureSize = 1024;
         std::shared_ptr<Model> model = loadGltfModel(s->renderer, style, modelPath, options);
@@ -72,12 +79,31 @@ int renderAndroidFrame(AndroidRenderSession* s, float moveX, float moveY, int cl
         fi.view = glm::lookAt(fi.cameraPos, target, glm::vec3(0.f, 1.f, 0.f));
         fi.proj = Renderer::perspective(glm::radians(45.f), s->renderer.aspect(), .05f, 100.f);
         fi.time = std::chrono::duration<float>(now - s->start).count();
-        fi.light.pointShadows = false; fi.shadowFocus = s->hero.pos;
-        fi.post.bloom = false;
+        s->renderer.beginUI(dt);
+        ImGui::SetNextWindowPos(ImVec2(s->renderer.width() * .65f, 10.f * s->density), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(s->renderer.width() * .34f, s->renderer.height() * .42f), ImGuiCond_Always);
+        ImGui::Begin("Sakuga mobile", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::TextUnformatted("VRM scene");
+        ImGui::Text("Clip: %d / %d", s->hero.mm->debug.clip + 1, (int)s->hero.mmDb->clipNames.size());
+        if (ImGui::Checkbox("Bloom", &s->bloom)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "imgui bloom changed");
+        ImGui::Checkbox("Point shadows", &s->pointShadows);
+        ImGui::End();
+        fi.light.pointShadows = s->pointShadows; fi.shadowFocus = s->hero.pos;
+        fi.post.bloom = s->bloom;
         DrawItem ground; ground.mesh = s->ground; ground.material = s->material; fi.draws.push_back(ground);
         s->hero.collect(fi);
         return s->renderer.renderFrame(fi) ? 1 : 0;
     } catch (const std::exception& e) { error = e.what(); return -1; }
+}
+void touchAndroidRenderSession(AndroidRenderSession* s, int action, float x, float y) {
+    if (!s || !s->renderer.uiEnabled()) return;
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
+    if (action == 3) { io.AddMouseButtonEvent(0, false); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); return; }
+    if (!std::isfinite(x) || !std::isfinite(y)) return;
+    io.AddMousePosEvent(x, y);
+    if (action == 0) io.AddMouseButtonEvent(0, true);
+    else if (action == 2) io.AddMouseButtonEvent(0, false);
 }
 void destroyAndroidRenderSession(AndroidRenderSession* session) { delete session; }
 }
