@@ -112,6 +112,7 @@ if [[ $renderer_result != presented ]] && ! grep -q 'next clip requested' /tmp/s
 fi
 if [[ $renderer_result == presented ]]; then
   if ! grep -q 'sandbox movement reached the avatar' /tmp/sakuga-android-log.txt; then
+    while IFS= read -r line; do echo "::notice::$line"; done < <(grep -E 'game touch|game stick|sandbox clip selected' /tmp/sakuga-android-log.txt | tail -25)
     echo '::error::The on-screen stick did not move the sandbox avatar.'; exit 1
   fi
   if ! grep -q 'sandbox clip selected' /tmp/sakuga-android-log.txt; then

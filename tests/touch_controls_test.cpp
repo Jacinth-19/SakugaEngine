@@ -5,8 +5,8 @@ int main() {
     SK_TEST("touch_controls_test");
     sk::TouchControls t; t.enabled = true; t.setScreen(1000, 500);
     sk::DeviceState d;
-    t.injectTouch(7, 100, 300, true); t.apply(d);
-    t.injectTouch(7, 150, 280, true);
+    t.injectTouch(7, 100, 370, true); t.apply(d);
+    t.injectTouch(7, 150, 350, true);
     t.injectTouch(9, 928, 470, true); // JUMP, concurrent with the stick
     d = {}; t.apply(d);
     CHECK(d.padConnected); CHECK(d.padAxis[GLFW_GAMEPAD_AXIS_LEFT_X] > .1f);
