@@ -85,8 +85,14 @@ struct FrameInput {
 class Renderer {
 public:
     static constexpr uint32_t kFramesInFlight = 2;
+#ifdef __ANDROID__
+    // Smaller atlases lower mobile memory/bandwidth costs; desktop keeps its original quality.
+    static constexpr uint32_t kShadowRes = 1024;
+    static constexpr uint32_t kPointShadowRes = 256;
+#else
     static constexpr uint32_t kShadowRes = 2048;
-    static constexpr uint32_t kPointShadowRes = 512;         // per cube face; atlas = 6 faces x kMaxPointShadows lights
+    static constexpr uint32_t kPointShadowRes = 512;
+#endif
     static constexpr int kMaxPointShadows = 2;
     static constexpr uint32_t kMaxBones = 16384;
     static constexpr uint32_t kMaxLineVerts = 262144;

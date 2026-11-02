@@ -1176,8 +1176,6 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
     touch_.setScreen((float)renderer_.width(), (float)renderer_.height());
     DeviceState dev; touch_.apply(dev);
     input_.update(dev); handleActions(dt);
-    if (glm::length(touch_.stick()) > .2f && !mobileLoggedMove_)
-        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "game stick %.2f %.2f desired %.2f %.2f", touch_.stick().x, touch_.stick().y, desiredVel_.x, desiredVel_.z);
     const glm::vec3 previousPos = vrm_ ? vrm_->pos : glm::vec3(0);
     updateScene(dt);
     if (!mobileLoggedMove_ && vrm_ && glm::length(touch_.stick()) > .2f && glm::length(vrm_->pos - previousPos) > 1e-5f) {
@@ -1221,7 +1219,6 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
 }
 void Sandbox::touchMobile(bool imgui, int action, int id, float x, float y) {
     if (!imgui) {
-        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "game touch action=%d id=%d x=%.0f y=%.0f", action, id, x, y);
         if (action == 3) touch_.cancel();
         else if (std::isfinite(x) && std::isfinite(y)) touch_.injectTouch(id, x, y, action != 2);
         return;

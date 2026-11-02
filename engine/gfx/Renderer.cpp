@@ -237,9 +237,11 @@ void Renderer::createSwapchain() {
     VkSwapchainCreateInfoKHR ci{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     ci.surface = surface_; ci.minImageCount = count; ci.imageFormat = chosen.format; ci.imageColorSpace = chosen.colorSpace;
     ci.imageExtent = ext; ci.imageArrayLayers = 1; ci.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    ci.preTransform = static_cast<VkSurfaceTransformFlagBitsKHR>(preferredSurfaceTransform(caps.supportedTransforms, caps.currentTransform));
 #ifdef __ANDROID__
+    ci.preTransform = static_cast<VkSurfaceTransformFlagBitsKHR>(preferredSurfaceTransform(caps.supportedTransforms, caps.currentTransform));
     __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface dimensions window=%dx%d swap=%ux%u transform=%u supported=%u selected=%u", fw, fh, ext.width, ext.height, caps.currentTransform, caps.supportedTransforms, ci.preTransform);
+#else
+    ci.preTransform = caps.currentTransform;
 #endif
     const uint32_t alpha = preferredCompositeAlpha(caps.supportedCompositeAlpha);
     if (!alpha) SK_FATAL("no supported Vulkan composite alpha mode");

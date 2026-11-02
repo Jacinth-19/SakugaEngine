@@ -1,4 +1,5 @@
 #include "gfx/Context.h"
+#include "gfx/Renderer.h"
 #include "gfx/SurfaceChoices.h"
 #include <android/native_window.h>
 #include <android/log.h>
@@ -49,9 +50,9 @@ bool Context::initAndroid(ANativeWindow* window, std::string& error) {
         if (vkGetPhysicalDeviceSurfaceFormatsKHR(pd, androidSurface, &formats, nullptr) != VK_SUCCESS || !formats) { reason = "No Vulkan surface formats"; continue; }
         VkSampleCountFlags samples = p.limits.framebufferColorSampleCounts & p.limits.framebufferDepthSampleCounts;
         if (!preferredSampleCount(p.limits.framebufferColorSampleCounts, p.limits.framebufferDepthSampleCounts)) { reason = "No common framebuffer sample count"; continue; }
-        // The current renderer allocates a 4096x2048 shadow atlas and a 32 MiB storage buffer.
-        if (p.limits.maxImageDimension2D < 4096) { reason = "Vulkan maximum image size is below the renderer's shadow atlas"; continue; }
-        if (p.limits.maxStorageBufferRange < 32u * 1024u * 1024u) { reason = "Vulkan storage buffer range is below 32 MiB"; continue; }
+        // Check the mobile build's actual fixed renderer allocations before constructing them.
+        if (p.limits.maxImageDimension2D < Renderer::kShadowRes * 2) { reason = "Vulkan maximum image size is below the renderer's shadow atlas"; continue; }
+        if (p.limits.maxStorageBufferRange < sizeof(glm::vec4) * Renderer::kMaxMorphVec4) { reason = "Vulkan storage buffer range is below the renderer's morph buffer"; continue; }
         if (p.limits.maxPushConstantsSize < 96) { reason = "Vulkan push constant limit is below 96 bytes"; continue; }
         uint32_t count = 0; vkGetPhysicalDeviceQueueFamilyProperties(pd, &count, nullptr);
         std::vector<VkQueueFamilyProperties> queues(count); vkGetPhysicalDeviceQueueFamilyProperties(pd, &count, queues.data());
