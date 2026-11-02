@@ -199,7 +199,7 @@ private:
     ANativeWindow* mobileWindow_ = nullptr;
     std::string mobileError_;
     int mobileSelectedClip_ = -1;
-    bool mobileLoggedControls_ = false;
+    bool mobileLoggedControls_ = false, mobileLoggedMove_ = false;
 #endif
     struct Showcase { std::string name; std::vector<Entity*> entities; Entity* hero = nullptr; bool lab = false; };
     std::vector<std::unique_ptr<Entity>> entities_;
@@ -1174,11 +1174,17 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
     if (!std::isfinite(x) || !std::isfinite(y)) x = y = 0.f;
     if (vrm_ && vrm_->mm && vrm_->mmDb && clip >= 0 && clip < (int)vrm_->mmDb->clipNames.size() && clip != mobileSelectedClip_) {
         vrm_->mm->playClip(clip, vrm_->pos, vrm_->yaw); mobileSelectedClip_ = clip;
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox clip selected %d", clip);
     }
     DeviceState dev; dev.padConnected = true; dev.padCount = 1;
     dev.padAxis[GLFW_GAMEPAD_AXIS_LEFT_X] = x;
     dev.padAxis[GLFW_GAMEPAD_AXIS_LEFT_Y] = -y;
-    input_.update(dev); handleActions(dt); updateScene(dt);
+    input_.update(dev); handleActions(dt);
+    const glm::vec3 previousPos = vrm_ ? vrm_->pos : glm::vec3(0);
+    updateScene(dt);
+    if (!mobileLoggedMove_ && vrm_ && (std::fabs(x) + std::fabs(y) > .2f) && glm::length(vrm_->pos - previousPos) > 1e-5f) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox movement reached the avatar"); mobileLoggedMove_ = true;
+    }
     FrameInput fi = buildFrame(dt);
     fps_ = glm::mix(fps_, 1.f / std::max(dt, 1e-4f), .05f);
     drawUI();
@@ -1195,7 +1201,11 @@ int Sandbox::frameMobile(float dt, float x, float y, int clip) {
         mobileLoggedControls_ = true;
     }
     ImGui::Checkbox("Point shadows", &light_.pointShadows);
-    ImGui::Checkbox("Sandbox editor", &showUI_);
+    if (ImGui::Checkbox("Sandbox editor", &showUI_)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor toggled");
+    if (frame_ == 0) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
+    }
     ImGui::End();
     // The UI changes are reflected on the next frame, as with desktop sandbox controls.
     ++frame_;
