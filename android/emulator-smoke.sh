@@ -230,7 +230,7 @@ echo 'Android preview resumed and probed its recreated surface.'
 
 # User theme must survive process death and not be replaced by shipped config extraction.
 adb shell run-as com.sakuga.preview mkdir -p files/sandbox/user
-printf '%s' '{"name":"CI persistence","fontScale":1.2}' | adb shell run-as com.sakuga.preview sh -c 'cat > files/sandbox/user/ui_theme.json'
+printf '%s' '{"name":"CI persistence","fontScale":1.2}' | adb shell "run-as com.sakuga.preview sh -c 'cat > files/sandbox/user/ui_theme.json'"
 adb shell am force-stop com.sakuga.preview
 adb logcat -c
 adb shell am start -W -n com.sakuga.preview/.MainActivity
