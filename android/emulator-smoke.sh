@@ -178,6 +178,18 @@ if [[ $renderer_result == presented ]]; then
   fi
   echo '::notice::Loaded four NPCs and presented the MotionLab frame.'
   adb exec-out screencap -p > apk/android-npcs.png
+  # Select a browser clip after movement, so recreation can verify that selection independently.
+  ui_target=$(grep -F 'sandbox next target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*sandbox next target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  adb shell input tap "$ui_x" "$ui_y"
+  selected=0
+  for i in $(seq 1 30); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if [[ $(grep -c 'sandbox clip selected' /tmp/sakuga-android-log.txt || true) -ge 2 ]]; then selected=1; break; fi
+    sleep 1
+  done
+  if [[ $selected != 1 ]]; then echo '::error::Could not select a browser clip before recreation.'; exit 1; fi
+  sleep 3
 fi
 echo 'Android emulator loaded two clips and dispatched a NEXT CLIP touch.'
 
@@ -214,15 +226,15 @@ if [[ $renderer_result == presented ]]; then
 import re
 text = open('/tmp/sakuga-android-log.txt').read()
 def state(label):
-    hits = re.findall(r'surface state ' + label + r' bloom=(\d+) editor=(\d+) tod=([0-9.]+) clip=(-?\d+) npcs=(\d+) x=(-?[0-9.]+) z=(-?[0-9.]+)', text)
+    hits = re.findall(r'surface state ' + label + r' bloom=(\d+) editor=(\d+) tod=([0-9.]+) clip=(-?\d+) browse=(\d+) npcs=(\d+) x=(-?[0-9.]+) z=(-?[0-9.]+)', text)
     if not hits: raise SystemExit('Missing surface state ' + label)
     return hits[-1]
 saved, restored = state('saved'), state('frame')
-if saved[0:3] != restored[0:3] or saved[4] != restored[4] or saved[0] != '1' or saved[1] != '1' or saved[4] != '4':
+if saved[0:3] != restored[0:3] or saved[3:6] != restored[3:6] or saved[0] != '1' or saved[1] != '1' or saved[4] != '1' or saved[5] != '4':
     raise SystemExit(f'Lifecycle settings mismatch: saved={saved} restored={restored}')
-if abs(float(saved[5])-float(restored[5])) > .3 or abs(float(saved[6])-float(restored[6])) > .3:
+if abs(float(saved[6])-float(restored[6])) > .3 or abs(float(saved[7])-float(restored[7])) > .3:
     raise SystemExit(f'Avatar position lost: saved={saved} restored={restored}')
-print('::notice::Surface recreation retained bloom, editor, time of day, NPCs and avatar position.')
+print('::notice::Surface recreation retained bloom, editor, time of day, browser clip, NPCs and avatar position.')
 PYCODE
   echo '::notice::Engine Vulkan scene presented again after background/resume.'
 fi

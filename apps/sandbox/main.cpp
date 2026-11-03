@@ -1248,6 +1248,11 @@ bool Sandbox::initMobile(ANativeWindow* window, std::string& error) {
     touch_.enabled = true; touch_.setScreen((float)renderer_.width(), (float)renderer_.height());
     return true;
 }
+static int mobileClipIndex(const Entity* e) {
+    if (!e || !e->mm || !e->mmDb || e->mmDb->frameClip.empty()) return -1;
+    int frame = std::clamp((int)e->mm->currentFrame(), 0, (int)e->mmDb->frameClip.size() - 1);
+    return e->mmDb->frameClip[frame];
+}
 int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     if (!std::isfinite(x) || !std::isfinite(y)) x = y = 0.f;
     (void)x; (void)y; (void)clip;
@@ -1319,8 +1324,8 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     ++frame_;
     bool rendered = renderer_.renderFrame(fi);
     if (rendered && mobileRestored_) {
-        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface state frame bloom=%d editor=%d tod=%.2f clip=%d npcs=%zu x=%.3f z=%.3f",
-                            (int)post_.bloom, (int)showUI_, tod_, vrm_ && vrm_->mm ? vrm_->mm->debug.clip : -1,
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface state frame bloom=%d editor=%d tod=%.2f clip=%d browse=%d npcs=%zu x=%.3f z=%.3f",
+                            (int)post_.bloom, (int)showUI_, tod_, mobileClipIndex(vrm_), vrm_ && vrm_->mm && vrm_->mm->browsing(),
                             lab_.npcs.size(), vrm_ ? vrm_->pos.x : 0.f, vrm_ ? vrm_->pos.z : 0.f);
         mobileRestored_ = false;
     }
@@ -1402,16 +1407,13 @@ MobileSnapshot Sandbox::captureMobile() const {
         x.springTuning = e.springTuning; x.posture = e.posture; x.blink = e.blink; x.exprTarget = e.exprTarget; x.exprCur = e.exprCur; x.exprFinal = e.exprFinal;
         if (e.mm) {
             x.hasMatcher = true; x.matcher = e.mm->settings; x.browsing = e.mm->browsing();
-            if (e.mmDb && !e.mmDb->frameClip.empty()) {
-                const int frame = std::clamp((int)e.mm->currentFrame(), 0, (int)e.mmDb->frameClip.size() - 1);
-                x.browserClip = e.mmDb->frameClip[frame];
-            }
+            x.browserClip = mobileClipIndex(&e);
         }
         for (const Material* m : e.model->materials) x.materials.emplace_back(m->name, m->params);
         s.entities.push_back(std::move(x));
     }
-    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface state saved bloom=%d editor=%d tod=%.2f clip=%d npcs=%zu x=%.3f z=%.3f",
-                        (int)s.post.bloom, (int)s.showUI, s.tod, vrm_ && vrm_->mm ? vrm_->mm->debug.clip : -1,
+    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface state saved bloom=%d editor=%d tod=%.2f clip=%d browse=%d npcs=%zu x=%.3f z=%.3f",
+                        (int)s.post.bloom, (int)s.showUI, s.tod, mobileClipIndex(vrm_), vrm_ && vrm_->mm && vrm_->mm->browsing(),
                         lab_.npcs.size(), vrm_ ? vrm_->pos.x : 0.f, vrm_ ? vrm_->pos.z : 0.f);
     return s;
 }
@@ -1482,8 +1484,8 @@ void Sandbox::restoreMobile(const MobileSnapshot& s) {
         }
     }
     camSmooth_ = camera_.target; camUsed_ = -1.f; mobileRestored_ = true;
-    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface state restored bloom=%d editor=%d tod=%.2f clip=%d npcs=%zu x=%.3f z=%.3f",
-                        (int)post_.bloom, (int)showUI_, tod_, vrm_ && vrm_->mm ? vrm_->mm->debug.clip : -1,
+    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface state restored bloom=%d editor=%d tod=%.2f clip=%d browse=%d npcs=%zu x=%.3f z=%.3f",
+                        (int)post_.bloom, (int)showUI_, tod_, mobileClipIndex(vrm_), vrm_ && vrm_->mm && vrm_->mm->browsing(),
                         lab_.npcs.size(), vrm_ ? vrm_->pos.x : 0.f, vrm_ ? vrm_->pos.z : 0.f);
 }
 namespace sk {
