@@ -21,7 +21,7 @@
 #include "MobileSandbox.h"
 #include "platform/SurfaceStateStore.h"
 #include "platform/MobilePointerRouter.h"
-#include <imgui_internal.h>
+#include "platform/MobileImGuiHitTest.h"
 #include <android/native_window.h>
 #include <android/log.h>
 #include <cfloat>
@@ -1341,9 +1341,8 @@ void Sandbox::touchMobile(bool, int action, int id, float x, float y) {
     if (!std::isfinite(x) || !std::isfinite(y)) return;
     MobilePointerRouter::Route route;
     if (action == 0) {
-        ImGuiWindow* hovered = nullptr;
-        if (renderer_.uiEnabled()) ImGui::FindHoveredWindowEx(ImVec2(x, y), true, &hovered, nullptr);
-        route = mobilePointers_.down(id, hovered != nullptr);
+        const bool overUi = renderer_.uiEnabled() && mobileHitsImGui(ImVec2(x, y));
+        route = mobilePointers_.down(id, overUi);
     } else if (action == 2) route = mobilePointers_.up(id);
     else route = mobilePointers_.get(id);
     if (route == MobilePointerRouter::Route::Game) {
