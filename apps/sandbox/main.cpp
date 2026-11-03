@@ -187,11 +187,12 @@ struct MobileSnapshot {
     std::vector<MobileEntityState> entities;
     int showcase = 0, selectedMat = 0, lutIdx = -1, debugMode = 0, matForcedMode = -1;
     float tod = 0, todSpeed = 0, userExposure = 1, userEnv = 1, cloud = 0, cameraShoulder = 0;
-    float lutStrength = 0, lightAz = 0, lightEl = 0, time = 0, rain = 0, splitOffset = 0;
+    float lutStrength = 0, lightAz = 0, lightEl = 0, time = 0, rain = 0, splitOffset = 0, touchScale = 1;
     bool todAuto = false, todEnabled = false, hdriMode = false, nprFull = false, lampsOn = false;
     bool pointLightsOn = false, navDebug = false, agentDebug = false, mmDebug = false, showFps = false;
     bool hdriSun = false, lightAuto = false, rainOn = false, skeleton = false, trajectory = false;
     bool showUI = false, split = false, syncMat = false, showTheme = false, showDemo = false, npcs = false;
+    bool touchEnabled = true, touchMouse = true;
 };
 static SurfaceStateStore<MobileSnapshot> mobileSnapshots;
 #endif
@@ -1358,6 +1359,7 @@ MobileSnapshot Sandbox::captureMobile() const {
     s.theme = uiThemeFromLiveStyle(ImGui::GetStyle(), themeName_); s.theme.fontScale = uiTheme_.fontScale;
     s.themeName = themeName_; s.ini = ImGui::SaveIniSettingsToMemory(); s.environment = envPath_;
     s.showTheme = showThemeEditor_; s.showDemo = showImGuiDemo_; s.npcs = mobileNpcsRequested_;
+    s.touchEnabled = touch_.enabled; s.touchScale = touch_.uiScale; s.touchMouse = touchMouse_;
     s.showcase = showcase_;
     s.selectedMat = selectedMat_;
     s.lutIdx = lutIdx_;
@@ -1399,7 +1401,13 @@ MobileSnapshot Sandbox::captureMobile() const {
         x.clip = e.clip; x.clipTime = e.clipTime; x.clipSpeed = e.clipSpeed; x.loop = e.loop; x.autoBlink = e.autoBlink;
         x.ik = e.ik; x.hands = e.hands; x.look = e.look; x.spring = e.spring;
         x.springTuning = e.springTuning; x.posture = e.posture; x.blink = e.blink; x.exprTarget = e.exprTarget; x.exprCur = e.exprCur; x.exprFinal = e.exprFinal;
-        if (e.mm) { x.hasMatcher = true; x.matcher = e.mm->settings; x.browsing = e.mm->browsing(); x.browserClip = e.mm->debug.clip; }
+        if (e.mm) {
+            x.hasMatcher = true; x.matcher = e.mm->settings; x.browsing = e.mm->browsing();
+            if (e.mmDb && !e.mmDb->frameClip.empty()) {
+                const int frame = std::clamp((int)e.mm->currentFrame(), 0, (int)e.mmDb->frameClip.size() - 1);
+                x.browserClip = e.mmDb->frameClip[frame];
+            }
+        }
         for (const Material* m : e.model->materials) x.materials.emplace_back(m->name, m->params);
         s.entities.push_back(std::move(x));
     }
@@ -1418,6 +1426,7 @@ void Sandbox::restoreMobile(const MobileSnapshot& s) {
     uiTheme_ = s.theme; std::snprintf(themeName_, sizeof themeName_, "%s", s.themeName.c_str());
     renderer_.setUiTheme(uiTheme_); ImGui::LoadIniSettingsFromMemory(s.ini.c_str(), s.ini.size());
     showThemeEditor_ = s.showTheme; showImGuiDemo_ = s.showDemo;
+    touch_.enabled = s.touchEnabled; touch_.uiScale = s.touchScale; touchMouse_ = s.touchMouse;
     if (s.environment != envPath_) loadEnvironment(s.environment);
     setLut(s.lutIdx);
     showcase_ = s.showcase;
