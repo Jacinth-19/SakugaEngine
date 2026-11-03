@@ -1002,7 +1002,12 @@ void Sandbox::drawUI(float wallDt) {
         VkDeviceSize local = 0;
         for (uint32_t i = 0; i < heaps.memoryHeapCount; ++i) if (heaps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) local += heaps.memoryHeaps[i].size;
         ImGui::Text("Device-local memory heaps: %.2f GiB (may be shared)", double(local) / GiB);
-        int fw = 0, fh = 0; if (window_.handle()) window_.framebufferSize(fw, fh);
+        int fw = 0, fh = 0;
+#ifdef __ANDROID__
+        fw = (int)renderer_.width(); fh = (int)renderer_.height();
+#else
+        if (window_.handle()) window_.framebufferSize(fw, fh);
+#endif
         ImGui::Text("Framebuffer: %d x %d | FPS: %.1f | frame: %.2f ms", fw, fh, ImGui::GetIO().Framerate, ImGui::GetIO().Framerate > 0 ? 1000.f / ImGui::GetIO().Framerate : 0.f);
         ImGui::Text("Renderer CPU: %.2f ms | Draws: %u | Triangles: %u", renderer_.stats.cpuMs, renderer_.stats.drawCalls, renderer_.stats.triangles);
         ImGui::TextDisabled("No GPU timing or storage-medium detection is available yet.");
