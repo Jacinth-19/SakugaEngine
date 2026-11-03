@@ -210,6 +210,39 @@ if [[ $renderer_result == presented ]]; then
     adb logcat -d -s SakugaPreview:V AndroidRuntime:E '*:S' | tail -80
     echo '::error::The Vulkan scene did not present after surface recreation.'; exit 1
   fi
+  python3 - <<'PYCODE'
+import re
+text = open('/tmp/sakuga-android-log.txt').read()
+def state(label):
+    hits = re.findall(r'surface state ' + label + r' bloom=(\d+) editor=(\d+) tod=([0-9.]+) clip=(-?\d+) npcs=(\d+) x=(-?[0-9.]+) z=(-?[0-9.]+)', text)
+    if not hits: raise SystemExit('Missing surface state ' + label)
+    return hits[-1]
+saved, restored = state('saved'), state('frame')
+if saved[0:3] != restored[0:3] or saved[4] != restored[4] or saved[0] != '1' or saved[1] != '1' or saved[4] != '4':
+    raise SystemExit(f'Lifecycle settings mismatch: saved={saved} restored={restored}')
+if abs(float(saved[5])-float(restored[5])) > .3 or abs(float(saved[6])-float(restored[6])) > .3:
+    raise SystemExit(f'Avatar position lost: saved={saved} restored={restored}')
+print('::notice::Surface recreation retained bloom, editor, time of day, NPCs and avatar position.')
+PYCODE
   echo '::notice::Engine Vulkan scene presented again after background/resume.'
 fi
 echo 'Android preview resumed and probed its recreated surface.'
+
+# User theme must survive process death and not be replaced by shipped config extraction.
+adb shell run-as com.sakuga.preview mkdir -p files/sandbox/user
+printf '%s' '{"name":"CI persistence","fontScale":1.2}' | adb shell run-as com.sakuga.preview sh -c 'cat > files/sandbox/user/ui_theme.json'
+adb shell am force-stop com.sakuga.preview
+adb logcat -c
+adb shell am start -W -n com.sakuga.preview/.MainActivity
+persisted=0
+for i in $(seq 1 90); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  if grep -q 'ui theme loaded name=CI persistence user=1' /tmp/sakuga-android-log.txt; then persisted=1; break; fi
+  if grep -q 'renderer unavailable:' /tmp/sakuga-android-log.txt; then break; fi
+  sleep 2
+done
+if [[ $persisted != 1 ]]; then
+  adb logcat -d -s SakugaPreview:V AndroidRuntime:E '*:S' | tail -80
+  echo '::error::User theme was not loaded after process restart.'; exit 1
+fi
+echo '::notice::User theme loaded from writable storage after process restart.'

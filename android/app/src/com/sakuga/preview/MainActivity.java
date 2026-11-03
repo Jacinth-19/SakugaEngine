@@ -36,10 +36,13 @@ public final class MainActivity extends Activity {
     private static native String nativeProbeSurface(Surface surface);
     private static native long nativeRendererCreate(Surface surface, String shaderDir, String modelPath, String[] motionPaths, float density);
     private static native int nativeRendererFrame(long renderer, float x, float y, int clip);
+    private static native void nativeRendererPause(long renderer);
+    private static native void nativeRendererResume(long renderer);
     private static native void nativeRendererTouch(long renderer, boolean imgui, int action, int id, float x, float y);
     private static native String nativeRendererError();
     private static native void nativeRendererDestroy(long renderer);
-    private volatile boolean destroyed;
+    private static final Object ASSET_LOCK = new Object();
+    private volatile boolean destroyed, resumed;
     private int surfaceGeneration;
     private volatile boolean surfaceLive;
     private Thread surfaceThread;
@@ -109,8 +112,17 @@ public final class MainActivity extends Activity {
                             }});
                             return;
                         }
-                        boolean firstFrame = true;
+                        boolean firstFrame = true, wasPaused = false;
                         while (surfaceLive && !destroyed) {
+                            if (!resumed) {
+                                if (!wasPaused) {
+                                    synchronized (surfaceLock) { uiTouches.clear(); nativeRendererPause(renderer); }
+                                    wasPaused = true;
+                                }
+                                try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+                                continue;
+                            }
+                            if (wasPaused) { nativeRendererResume(renderer); wasPaused = false; }
                             int frameResult;
                             synchronized (surfaceLock) {
                                 if (!surfaceLive || generation != surfaceGeneration) break;
@@ -179,19 +191,27 @@ public final class MainActivity extends Activity {
                 String[] paths = new String[names.length];
                 File root = new File(getFilesDir(), "sandbox");
                 File dir = new File(root, "assets/motion");
-                if (!dir.exists() && !dir.mkdirs()) throw new IOException("Cannot create motion directory");
-                for (int i = 0; i < names.length; ++i) {
-                    File out = new File(dir, names[i]);
-                    // Replace from the bundled asset on every start so an app update cannot use stale clips.
-                    try (InputStream in = getAssets().open("motion/" + names[i]); FileOutputStream dst = new FileOutputStream(out)) {
-                        byte[] buffer = new byte[32768]; int n;
-                        while ((n = in.read(buffer)) != -1) dst.write(buffer, 0, n);
+                // APK updates kill the old process. Avoid rewriting assets on Activity recreation while
+                // another surface may still be reading them. The marker is written only after success.
+                synchronized (ASSET_LOCK) {
+                    if (!root.exists() && !root.mkdirs()) throw new IOException("Cannot create asset root");
+                    long version = getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime;
+                    File marker = new File(root, ".assets-" + version);
+                    if (!marker.isFile()) {
+                        File[] entries = root.listFiles();
+                        if (entries == null) throw new IOException("Cannot list asset root");
+                        for (File entry : entries) if (entry.getName().startsWith(".assets-") && !entry.delete())
+                            throw new IOException("Cannot remove old asset marker");
+                        deleteAssetDirectory(dir);
+                        copyAssetDirectory("motion", dir);
+                        copyAssetDirectory("models", new File(root, "assets/models"));
+                        copyAssetDirectory("luts", new File(root, "assets/luts"));
+                        copyAssetDirectory("env", new File(root, "assets/env"));
+                        copyAssetDirectory("config", new File(root, "config"));
+                        if (!marker.createNewFile()) throw new IOException("Cannot mark assets ready");
                     }
-                    paths[i] = out.getAbsolutePath();
                 }
-                copyAssetDirectory("models", new File(root, "assets/models"));
-                copyAssetDirectory("luts", new File(root, "assets/luts"));
-                copyAssetDirectory("config", new File(root, "config"));
+                for (int i = 0; i < names.length; ++i) paths[i] = new File(dir, names[i]).getAbsolutePath();
                 File model = new File(root, "assets/models/AvatarSample.vrm");
                 handle = nativeCreate(paths);
                 if (handle == 0) error = "Could not load motion data. See Android logcat.";
@@ -204,6 +224,16 @@ public final class MainActivity extends Activity {
                 preview.setSession(result, message);
             }});
         }}, "motion-loader").start();
+    }
+    private void deleteAssetDirectory(File dir) throws IOException {
+        if (!dir.exists()) return;
+        File[] children = dir.listFiles();
+        if (children == null) throw new IOException("Cannot list asset directory " + dir);
+        for (File child : children) {
+            if (child.isDirectory()) deleteAssetDirectory(child);
+            else if (!child.delete()) throw new IOException("Cannot remove stale asset " + child);
+        }
+        if (!dir.delete()) throw new IOException("Cannot remove asset directory " + dir);
     }
     private void copyAssetDirectory(String assetDir, File dest) throws IOException {
         if (!dest.exists() && !dest.mkdirs()) throw new IOException("Cannot create asset directory " + dest);
@@ -218,8 +248,8 @@ public final class MainActivity extends Activity {
             }
         }
     }
-    @Override protected void onResume() { super.onResume(); if (preview != null) preview.setRunning(true); }
-    @Override protected void onPause() { if (preview != null) preview.setRunning(false); super.onPause(); }
+    @Override protected void onResume() { super.onResume(); resumed = true; if (preview != null) preview.setRunning(true); }
+    @Override protected void onPause() { resumed = false; if (preview != null) preview.setRunning(false); super.onPause(); }
     @Override protected void onDestroy() { destroyed = true; if (preview != null) preview.close(); super.onDestroy(); }
 
     private final class PreviewView extends View {
@@ -232,7 +262,6 @@ public final class MainActivity extends Activity {
         private String surfaceStatus = "Waiting for Android surface...";
         private boolean vulkanActive;
         private float stickX, stickY;
-        private int uiPointer = -1;
         private final HashSet<Integer> gamePointers = new HashSet<>();
         private final float density = getResources().getDisplayMetrics().density;
         PreviewView() {
@@ -305,38 +334,27 @@ public final class MainActivity extends Activity {
             if (position != null && position.length == 2) { stickX = position[0]; stickY = position[1]; renderMoveX = stickX; renderMoveY = -stickY; }
         }
         private void cancelAllTouches() {
-            if (uiPointer != -1) uiTouches.add(new UiTouch(true, 3, -1, 0, 0));
             if (!gamePointers.isEmpty()) uiTouches.add(new UiTouch(false, 3, -1, 0, 0));
-            uiPointer = -1; gamePointers.clear();
+            gamePointers.clear();
         }
         @Override public boolean onTouchEvent(MotionEvent e) {
             int action = e.getActionMasked(), index = e.getActionIndex();
             if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
                 int id = e.getPointerId(index); float x = e.getX(index), y = e.getY(index);
-                boolean panel = (x >= getWidth() * .65f && y < getHeight() * .55f) || (x < getWidth() * .65f && y < getHeight() * .42f);
-                if (vulkanActive && panel) {
-                    if (uiPointer == -1) { uiPointer = id; uiTouches.add(new UiTouch(true, 0, id, x, y)); }
-                } else if (vulkanActive) {
-                    gamePointers.add(id); uiTouches.add(new UiTouch(false, 0, id, x, y));
-                } else touch(0, id, x, y);
+                if (vulkanActive) { gamePointers.add(id); uiTouches.add(new UiTouch(false, 0, id, x, y)); }
+                else touch(0, id, x, y);
             } else if (action == MotionEvent.ACTION_MOVE) {
-                // Android pointer indices can reorder; routing is keyed by stable pointer IDs.
                 for (int i = 0; i < e.getPointerCount(); ++i) {
                     int id = e.getPointerId(i); float x = e.getX(i), y = e.getY(i);
-                    if (id == uiPointer) uiTouches.add(new UiTouch(true, 1, id, x, y));
-                    else if (gamePointers.contains(id)) uiTouches.add(new UiTouch(false, 1, id, x, y));
+                    if (gamePointers.contains(id)) uiTouches.add(new UiTouch(false, 1, id, x, y));
                     else if (!vulkanActive) touch(1, id, x, y);
                 }
             } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
                 int id = e.getPointerId(index); float x = e.getX(index), y = e.getY(index);
-                if (id == uiPointer) { uiTouches.add(new UiTouch(true, 2, id, x, y)); uiPointer = -1; }
-                else if (gamePointers.remove(id)) {
-                    // ACTION_UP may carry the only final swipe position on a slow device. Deliver it as a move first;
-                    // the render thread defers the release so the engine observes that position for a frame.
+                if (gamePointers.remove(id)) {
                     uiTouches.add(new UiTouch(false, 1, id, x, y));
                     uiTouches.add(new UiTouch(false, 2, id, x, y));
-                }
-                else if (!vulkanActive) touch(2, id, x, y);
+                } else if (!vulkanActive) touch(2, id, x, y);
             } else if (action == MotionEvent.ACTION_CANCEL) { touch(3, -1, 0, 0); cancelAllTouches(); }
             invalidate(); return true;
         }

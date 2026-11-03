@@ -523,6 +523,9 @@ void Renderer::initUI(GLFWwindow* window, const UiTheme& theme, const std::strin
     ImGui::CreateContext();
     uiTheme_ = theme;
     ImGuiIO& io = ImGui::GetIO();
+#ifdef __ANDROID__
+    io.IniFilename = nullptr; // surface state is captured in memory, not an unwritable working directory
+#endif
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;    // keyboard/gamepad navigation works in the editors
     // Font: an explicit --ui-font wins, then the platform's UI font, then ImGui's built-in bitmap font. A missing file is
     // not fatal - AddFontFromFileTTF asserts on failure, so the existence check happens here.

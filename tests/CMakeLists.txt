@@ -86,6 +86,7 @@ set(SAKUGA_TESTS
   presentation_requirements_test
   surface_choices_test
   mobile_touch_test
+  mobile_lifecycle_test
   loader_test
   bvh_parse_test
   mm_search_test

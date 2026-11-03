@@ -19,6 +19,9 @@
 #include "MotionLab.h"
 #ifdef __ANDROID__
 #include "MobileSandbox.h"
+#include "platform/SurfaceStateStore.h"
+#include "platform/MobilePointerRouter.h"
+#include <imgui_internal.h>
 #include <android/native_window.h>
 #include <android/log.h>
 #include <cfloat>
@@ -32,6 +35,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <set>
 #include <fstream>
@@ -163,6 +167,35 @@ static Options parseArgs(int argc, char** argv) {
     return o;
 }
 
+#ifdef __ANDROID__
+// No Vulkan handles, scene pointers or navmesh objects survive surface teardown.
+struct MobileEntityState {
+    std::string name, modelPath;
+    glm::vec3 pos{0}; float yaw = 0, scale = 1;
+    int clip = -1; float clipTime = 0, clipSpeed = 1; bool loop = true, autoBlink = true;
+    FootIKSettings ik; HandIKSettings hands; LookAtSettings look;
+    SpringSettings spring; SpringTuning springTuning; PostureControl posture;
+    BlinkClock blink; std::vector<float> exprTarget, exprCur, exprFinal;
+    bool hasMatcher = false, browsing = false; int browserClip = -1;
+    MMSettings matcher;
+    std::vector<std::pair<std::string, MaterialParams>> materials;
+};
+struct MobileSnapshot {
+    Options options;
+    OrbitCamera camera; LightingSettings light; PostSettings post; UiTheme theme;
+    std::string themeName, ini, environment;
+    std::vector<MobileEntityState> entities;
+    int showcase = 0, selectedMat = 0, lutIdx = -1, debugMode = 0, matForcedMode = -1;
+    float tod = 0, todSpeed = 0, userExposure = 1, userEnv = 1, cloud = 0, cameraShoulder = 0;
+    float lutStrength = 0, lightAz = 0, lightEl = 0, time = 0, rain = 0, splitOffset = 0;
+    bool todAuto = false, todEnabled = false, hdriMode = false, nprFull = false, lampsOn = false;
+    bool pointLightsOn = false, navDebug = false, agentDebug = false, mmDebug = false, showFps = false;
+    bool hdriSun = false, lightAuto = false, rainOn = false, skeleton = false, trajectory = false;
+    bool showUI = false, split = false, syncMat = false, showTheme = false, showDemo = false, npcs = false;
+};
+static SurfaceStateStore<MobileSnapshot> mobileSnapshots;
+#endif
+
 // ----------------------------------------------------------------------------------------- sandbox
 class Sandbox {
 public:
@@ -174,6 +207,8 @@ public:
     bool initMobile(ANativeWindow* window, std::string& error);
     int frameMobile(float dt, float wallDt, float x, float y, int clip);
     void touchMobile(bool imgui, int action, int id, float x, float y);
+    MobileSnapshot captureMobile() const;
+    void restoreMobile(const MobileSnapshot& state);
 #endif
 
 private:
@@ -201,15 +236,16 @@ private:
     Context ctx_; Renderer renderer_; Window window_; InputSystem input_; StyleTextures style_;
 #ifdef __ANDROID__
     ANativeWindow* mobileWindow_ = nullptr;
+    MobilePointerRouter mobilePointers_;
     std::string mobileError_;
     bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false;
-    bool mobileLoadNpcs_ = false, mobileNpcsRequested_ = false, mobileNpcsPendingFrame_ = false;
+    bool mobileLoadNpcs_ = false, mobileNpcsRequested_ = false, mobileNpcsPendingFrame_ = false, mobileRestored_ = false;
 #endif
     struct Showcase { std::string name; std::vector<Entity*> entities; Entity* hero = nullptr; bool lab = false; };
     std::vector<std::unique_ptr<Entity>> entities_;
     std::vector<Showcase> showcases_;
     int showcase_ = 0;
-    bool pointLightsOn_ = true; std::string envName_ = "procedural";
+    bool pointLightsOn_ = true; std::string envName_ = "procedural", envPath_ = "procedural";
     Entity* ground_ = nullptr; Entity* vrm_ = nullptr;
     OrbitCamera camera_;
     MotionLab lab_;
@@ -303,10 +339,11 @@ void Sandbox::setLut(int idx) {
 }
 
 void Sandbox::loadEnvironment(const std::string& path) {
-    if (path == "none" || path == "procedural") { renderer_.useProceduralEnvironment(); envName_ = "procedural"; return; }
+    if (path == "none" || path == "procedural") { renderer_.useProceduralEnvironment(); envName_ = "procedural"; envPath_ = "procedural"; return; }
     std::vector<float> rgb; int w = 0, h = 0;
-    if (!loadHdrImage(path, rgb, w, h)) { SK_WARN("cannot load environment %s, using the procedural sky", path.c_str()); renderer_.useProceduralEnvironment(); envName_ = "procedural"; return; }
+    if (!loadHdrImage(path, rgb, w, h)) { SK_WARN("cannot load environment %s, using the procedural sky", path.c_str()); renderer_.useProceduralEnvironment(); envName_ = "procedural"; envPath_ = "procedural"; return; }
     renderer_.setEnvironmentHDR(rgb.data(), w, h);
+    envPath_ = path;
     envName_ = fs::path(path).stem().string();
     glm::vec3 sun = renderer_.environmentSunDirection();
     envSunAz_ = glm::length(sun) > 0.5f ? std::atan2(sun.x, sun.z) : 0.f;
@@ -341,6 +378,11 @@ void Sandbox::loadAssets() {
     if (fs::exists(vrmPath)) {
         if (std::shared_ptr<Model> m = loadGltfModel(renderer_, style_, vrmPath, go)) {
             vrm_ = addEntity(m, "Avatar (VRM)"); vrm_->ik.enabled = opt_.ik;
+            vrm_->posture.spine = opt_.postureSpine; vrm_->posture.chest = opt_.postureChest;
+            vrm_->posture.neck = opt_.postureNeck; vrm_->posture.head = opt_.postureHead;
+            vrm_->posture.hunchCorrection = opt_.postureHunch; vrm_->posture.weight = opt_.postureWeight;
+            vrm_->springTuning.stiffness = opt_.springTuningStiffness; vrm_->springTuning.drag = opt_.springTuningDrag;
+            vrm_->springTuning.gravity = opt_.springTuningGravity; vrm_->springTuning.colliderRadiusPad = opt_.springTuningColliderRadius;
             if (opt_.mm && m->isVRM) {
                 // every *.bvh under assets/motion (recursive), $SAKUGA_MOTION_DIR and --motion-dir (e.g. the Assets/lafan1 folder of the Unity project)
                 std::vector<std::string> dirs = {root_ + "/assets/motion"}, files;
@@ -678,16 +720,6 @@ FrameInput Sandbox::buildFrame(float dt) {
     post_.lutStrength = lutIdx_ >= 0 ? lutStrength_ : 0.f;
     light_.fitCascadeToCamera = opt_.fitCascade; light_.pointShadows = opt_.pointShadows;
     fi.light = light_; fi.post = post_;
-    Entity& h = *vrm_;
-    // Apply posture controls from CLI
-    h.posture.spine = opt_.postureSpine; h.posture.chest = opt_.postureChest;
-    h.posture.neck = opt_.postureNeck; h.posture.head = opt_.postureHead;
-    h.posture.hunchCorrection = opt_.postureHunch; h.posture.weight = opt_.postureWeight;
-    // Apply ZZZ spring tuning from CLI
-    h.springTuning.stiffness = opt_.springTuningStiffness;
-    h.springTuning.drag = opt_.springTuningDrag;
-    h.springTuning.gravity = opt_.springTuningGravity;
-    h.springTuning.colliderRadiusPad = opt_.springTuningColliderRadius;
     if (pointLightsOn_ && showcases_[showcase_].name.rfind("Shader lab", 0) == 0) {      // coloured extra lights to show the multi-light path
         fi.light.points[0] = {{-1.9f, 1.0f, 1.8f}, 4.5f, {1.0f, 0.35f, 0.65f}, 2.0f};
         fi.light.points[1] = {{1.9f, 0.9f, 1.6f}, 4.5f, {0.3f, 0.85f, 1.0f}, 2.0f};
@@ -805,9 +837,17 @@ void Sandbox::loadUiTheme() {
     if (want.empty()) {
         const std::string shipped = root_ + "/config/ui_theme.json";
         std::error_code ec;
+#ifdef __ANDROID__
+        const std::string userTheme = root_ + "/user/ui_theme.json";
+        if (fs::exists(userTheme, ec)) want = userTheme;
+        else
+#endif
         want = fs::exists(shipped, ec) ? shipped : std::string(uiThemeDefaultName());
     }
     uiTheme_ = uiThemeLoad(want, root_ + "/config", &uiThemePath_, &uiThemeError_);
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "ui theme loaded name=%s user=%d", uiTheme_.name.c_str(), (int)(uiThemePath_ == root_ + "/user/ui_theme.json"));
+#endif
     if (!uiThemeError_.empty()) SK_WARN("ui: %s", uiThemeError_.c_str());
     std::snprintf(themeName_, sizeof themeName_, "%s", uiTheme_.name.c_str());
     uiThemeStamp_ = fs::file_time_type{};
@@ -846,15 +886,22 @@ void Sandbox::drawUiThemeWindow() {
     ImGui::ShowStyleEditor(nullptr);        // imgui_demo.cpp, operates on ImGui::GetStyle()
 
     ImGui::SeparatorText("File");
-    ImGui::TextWrapped("%s", uiThemePath_.empty() ? "(built-in preset - Save creates config/ui_theme.json)"
-                                                  : uiThemePath_.c_str());
+#ifdef __ANDROID__
+    ImGui::TextWrapped("Save: %s/user/ui_theme.json", root_.c_str());
+#else
+    ImGui::TextWrapped("%s", uiThemePath_.empty() ? "(built-in preset - Save creates config/ui_theme.json)" : uiThemePath_.c_str());
+#endif
     if (!uiThemeError_.empty()) ImGui::TextColored(ImVec4(1.f, 0.55f, 0.35f, 1.f), "%s", uiThemeError_.c_str());
 
     if (ImGui::Button("Save")) {
         UiTheme live = uiThemeFromLiveStyle(ImGui::GetStyle(), themeName_);
         live.fontScale = uiTheme_.fontScale;
         uiThemeSanitize(&live);
+#ifdef __ANDROID__
+        const std::string path = root_ + "/user/ui_theme.json";
+#else
         const std::string path = uiThemePath_.empty() ? root_ + "/config/ui_theme.json" : uiThemePath_;
+#endif
         std::error_code ec; fs::create_directories(fs::path(path).parent_path(), ec);
         std::ofstream f(path, std::ios::binary);
         f << uiThemeToJson(live);
@@ -1260,6 +1307,7 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         }
     } else ImGui::TextUnformatted(lab_.npcs.empty() ? "NPCs unavailable" : "NPCs on");
     ImGui::Checkbox("Point shadows", &opt_.pointShadows);
+    if (ImGui::Button("UI theme")) showThemeEditor_ = !showThemeEditor_;
     if (ImGui::Checkbox("Sandbox editor", &showUI_)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor toggled");
     if (frame_ == 0) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
@@ -1269,6 +1317,12 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     // The UI changes are reflected on the next frame, as with desktop sandbox controls.
     ++frame_;
     bool rendered = renderer_.renderFrame(fi);
+    if (rendered && mobileRestored_) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface state frame bloom=%d editor=%d tod=%.2f clip=%d npcs=%zu x=%.3f z=%.3f",
+                            (int)post_.bloom, (int)showUI_, tod_, vrm_ && vrm_->mm ? vrm_->mm->debug.clip : -1,
+                            lab_.npcs.size(), vrm_ ? vrm_->pos.x : 0.f, vrm_ ? vrm_->pos.z : 0.f);
+        mobileRestored_ = false;
+    }
     if (rendered && !mobileLoggedPointShadows_ && renderer_.stats.pointShadowLights == 4 && renderer_.stats.pointShadowFaces == 24) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox point shadow atlas: 4 lights 24 faces"); mobileLoggedPointShadows_ = true;
     }
@@ -1277,26 +1331,160 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     }
     return rendered ? 1 : 0;
 }
-void Sandbox::touchMobile(bool imgui, int action, int id, float x, float y) {
-    if (!imgui) {
-        if (action == 3) touch_.cancel();
-        else if (std::isfinite(x) && std::isfinite(y)) touch_.injectTouch(id, x, y, action != 2);
+void Sandbox::touchMobile(bool, int action, int id, float x, float y) {
+    if (action == 3) {
+        mobilePointers_.cancel(); touch_.cancel();
+        if (renderer_.uiEnabled()) ImGui::GetIO().AddMouseButtonEvent(0, false);
         return;
     }
-    if (!renderer_.uiEnabled()) return;
-    ImGuiIO& io = ImGui::GetIO(); io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
-    if (action == 3) { io.AddMouseButtonEvent(0, false); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); return; }
     if (!std::isfinite(x) || !std::isfinite(y)) return;
-    io.AddMousePosEvent(x, y);
-    if (action == 0) io.AddMouseButtonEvent(0, true);
-    else if (action == 2) io.AddMouseButtonEvent(0, false);
+    MobilePointerRouter::Route route;
+    if (action == 0) {
+        ImGuiWindow* hovered = nullptr;
+        if (renderer_.uiEnabled()) ImGui::FindHoveredWindowEx(ImVec2(x, y), true, &hovered, nullptr);
+        route = mobilePointers_.down(id, hovered != nullptr);
+    } else if (action == 2) route = mobilePointers_.up(id);
+    else route = mobilePointers_.get(id);
+    if (route == MobilePointerRouter::Route::Game) {
+        touch_.injectTouch(id, x, y, action != 2);
+    } else if (route == MobilePointerRouter::Route::Ui && renderer_.uiEnabled()) {
+        ImGuiIO& io = ImGui::GetIO(); io.AddMousePosEvent(x, y);
+        if (action == 0) io.AddMouseButtonEvent(0, true);
+        else if (action == 2) io.AddMouseButtonEvent(0, false);
+    }
+}
+MobileSnapshot Sandbox::captureMobile() const {
+    MobileSnapshot s; s.options = opt_; s.camera = camera_; s.light = light_; s.post = post_;
+    s.theme = uiThemeFromLiveStyle(ImGui::GetStyle(), themeName_); s.theme.fontScale = uiTheme_.fontScale;
+    s.themeName = themeName_; s.ini = ImGui::SaveIniSettingsToMemory(); s.environment = envPath_;
+    s.showTheme = showThemeEditor_; s.showDemo = showImGuiDemo_; s.npcs = mobileNpcsRequested_;
+    s.showcase = showcase_;
+    s.selectedMat = selectedMat_;
+    s.lutIdx = lutIdx_;
+    s.debugMode = debugMode_;
+    s.matForcedMode = matForcedMode_;
+    s.tod = tod_;
+    s.todSpeed = todSpeed_;
+    s.userExposure = userExposure_;
+    s.userEnv = userEnv_;
+    s.cloud = cloud_;
+    s.cameraShoulder = cameraShoulder_;
+    s.lutStrength = lutStrength_;
+    s.lightAz = lightAz_;
+    s.lightEl = lightEl_;
+    s.time = time_;
+    s.rain = rain_;
+    s.splitOffset = splitOffset_;
+    s.todAuto = todAuto_;
+    s.todEnabled = todEnabled_;
+    s.hdriMode = hdriMode_;
+    s.nprFull = nprFull_;
+    s.lampsOn = lampsOn_;
+    s.pointLightsOn = pointLightsOn_;
+    s.navDebug = navDebug_;
+    s.agentDebug = agentDebug_;
+    s.mmDebug = mmDebug_;
+    s.showFps = showFps_;
+    s.hdriSun = hdriSun_;
+    s.lightAuto = lightAuto_;
+    s.rainOn = rainOn_;
+    s.skeleton = skeleton_;
+    s.trajectory = trajectory_;
+    s.showUI = showUI_;
+    s.split = split_;
+    s.syncMat = syncMat_;
+    for (const auto& owned : entities_) {
+        const Entity& e = *owned; MobileEntityState x;
+        x.name = e.name; x.modelPath = e.model->path; x.pos = e.pos; x.yaw = e.yaw; x.scale = e.scale;
+        x.clip = e.clip; x.clipTime = e.clipTime; x.clipSpeed = e.clipSpeed; x.loop = e.loop; x.autoBlink = e.autoBlink;
+        x.ik = e.ik; x.hands = e.hands; x.look = e.look; x.spring = e.spring;
+        x.springTuning = e.springTuning; x.posture = e.posture; x.blink = e.blink; x.exprTarget = e.exprTarget; x.exprCur = e.exprCur; x.exprFinal = e.exprFinal;
+        if (e.mm) { x.hasMatcher = true; x.matcher = e.mm->settings; x.browsing = e.mm->browsing(); x.browserClip = e.mm->debug.clip; }
+        for (const Material* m : e.model->materials) x.materials.emplace_back(m->name, m->params);
+        s.entities.push_back(std::move(x));
+    }
+    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface state saved bloom=%d editor=%d tod=%.2f clip=%d npcs=%zu x=%.3f z=%.3f",
+                        (int)s.post.bloom, (int)s.showUI, s.tod, vrm_ && vrm_->mm ? vrm_->mm->debug.clip : -1,
+                        lab_.npcs.size(), vrm_ ? vrm_->pos.x : 0.f, vrm_ ? vrm_->pos.z : 0.f);
+    return s;
+}
+void Sandbox::restoreMobile(const MobileSnapshot& s) {
+    if (s.npcs && !mobileNpcsRequested_) {
+        mobileNpcsRequested_ = true; loadNpcModels();
+        if (!showcases_.empty() && showcases_.back().lab) spawnNpcs(showcases_.back());
+    }
+    setShowcase(s.showcase);
+    opt_ = s.options; camera_ = s.camera; light_ = s.light; post_ = s.post;
+    uiTheme_ = s.theme; std::snprintf(themeName_, sizeof themeName_, "%s", s.themeName.c_str());
+    renderer_.setUiTheme(uiTheme_); ImGui::LoadIniSettingsFromMemory(s.ini.c_str(), s.ini.size());
+    showThemeEditor_ = s.showTheme; showImGuiDemo_ = s.showDemo;
+    if (s.environment != envPath_) loadEnvironment(s.environment);
+    setLut(s.lutIdx);
+    showcase_ = s.showcase;
+    selectedMat_ = s.selectedMat;
+    lutIdx_ = s.lutIdx;
+    debugMode_ = s.debugMode;
+    matForcedMode_ = s.matForcedMode;
+    tod_ = s.tod;
+    todSpeed_ = s.todSpeed;
+    userExposure_ = s.userExposure;
+    userEnv_ = s.userEnv;
+    cloud_ = s.cloud;
+    cameraShoulder_ = s.cameraShoulder;
+    lutStrength_ = s.lutStrength;
+    lightAz_ = s.lightAz;
+    lightEl_ = s.lightEl;
+    time_ = s.time;
+    rain_ = s.rain;
+    splitOffset_ = s.splitOffset;
+    todAuto_ = s.todAuto;
+    todEnabled_ = s.todEnabled;
+    hdriMode_ = s.hdriMode;
+    nprFull_ = s.nprFull;
+    lampsOn_ = s.lampsOn;
+    pointLightsOn_ = s.pointLightsOn;
+    navDebug_ = s.navDebug;
+    agentDebug_ = s.agentDebug;
+    mmDebug_ = s.mmDebug;
+    showFps_ = s.showFps;
+    hdriSun_ = s.hdriSun;
+    lightAuto_ = s.lightAuto;
+    rainOn_ = s.rainOn;
+    skeleton_ = s.skeleton;
+    trajectory_ = s.trajectory;
+    showUI_ = s.showUI;
+    split_ = s.split;
+    syncMat_ = s.syncMat;
+    // Entity ordering is deterministic for a given asset set. Guard every entry against mismatches.
+    for (size_t i = 0; i < s.entities.size() && i < entities_.size(); ++i) {
+        const auto& x = s.entities[i]; Entity& e = *entities_[i];
+        if (x.name != e.name || x.modelPath != e.model->path) continue;
+        e.pos = x.pos; e.yaw = x.yaw; e.scale = x.scale; e.clip = x.clip; e.clipTime = x.clipTime; e.clipSpeed = x.clipSpeed; e.loop = x.loop; e.autoBlink = x.autoBlink;
+        e.ik = x.ik; e.hands = x.hands; e.look = x.look; e.spring = x.spring; e.springTuning = x.springTuning;
+        e.posture = x.posture; e.blink = x.blink;
+        if (e.exprTarget.size() == x.exprTarget.size()) { e.exprTarget = x.exprTarget; e.exprCur = x.exprCur; e.exprFinal = x.exprFinal; }
+        if (e.mm && x.hasMatcher) {
+            e.mm->settings = x.matcher; e.mm->reset(e.pos, e.yaw);
+            if (x.browsing && e.mmDb && x.browserClip >= 0 && x.browserClip < (int)e.mmDb->clipNames.size())
+                e.mm->playClip(x.browserClip, e.pos, e.yaw);
+        }
+        for (size_t j = 0; j < x.materials.size() && j < e.model->materials.size(); ++j) {
+            Material* m = e.model->materials[j];
+            if (m->name == x.materials[j].first) { m->params = x.materials[j].second; renderer_.flushMaterial(m); }
+        }
+    }
+    camSmooth_ = camera_.target; camUsed_ = -1.f; mobileRestored_ = true;
+    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface state restored bloom=%d editor=%d tod=%.2f clip=%d npcs=%zu x=%.3f z=%.3f",
+                        (int)post_.bloom, (int)showUI_, tod_, vrm_ && vrm_->mm ? vrm_->mm->debug.clip : -1,
+                        lab_.npcs.size(), vrm_ ? vrm_->pos.x : 0.f, vrm_ ? vrm_->pos.z : 0.f);
 }
 namespace sk {
 class MobileSandbox {
 public:
     std::unique_ptr<Sandbox> sandbox;
+    std::string root; bool ready = false;
     std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
-    ~MobileSandbox() { if (sandbox) { try { sandbox->shutdown(); } catch (...) {} } }
+    ~MobileSandbox() { if (sandbox) { try { if (ready) mobileSnapshots.save(root, sandbox->captureMobile()); } catch (...) {} try { sandbox->shutdown(); } catch (...) {} } }
 };
 MobileSandbox* createMobileSandbox(ANativeWindow* window, const std::string& root, const std::string& shaders, float density, std::string& error) {
     auto m = std::make_unique<MobileSandbox>();
@@ -1304,9 +1492,12 @@ MobileSandbox* createMobileSandbox(ANativeWindow* window, const std::string& roo
         Options opt;
         opt.npcs = false; opt.springs = false; opt.pointShadows = true; opt.mmCache = false;
         opt.uiFontSize = 14.f * std::clamp(density, .75f, 4.f);
-        m->sandbox = std::make_unique<Sandbox>(opt, root, shaders);
+        auto previous = mobileSnapshots.load(root);
+        if (previous) opt = previous->options;
+        m->root = root; m->sandbox = std::make_unique<Sandbox>(opt, root, shaders);
         if (!m->sandbox->initMobile(window, error)) return nullptr;
-        m->last = std::chrono::steady_clock::now(); return m.release();
+        if (previous) m->sandbox->restoreMobile(*previous);
+        m->ready = true; m->last = std::chrono::steady_clock::now(); return m.release();
     } catch (const std::exception& e) { error = e.what(); return nullptr; }
 }
 int mobileSandboxFrame(MobileSandbox* m, float x, float y, int clip, std::string& error) {
@@ -1317,6 +1508,11 @@ int mobileSandboxFrame(MobileSandbox* m, float x, float y, int clip, std::string
         return m->sandbox->frameMobile(std::min(wallDt, .05f), wallDt, x, y, clip);
     } catch (const std::exception& e) { error = e.what(); return -1; }
 }
+void mobileSandboxPause(MobileSandbox* m) {
+    if (!m || !m->sandbox) return;
+    m->sandbox->touchMobile(false, 3, -1, 0, 0);
+}
+void mobileSandboxResume(MobileSandbox* m) { if (m) m->last = std::chrono::steady_clock::now(); }
 void mobileSandboxTouch(MobileSandbox* m, bool imgui, int action, int id, float x, float y) { if (m && m->sandbox) m->sandbox->touchMobile(imgui, action, id, x, y); }
 void destroyMobileSandbox(MobileSandbox* m) { delete m; }
 }

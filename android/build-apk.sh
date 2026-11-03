@@ -16,7 +16,7 @@ for cmd in cmake ninja javac keytool zip unzip; do command -v "$cmd" >/dev/null 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 OUT=${1:-"$ROOT/android/output"}
-mkdir -p "$OUT" "$WORK/res/drawable-nodpi" "$WORK/assets/motion" "$WORK/assets/controls" "$WORK/assets/shaders" "$WORK/assets/models" "$WORK/assets/luts" "$WORK/assets/config" "$WORK/classes" "$WORK/stage"
+mkdir -p "$OUT" "$WORK/res/drawable-nodpi" "$WORK/assets/motion" "$WORK/assets/controls" "$WORK/assets/shaders" "$WORK/assets/models" "$WORK/assets/luts" "$WORK/assets/env" "$WORK/assets/config" "$WORK/classes" "$WORK/stage"
 OUT=$(cd "$OUT" && pwd)
 cp -R "$ROOT/android/app/res/values" "$WORK/res/"
 cp "$ROOT/assets/branding/sakuga_icon_512.png" "$WORK/res/drawable-nodpi/sakuga_icon.png"
@@ -32,6 +32,7 @@ fi
 cp "$ROOT"/shaders/spv/*.spv "$WORK/assets/shaders/"
 cp "$ROOT/assets/models/AvatarSample.vrm" "$ROOT/assets/models/Seed-san.vrm" "$ROOT/assets/models/three-vrm-girl.vrm" "$ROOT/assets/models/Fox.glb" "$ROOT/assets/models/CesiumMan.glb" "$WORK/assets/models/"
 cp -R "$ROOT/assets/luts/." "$WORK/assets/luts/"
+cp -R "$ROOT/assets/env/." "$WORK/assets/env/"
 cp -R "$ROOT/config/." "$WORK/assets/config/"
 cp "$ROOT/assets/ui/touch/joystick_base.png" "$ROOT/assets/ui/touch/joystick_knob.png" "$WORK/assets/controls/"
 for abi in arm64-v8a x86_64; do

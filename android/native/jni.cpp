@@ -112,6 +112,12 @@ extern "C" JNIEXPORT jint JNICALL Java_com_sakuga_preview_MainActivity_nativeRen
     auto* h = renderer(handle); if (!h) return -1;
     return sk::renderAndroidFrame(h->session, x, y, clip, rendererError);
 }
+extern "C" JNIEXPORT void JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererPause(JNIEnv*, jclass, jlong handle) {
+    auto* h = renderer(handle); if (h) sk::pauseAndroidRenderSession(h->session);
+}
+extern "C" JNIEXPORT void JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererResume(JNIEnv*, jclass, jlong handle) {
+    auto* h = renderer(handle); if (h) sk::resumeAndroidRenderSession(h->session);
+}
 extern "C" JNIEXPORT void JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererTouch(JNIEnv*, jclass, jlong handle, jboolean imgui, jint action, jint id, jfloat x, jfloat y) {
     auto* h = renderer(handle);
     if (!h) return;
