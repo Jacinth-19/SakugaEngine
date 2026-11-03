@@ -378,6 +378,7 @@ void Sandbox::loadAssets() {
     if (fs::exists(vrmPath)) {
         if (std::shared_ptr<Model> m = loadGltfModel(renderer_, style_, vrmPath, go)) {
             vrm_ = addEntity(m, "Avatar (VRM)"); vrm_->ik.enabled = opt_.ik;
+            vrm_->hands.enabled = opt_.hands; vrm_->look.enabled = opt_.lookAt; vrm_->spring.enabled = opt_.springs;
             vrm_->posture.spine = opt_.postureSpine; vrm_->posture.chest = opt_.postureChest;
             vrm_->posture.neck = opt_.postureNeck; vrm_->posture.head = opt_.postureHead;
             vrm_->posture.hunchCorrection = opt_.postureHunch; vrm_->posture.weight = opt_.postureWeight;
@@ -550,7 +551,6 @@ void Sandbox::setShowcase(int idx) {
     if (vrm_) {
         bool lab = showcases_[showcase_].lab;
         vrm_->world = lab ? &lab_.world : nullptr; vrm_->collide = lab;
-        vrm_->hands.enabled = lab && opt_.hands; vrm_->look.enabled = opt_.lookAt; vrm_->spring.enabled = opt_.springs;
         if (lab && vrm_->pos == glm::vec3(0)) { vrm_->pos = lab_.spawn; }
         if (lab) { camera_.distance = std::max(camera_.distance, 3.4f); camera_.target = vrm_->pos + glm::vec3(0, 1.3f, 0); camSmooth_ = camera_.target; }
     }

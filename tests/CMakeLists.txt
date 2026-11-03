@@ -124,6 +124,10 @@ if(TARGET sakuga_imgui_core)
   target_compile_definitions(ui_theme_test PRIVATE SAKUGA_ROOT="${SAKUGA_ROOT}")
   add_test(NAME ui_theme_test COMMAND ui_theme_test)
 
+  add_executable(mobile_imgui_hit_test ${CMAKE_CURRENT_SOURCE_DIR}/mobile_imgui_hit_test.cpp)
+  target_link_libraries(mobile_imgui_hit_test PRIVATE sakuga_headless sakuga_imgui_core)
+  add_test(NAME mobile_imgui_hit_test COMMAND mobile_imgui_hit_test)
+
   add_executable(touch_controls_test ${CMAKE_CURRENT_SOURCE_DIR}/touch_controls_test.cpp ${SAKUGA_ROOT}/engine/platform/TouchControls.cpp)
   target_include_directories(touch_controls_test PRIVATE ${SAKUGA_ROOT}/third_party/glfw/include)
   target_compile_definitions(touch_controls_test PRIVATE GLFW_INCLUDE_NONE)
