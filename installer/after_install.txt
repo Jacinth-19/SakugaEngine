@@ -6,7 +6,7 @@ First run
   * F12 opens the UI theme editor: pick a preset, tweak the style and press Save - it writes
     config\ui_theme.json, which is loaded on the next start. F11 shows the ImGui demo.
   * The sandbox writes its motion database cache to %USERPROFILE%\.cache\sakuga (the first
-    start with the full 77-clip library takes a few seconds to build it).
+    start with the 77-clip library must build the motion cache and may take longer).
 
 Command line (sandbox.exe --help lists everything)
   * --ui-theme "Midnight" | --ui-theme my_theme.json

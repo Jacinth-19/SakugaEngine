@@ -117,14 +117,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; Same information as the stock pages, in the product's own words.
 WelcomeLabel1=Welcome to [name] setup
 WelcomeLabel2=This will install [name/ver] on your computer.%n%nSakuga Engine is an anime-style real-time renderer: motion matching on mocap, VRM avatars, toon shading and a Vulkan 1.3 renderer. You need a Vulkan 1.3 capable graphics driver to run it.
-FinishedLabel=Setup has finished installing [name] on your computer.%n%nThe full LAFAN1 mocap library (77 clips) is not bundled - see the info page for the one command that fetches it.
-FinishedLabelNoIcons=Setup has finished installing [name] on your computer.%n%nThe full LAFAN1 mocap library (77 clips) is not bundled - see the info page for the one command that fetches it.
+FinishedLabel=Setup has finished installing [name] on your computer.%n%nThe full LAFAN1 mocap library (77 clips) is bundled in this non-commercial preview. See assets\licenses for its license.
+FinishedLabelNoIcons=Setup has finished installing [name] on your computer.%n%nThe full LAFAN1 mocap library (77 clips) is bundled in this non-commercial preview. See assets\licenses for its license.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; The whole staged tree: sandbox.exe, assets\ (models, LUTs, HDRIs, the two preview BVH clips), config\, shaders\ (SPIR-V).
+; The whole staged tree: sandbox.exe, assets\ (models, LUTs, HDRIs and 77 verified BVH clips), config\, shaders\ (SPIR-V).
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]

@@ -399,7 +399,12 @@ void Sandbox::loadAssets() {
                 }
                 SK_LOG("mm: %zu BVH files found", files.size());
                 const char* home = std::getenv("HOME");
+#ifdef __ANDROID__
+                (void)home;
+                std::string cacheDir = opt_.mmCache ? root_ + "/user/mm_cache" : "";
+#else
                 std::string cacheDir = opt_.mmCache ? (home ? std::string(home) + "/.cache/sakuga" : root_ + "/.cache") : "";
+#endif
                 auto db = std::make_shared<MotionDatabase>(); std::string err;
                 if (!files.empty() && db->buildFromFiles(m->rig, files, cacheDir, opt_.mmClips, &err)) {
                     {   // report the library so it is obvious when only a subset was found
@@ -411,6 +416,9 @@ void Sandbox::loadAssets() {
                         SK_LOG("mm: %zu clips / %d frames in use -> %s", db->clipNames.size(), db->frameCount, cats.c_str());
                         if (db->clipNames.size() <= 2) SK_WARN("mm: only %zu clip(s) found - run tools/fetch_assets.sh for the full 77-clip LAFAN1 set", db->clipNames.size());
                     }
+#ifdef __ANDROID__
+                    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox motion library clips=%zu frames=%d", db->clipNames.size(), db->frameCount);
+#endif
                     vrm_->mmDb = db; vrm_->mm = std::make_unique<MotionMatcher>(); vrm_->mm->init(&m->rig, db.get());
                     if (opt_.mmMask >= 0) vrm_->mm->settings.categoryMask = (uint32_t)opt_.mmMask;
                     vrm_->mm->settings.contextMask = opt_.mmContext;
@@ -981,6 +989,11 @@ void Sandbox::drawUI(float wallDt) {
     ImGui::TextDisabled("Tab mouse  /  F1 hide  /  F2 capture  /  F12 theme");
 #endif
     ImGui::Separator();
+    if (ImGui::CollapsingHeader("Animation license / credits")) {
+        ImGui::TextWrapped("LAFAN1 motion capture by Ubisoft La Forge. CC BY-NC-ND 4.0: non-commercial use only; sharing adapted material is not permitted.");
+        ImGui::TextWrapped("Source: github.com/ubisoft/ubisoft-laforge-animation-dataset");
+        ImGui::TextWrapped("License: creativecommons.org/licenses/by-nc-nd/4.0/  |  Full notice and disclaimer: assets/licenses/");
+    }
     if (ImGui::CollapsingHeader("Device and performance")) {
         // Refresh slowly: filesystem and OS queries do not belong in the per-frame hot path.
         static SysInfo device;
@@ -1248,6 +1261,7 @@ bool Sandbox::initMobile(ANativeWindow* window, std::string& error) {
     mobileWindow_ = window;
     if (!init()) { error = mobileError_.empty() ? "Sandbox initialization failed" : mobileError_; return false; }
     if (!vrm_ || !vrm_->mm || !vrm_->mmDb) { error = "Sandbox avatar or motion library failed to load"; return false; }
+    if (vrm_->mmDb->clipNames.size() != 77) { error = "The complete 77-clip motion library could not be loaded"; return false; }
     // Conservative starting values, editable in the mobile panel and the full sandbox UI.
     post_.bloom = false; light_.pointShadows = false; showUI_ = false; showFps_ = false;
     touch_.enabled = true; touch_.setScreen((float)renderer_.width(), (float)renderer_.height());
@@ -1505,7 +1519,7 @@ MobileSandbox* createMobileSandbox(ANativeWindow* window, const std::string& roo
     auto m = std::make_unique<MobileSandbox>();
     try {
         Options opt;
-        opt.npcs = false; opt.springs = false; opt.pointShadows = true; opt.mmCache = false;
+        opt.npcs = false; opt.springs = false; opt.pointShadows = true; opt.mmCache = true;
         opt.uiFontSize = 14.f * std::clamp(density, .75f, 4.f);
         auto previous = mobileSnapshots.load(root);
         if (previous) opt = previous->options;

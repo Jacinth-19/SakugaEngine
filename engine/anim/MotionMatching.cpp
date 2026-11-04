@@ -9,6 +9,7 @@
 #include <limits>
 #include <atomic>
 #include <thread>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 
@@ -52,7 +53,16 @@ const char* kBvhNames[kHumanBoneCount] = {"Hips", "Spine", "Spine1", "Spine2", "
 namespace {
 uint64_t fnv(uint64_t h, const void* d, size_t n) { const unsigned char* p = (const unsigned char*)d; for (size_t i = 0; i < n; ++i) { h ^= p[i]; h *= 1099511628211ull; } return h; }
 template <class T> void wvec(std::FILE* f, const std::vector<T>& v) { uint64_t n = v.size(); std::fwrite(&n, 8, 1, f); if (n) std::fwrite(v.data(), sizeof(T), n, f); }
-template <class T> bool rvec(std::FILE* f, std::vector<T>& v) { uint64_t n; if (std::fread(&n, 8, 1, f) != 1 || n > (1ull << 33)) return false; v.resize(n); return !n || std::fread(v.data(), sizeof(T), n, f) == n; }
+template <class T> bool rvec(std::FILE* f, std::vector<T>& v) {
+    uint64_t n;
+    if (std::fread(&n, 8, 1, f) != 1 || n > (1ull << 29)) return false;
+    const long pos = std::ftell(f);
+    if (pos < 0 || std::fseek(f, 0, SEEK_END) != 0) return false;
+    const long end = std::ftell(f);
+    if (end < pos || std::fseek(f, pos, SEEK_SET) != 0 || n > uint64_t(end - pos) / sizeof(T)) return false;
+    v.resize((size_t)n);
+    return !n || std::fread(v.data(), sizeof(T), (size_t)n, f) == n;
+}
 struct ClipOut { std::string name; int n = 0, tEnd = 0; bool ok = false; std::vector<quat> rot; std::vector<vec3> hips, root; std::vector<float> yaw, feat; std::vector<char> valid; };
 }
 
@@ -71,7 +81,10 @@ int motionCategoryOf(const std::string& stem) {
 }
 
 bool MotionDatabase::saveCache(const std::string& path, uint64_t key) const {
-    std::FILE* f = std::fopen(path.c_str(), "wb"); if (!f) return false;
+    // A killed process or full disk must not leave a truncated cache at the final path.
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    const std::string tmp = path + "." + std::to_string(nonce) + ".tmp";
+    std::FILE* f = std::fopen(tmp.c_str(), "wb"); if (!f) return false;
     uint32_t magic = 0x534B4D4D, ver = 2; std::fwrite(&magic, 4, 1, f); std::fwrite(&ver, 4, 1, f); std::fwrite(&key, 8, 1, f);
     std::fwrite(&fps, 4, 1, f); std::fwrite(&frameCount, 4, 1, f); std::fwrite(&retargetScale, 4, 1, f);
     for (int b = 0; b < kHumanBoneCount; ++b) { char m = mapped[b]; std::fwrite(&m, 1, 1, f); }
@@ -80,7 +93,17 @@ bool MotionDatabase::saveCache(const std::string& path, uint64_t key) const {
     for (auto& s : clipNames) { uint32_t l = (uint32_t)s.size(); std::fwrite(&l, 4, 1, f); std::fwrite(s.data(), 1, l, f); }
     wvec(f, clipStart); wvec(f, clipEnd); wvec(f, clipCategory); wvec(f, frameClip);
     wvec(f, localRot); wvec(f, hipsLocalPos); wvec(f, rootPos); wvec(f, rootYaw); wvec(f, features); wvec(f, valid);
-    std::fclose(f); return true;
+    const bool wrote = std::ferror(f) == 0;
+    const bool closed = std::fclose(f) == 0;
+    std::error_code ec;
+#ifdef _WIN32
+    // Windows rename cannot replace an existing cache. The completed temporary file is already closed.
+    if (wrote && closed) std::filesystem::remove(path, ec);
+    ec.clear();
+#endif
+    if (wrote && closed) std::filesystem::rename(tmp, path, ec);
+    if (!wrote || !closed || ec) { std::error_code ignored; std::filesystem::remove(tmp, ignored); return false; }
+    return true;
 }
 
 bool MotionDatabase::loadCache(const std::string& path, uint64_t key) {
@@ -97,7 +120,20 @@ bool MotionDatabase::loadCache(const std::string& path, uint64_t key) {
     ok = ok && rvec(f, clipStart) && rvec(f, clipEnd) && rvec(f, clipCategory) && rvec(f, frameClip);
     ok = ok && rvec(f, localRot) && rvec(f, hipsLocalPos) && rvec(f, rootPos) && rvec(f, rootYaw) && rvec(f, features) && rvec(f, valid);
     std::fclose(f);
-    if (!ok || (int)valid.size() != frameCount) return false;
+    if (!ok || frameCount <= 0 || frameCount > 10000000 || !std::isfinite(fps) || fps <= 0 ||
+        clipNames.empty() || clipStart.size() != clipNames.size() || clipEnd.size() != clipNames.size() ||
+        clipCategory.size() != clipNames.size() || frameClip.size() != (size_t)frameCount ||
+        localRot.size() != (size_t)frameCount * kHumanBoneCount || hipsLocalPos.size() != (size_t)frameCount ||
+        rootPos.size() != (size_t)frameCount || rootYaw.size() != (size_t)frameCount ||
+        features.size() != (size_t)frameCount * kFeatureDim || valid.size() != (size_t)frameCount) return false;
+    int cursor = 0;
+    for (size_t i = 0; i < clipNames.size(); ++i) {
+        if (clipStart[i] != cursor || clipEnd[i] <= cursor || clipEnd[i] > frameCount ||
+            clipCategory[i] < 0 || clipCategory[i] >= kMotionCategoryCount) return false;
+        for (int frame = cursor; frame < clipEnd[i]; ++frame) if (frameClip[frame] != (int)i) return false;
+        cursor = clipEnd[i];
+    }
+    if (cursor != frameCount) return false;
     buildFrameCategories();
     return true;
 }

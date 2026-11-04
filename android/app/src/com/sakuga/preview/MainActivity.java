@@ -153,7 +153,7 @@ public final class MainActivity extends Activity {
                                 android.util.Log.i("SakugaPreview", "engine renderer first frame presented");
                                 runOnUiThread(new Runnable() { @Override public void run() {
                                     if (!destroyed && generation == surfaceGeneration) {
-                                        preview.setVulkanActive(true); preview.setSurfaceStatus("Engine sandbox • bundled VRM • 2 motion clips");
+                                        preview.setVulkanActive(true); preview.setSurfaceStatus("Engine sandbox • bundled VRM • 77 motion clips");
                                     }
                                 }});
                             }
@@ -208,6 +208,7 @@ public final class MainActivity extends Activity {
                         copyAssetDirectory("luts", new File(root, "assets/luts"));
                         copyAssetDirectory("env", new File(root, "assets/env"));
                         copyAssetDirectory("config", new File(root, "config"));
+                        copyAssetDirectory("licenses", new File(root, "assets/licenses"));
                         if (!marker.createNewFile()) throw new IOException("Cannot mark assets ready");
                     }
                 }
@@ -295,7 +296,7 @@ public final class MainActivity extends Activity {
             int w = getWidth(), h = getHeight();
             float margin = 18 * density;
             text(c, "SAKUGA  /  ANIMATION PREVIEW", margin, 28 * density, 17, Color.rgb(184,235,250));
-            text(c, vulkanActive ? "2 sample clips  •  bundled VRM  •  engine sandbox" : "2 sample clips  •  synthetic rig  •  Canvas fallback", margin, 48 * density, 11, Color.LTGRAY);
+            text(c, vulkanActive ? "77 motion clips  •  bundled VRM  •  engine sandbox" : "2 sample clips  •  synthetic rig  •  Canvas fallback", margin, 48 * density, 11, Color.LTGRAY);
             if (handle == 0) { text(c, message == null ? "Loading..." : message, margin, h * .5f, 14, Color.WHITE); return; }
             long now = System.nanoTime(); float dt = lastNs == 0 ? 0 : (now - lastNs) / 1000000000f; lastNs = now;
             if (running && !vulkanActive) nativeUpdate(handle, dt, stickX, -stickY);

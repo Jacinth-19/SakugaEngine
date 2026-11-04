@@ -25,6 +25,8 @@ jobs:
             sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.2.12479018'
           fi
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Fetch the separately licensed LAFAN1 source clips
+        run: bash tools/fetch_assets.sh --motion-only
       - name: Build and validate debug APK
         shell: bash
         run: |
@@ -88,7 +90,7 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -memory 4096
           script: bash android/emulator-smoke.sh
       - name: Upload emulator screenshot and video
         if: always()

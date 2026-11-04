@@ -5,19 +5,15 @@ Requirements
   * Windows 10 or 11, 64-bit
   * A Vulkan 1.3 capable GPU and its driver (NVIDIA, AMD or Intel). The Vulkan loader
     (vulkan-1.dll) is installed with the graphics driver - it is not part of this setup.
-  * ~50 MB on disk for the app, its sample assets and its shaders.
-
+  * At least 1 GB of free disk space for the application, extracted clips and motion cache.
+  * The LAFAN1 animation dataset is licensed for non-commercial use only.
 What is included
   * sandbox.exe - the engine sandbox: motion lab with the hero avatar and NPCs, motion
     matching, the material inspector and the whole debug UI.
-  * assets\  - sample models, LUTs, two HDRIs, and two preview mocap clips.
+  * assets\  - sample models, LUTs, two HDRIs, and 77 LAFAN1 motion clips and their license notices.
   * config\  - input actions and ui_theme.json (the ImGui look; F12 in the app edits it live).
   * shaders\ - precompiled SPIR-V, loaded at start-up.
 
-The full LAFAN1 mocap library (77 clips, 333 MB) is not redistributed with this setup
-because of its CC BY-NC-ND licence. Inside the app's folder, run
-
-    tools\fetch_assets.sh --motion-only
-
-from a bash shell (Git for Windows) to download it to %USERPROFILE%\.cache\lafan1, where
-the sandbox picks it up automatically, or point it at a folder with --motion-dir DIR.
+The 77 LAFAN1 BVH clips by Ubisoft La Forge are distributed under CC BY-NC-ND 4.0.
+The license permits non-commercial use and does not permit sharing adapted material.
+See assets\licenses for attribution, source, license text and warranty disclaimer.

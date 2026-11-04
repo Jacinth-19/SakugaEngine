@@ -108,12 +108,32 @@ jobs:
           if (-not (Test-Path theme_check.json)) { throw "the executable did not write theme_check.json" }
           Get-Content theme_check.json -TotalCount 3
 
+      - name: Fetch the separately licensed LAFAN1 source clips
+        shell: bash
+        run: |
+          export SAKUGA_MOTION_DIR="$(cygpath -u "$RUNNER_TEMP")/lafan1"
+          bash tools/fetch_assets.sh --motion-only
+
       - name: Stage the install tree
         run: cmake --install build --prefix stage
+
+      - name: Stage all 77 verified motion clips
+        shell: pwsh
+        run: |
+          python tools/stage_lafan1.py --source "$env:RUNNER_TEMP/lafan1" --dest stage/assets/motion
+          if ($LASTEXITCODE -ne 0) { throw "Full LAFAN1 staging failed" }
+          if ((Get-ChildItem stage/assets/motion -Filter *.bvh).Count -ne 77) { throw "Expected 77 clips" }
+          if (-not (Test-Path stage/assets/licenses/LAFAN1-NOTICE.txt)) { throw "Missing LAFAN1 license notice" }
 
       - name: Portable zip
         shell: pwsh
         run: Compress-Archive -Path stage\* -DestinationPath "Sakuga-Engine-$env:SAKUGA_VERSION-win64-portable.zip" -Force
+
+      - name: Verify full motion library in portable ZIP
+        shell: pwsh
+        run: |
+          python tools/verify_lafan1_archive.py "Sakuga-Engine-$env:SAKUGA_VERSION-win64-portable.zip"
+          if ($LASTEXITCODE -ne 0) { throw "Portable ZIP motion verification failed" }
 
       - name: Locate Inno Setup
         shell: pwsh

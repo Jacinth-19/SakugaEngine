@@ -12,23 +12,19 @@ JAR="$SDK/platforms/android-35/android.jar"
 for file in "$BT/aapt" "$BT/d8" "$BT/zipalign" "$BT/apksigner" "$JAR"; do
   [[ -f "$file" ]] || { echo "Missing Android SDK component: $file" >&2; exit 1; }
 done
-for cmd in cmake ninja javac keytool zip unzip; do command -v "$cmd" >/dev/null || { echo "Missing tool: $cmd" >&2; exit 1; }; done
+for cmd in cmake ninja javac keytool zip unzip python3; do command -v "$cmd" >/dev/null || { echo "Missing tool: $cmd" >&2; exit 1; }; done
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 OUT=${1:-"$ROOT/android/output"}
-mkdir -p "$OUT" "$WORK/res/drawable-nodpi" "$WORK/assets/motion" "$WORK/assets/controls" "$WORK/assets/shaders" "$WORK/assets/models" "$WORK/assets/luts" "$WORK/assets/env" "$WORK/assets/config" "$WORK/classes" "$WORK/stage"
+mkdir -p "$OUT" "$WORK/res/drawable-nodpi" "$WORK/assets/motion" "$WORK/assets/controls" "$WORK/assets/shaders" "$WORK/assets/models" "$WORK/assets/luts" "$WORK/assets/env" "$WORK/assets/config" "$WORK/assets/licenses" "$WORK/classes" "$WORK/stage"
 OUT=$(cd "$OUT" && pwd)
 cp -R "$ROOT/android/app/res/values" "$WORK/res/"
 cp "$ROOT/assets/branding/sakuga_icon_512.png" "$WORK/res/drawable-nodpi/sakuga_icon.png"
-cp "$ROOT/assets/motion/walk1_subject1.bvh" "$ROOT/assets/motion/run1_subject2.bvh" "$WORK/assets/motion/"
-# Optional external, separately licensed motion library. The shipped two samples win basename collisions.
-if [[ -n ${SAKUGA_ANDROID_MOTION_DIR:-} ]]; then
-  [[ -d "$SAKUGA_ANDROID_MOTION_DIR" ]] || { echo "Motion directory not found: $SAKUGA_ANDROID_MOTION_DIR" >&2; exit 1; }
-  while IFS= read -r -d '' clip; do
-    name=$(basename "$clip")
-    [[ -e "$WORK/assets/motion/$name" ]] || cp "$clip" "$WORK/assets/motion/$name"
-  done < <(find "$SAKUGA_ANDROID_MOTION_DIR" -type f -name '*.bvh' -print0 | sort -z)
-fi
+# Build the complete preview from independently fetched, byte-for-byte verified LAFAN1 clips.
+# Missing/modified clips are a build error; do not silently ship a two-clip APK.
+MOTION_DIR=${SAKUGA_ANDROID_MOTION_DIR:-${SAKUGA_MOTION_DIR:-$HOME/.cache/lafan1}}
+python3 "$ROOT/tools/stage_lafan1.py" --source "$MOTION_DIR" --dest "$WORK/assets/motion"
+cp "$ROOT/assets/licenses/"* "$WORK/assets/licenses/"
 cp "$ROOT"/shaders/spv/*.spv "$WORK/assets/shaders/"
 cp "$ROOT/assets/models/AvatarSample.vrm" "$ROOT/assets/models/Seed-san.vrm" "$ROOT/assets/models/three-vrm-girl.vrm" "$ROOT/assets/models/Fox.glb" "$ROOT/assets/models/CesiumMan.glb" "$WORK/assets/models/"
 cp -R "$ROOT/assets/luts/." "$WORK/assets/luts/"
@@ -58,11 +54,18 @@ esac
 bash "$ROOT/android/sign-apk.sh" "$WORK/aligned.apk" "$APK"
 "$BT/zipalign" -c -p 4 "$APK"
 unzip -tq "$APK"
+python3 "$ROOT/tools/verify_lafan1_archive.py" "$APK"
 "$BT/aapt" dump badging "$APK" > "$WORK/badging.txt"
 grep -F "package: name='com.sakuga.preview'" "$WORK/badging.txt"
 unzip -Z1 "$APK" > "$WORK/filelist.txt"
 for path in lib/arm64-v8a/libsakuga_mobile.so lib/x86_64/libsakuga_mobile.so assets/motion/walk1_subject1.bvh assets/motion/run1_subject2.bvh assets/models/AvatarSample.vrm assets/models/Seed-san.vrm assets/models/three-vrm-girl.vrm assets/shaders/toon.vert.spv classes.dex; do
   grep -Fx "$path" "$WORK/filelist.txt" >/dev/null || { echo "APK missing $path" >&2; exit 1; }
 done
+while IFS=' ' read -r hash clip; do
+  clip=${clip# }
+  grep -Fx "assets/motion/$clip" "$WORK/filelist.txt" >/dev/null || { echo "APK missing clip $clip" >&2; exit 1; }
+done < "$ROOT/tools/lafan1.sha256"
+[[ $(grep -c '^assets/motion/.*\.bvh$' "$WORK/filelist.txt") -eq 77 ]] || { echo 'APK must contain exactly 77 BVH clips' >&2; exit 1; }
+grep -Fx 'assets/licenses/LAFAN1-NOTICE.txt' "$WORK/filelist.txt" >/dev/null || { echo 'APK missing LAFAN1 notice' >&2; exit 1; }
 (cd "$OUT" && sha256sum "$(basename "$APK")" > SHA256SUMS.txt)
 echo "Built $APK"

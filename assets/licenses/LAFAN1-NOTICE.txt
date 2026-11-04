@@ -1,0 +1,13 @@
+LAFAN1 motion-capture dataset
+
+Creator: Ubisoft La Forge. Source: https://github.com/ubisoft/ubisoft-laforge-animation-dataset
+BVH copies obtained from: https://github.com/Jacinth-19/MotionMatchingInUnity/tree/main/Assets/lafan1
+License: Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International
+https://creativecommons.org/licenses/by-nc-nd/4.0/
+The full license and its warranty disclaimer are in LAFAN1-CC-BY-NC-ND-4.0.txt.
+The packaged BVH files are byte-for-byte copies of the source mirror.
+The dataset is available only for non-commercial purposes; the license does not grant
+permission to share adapted material. Packaging or running this application does not
+imply Ubisoft endorsement. Review the license and obtain separate permission if needed.
+The relationship of the mirror files to the upstream dataset has not been independently
+verified. Review provenance and license compatibility before distributing this package.

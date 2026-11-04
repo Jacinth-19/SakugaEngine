@@ -32,14 +32,17 @@ probe_line=$(grep -F 'surface probe finished:' /tmp/sakuga-android-log.txt | tai
 echo "::notice::$probe_line"
 # Unlike the GPU-free unit suite, this application/emulator integration check requires the real renderer.
 renderer_result=''
-for i in $(seq 1 90); do
+for i in $(seq 1 240); do
   adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
   if grep -q 'engine renderer first frame presented' /tmp/sakuga-android-log.txt; then renderer_result=presented; break; fi
   if grep -q 'renderer unavailable:' /tmp/sakuga-android-log.txt; then renderer_result=unavailable; break; fi
   sleep 2
 done
 if [[ $renderer_result == presented ]]; then
-  echo '::notice::Engine Vulkan scene presented a frame on the Android emulator.'
+  if ! grep -q 'sandbox motion library clips=77 ' /tmp/sakuga-android-log.txt; then
+    echo '::error::The Vulkan sandbox did not load all 77 motion clips.'; exit 1
+  fi
+  echo '::notice::Engine Vulkan scene presented a frame with all 77 motion clips on the Android emulator.'
 elif [[ $renderer_result == unavailable ]]; then
   renderer_line=$(grep -F 'renderer unavailable:' /tmp/sakuga-android-log.txt | tail -1)
   echo "::error::The emulator fell back to Canvas; this check requires a sandbox Vulkan frame: $renderer_line"; exit 1
@@ -191,7 +194,7 @@ if [[ $renderer_result == presented ]]; then
   if [[ $selected != 1 ]]; then echo '::error::Could not select a browser clip before recreation.'; exit 1; fi
   sleep 3
 fi
-echo 'Android emulator loaded two clips and dispatched a NEXT CLIP touch.'
+echo 'Android Vulkan sandbox loaded 77 clips and dispatched a NEXT CLIP touch; the Canvas fallback uses two.'
 
 # Background and resume: verify a newly-created surface can be probed again and the preview survives.
 adb logcat -c

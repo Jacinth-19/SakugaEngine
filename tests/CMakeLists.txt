@@ -90,6 +90,7 @@ set(SAKUGA_TESTS
   loader_test
   bvh_parse_test
   mm_search_test
+  motion_cache_test
   motion_library_test
   lut_parsing_test
   blink_curve_test
@@ -150,3 +151,8 @@ add_custom_target(quality COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
   WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   COMMENT "Sakuga: running the GPU-free test suite"
   USES_TERMINAL)
+
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME stage_lafan1_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/stage_lafan1_test.py)
+endif()

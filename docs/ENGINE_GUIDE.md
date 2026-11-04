@@ -114,12 +114,11 @@ macOS); otherwise ImGui's built-in bitmap font. `fontScale` in the theme (or the
 
 ## Motion matching: the whole library, every character
 
-`assets/motion/` carries only two clips (`walk1_subject1`, `run1_subject2`) because the full LAFAN1 set is 333 MB and
-CC BY-NC-ND -- it cannot be vendored. One command puts all 77 clips in `~/.cache/lafan1`, where the sandbox picks them up
-automatically (or point it at any folder with `--motion-dir DIR` / `SAKUGA_MOTION_DIR`):
+The source checkout carries two preview clips; the 333 MB LAFAN1 library is fetched separately. CI stages 77 byte-verified files from the source mirror into the Windows installer/ZIP and Android APK. LAFAN1 is CC BY-NC-ND 4.0, non-commercial only, with no permission to share adapted material; see `assets/licenses/` and review the terms. To build from source, fetch all 77 clips into `~/.cache/lafan1`, where the sandbox finds them automatically (or use `--motion-dir DIR` / `SAKUGA_MOTION_DIR`):
 
 ```sh
 ./tools/fetch_assets.sh --motion-only      # 77 clips, ~333 MB, each validated to start with `HIERARCHY`
+python3 tools/stage_lafan1.py --source "$HOME/.cache/lafan1" --dest stage/assets/motion  # after cmake --install
 ./build/bin/sandbox --help                 # [--motion-dir DIR] [--mm-clips N] [--mm-categories all|bitmask] [--no-mm-context]
 ```
 

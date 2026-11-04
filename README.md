@@ -62,14 +62,11 @@ Captured from the x86_64 Android emulator using SwiftShader on 2 November 2026. 
 
 ### About the 77 animations
 
-The Windows preview includes **two sample clips**. The full LAFAN1 library is a separate download and is **CC BY-NC-ND 4.0, non-commercial use only**. From a source checkout, run:
+Current Windows CI installer/portable builds and the Android debug APK are built with **all 77 LAFAN1 BVH clips**, verified byte-for-byte before packaging. The older [Windows release](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview) still contains only two clips; use the latest successful [Windows workflow artifact](https://github.com/Jacinth-19/SakugaEngine/actions/workflows/windows.yml?query=branch%3Aarena%2Fa13c5e34-sakugaengine) for the full library. The Android Vulkan sandbox loads the 77 clips; its separate Canvas fallback still uses two.
 
-```bash
-./tools/fetch_assets.sh --motion-only
-```
+LAFAN1 is by Ubisoft La Forge and is **CC BY-NC-ND 4.0: non-commercial use only; no sharing adapted material**. See [attribution and license](assets/licenses/LAFAN1-NOTICE.txt). First launch builds a large motion cache; allow substantial disk space and memory. The app's Motion matching panel reports its actual loaded count.
 
-On Windows, use a Bash environment such as Git Bash. The script belongs to the **source checkout**, not the installed app. It downloads the clips to `~/.cache/lafan1` by default; you can also point the app at a directory with `--motion-dir DIR`. The app shows the number actually loaded. See [animation testing and diagnostics](docs/ANDROID_AND_DIAGNOSTICS.md) for how the 77-clip test and skeletal debug video work.
-
+The clips remain outside this Git repository (~333 MB). To build from source, run `./tools/fetch_assets.sh --motion-only` (Git Bash on Windows). The Android build verifies that cache automatically; for a Windows install tree, run `python tools/stage_lafan1.py --source "$HOME/.cache/lafan1" --dest stage/assets/motion` after `cmake --install`. The CI workflows do this staging when producing artifacts. See [Android and diagnostics](docs/ANDROID_AND_DIAGNOSTICS.md) and the [developer guide](docs/ENGINE_GUIDE.md).
 ## Platform status
 
 | Platform | Status |
@@ -93,7 +90,7 @@ cmake --build build-tests --parallel
 ctest --test-dir build-tests --output-on-failure
 ```
 
-The Android debug APK is available as an artifact on successful **Android sandbox** workflow runs. The full-motion tests skip if the separately downloaded clip library is absent. Passing GPU-free tests does **not** replace visual testing on a real device.
+The Android debug APK is available as an artifact on successful **Android sandbox** workflow runs. The full-motion test skips locally if the separately downloaded clip library is absent; CI fetches and verifies it. Passing GPU-free tests does **not** replace visual testing on a real device.
 
 ## More information
 
