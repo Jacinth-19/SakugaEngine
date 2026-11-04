@@ -102,7 +102,11 @@ for i in $(seq 1 100); do
   if grep -q 'benchmark completed frames=' /tmp/sakuga-android-log.txt; then completed=1; break; fi
   sleep 1
 done
-if [[ $completed != 1 ]]; then echo '::error::Benchmark did not complete'; exit 1; fi
+if [[ $completed != 1 ]]; then
+  adb exec-out screencap -p > apk/android-fail.png
+  while IFS= read -r line; do echo "::notice::$line"; done < <(grep -E 'benchmark|touch down' /tmp/sakuga-android-log.txt | tail -30 || true)
+  echo '::error::Benchmark did not complete'; exit 1
+fi
 grep -F 'benchmark completed frames=' /tmp/sakuga-android-log.txt | tail -1
 share_target=''
 for i in $(seq 1 20); do

@@ -217,7 +217,7 @@ public:
     bool initMobile(ANativeWindow* window, std::string& error);
     int frameMobile(float dt, float wallDt, float x, float y, int clip);
     void touchMobile(bool imgui, int action, int id, float x, float y);
-    void cancelBenchmark() { benchmark_.cancel(); }
+    void cancelBenchmark() { if (benchmark_.running()) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark cancelled on pause"); benchmark_.cancel(); }
     MobileSnapshot captureMobile() const;
     void restoreMobile(const MobileSnapshot& state);
 #endif
@@ -995,7 +995,12 @@ void Sandbox::startBenchmark() {
 }
 void Sandbox::benchmarkFrame(float wallDt) {
     if (!benchmark_.running()) return;
-    if (renderer_.width() != benchmarkWidth_ || renderer_.height() != benchmarkHeight_) { benchmark_.cancel(); return; }
+    if (renderer_.width() != benchmarkWidth_ || renderer_.height() != benchmarkHeight_) {
+#ifdef __ANDROID__
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark cancelled due to resize");
+#endif
+        benchmark_.cancel(); return;
+    }
     benchmark_.record(wallDt);
     if (benchmark_.state() == FrameBenchmark::State::Complete) {
         const auto& r = benchmark_.result(); char stats[512];
@@ -1521,7 +1526,10 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     // The UI changes are reflected on the next frame, as with desktop sandbox controls.
     ++frame_;
     bool rendered = renderer_.renderFrame(fi);
-    if (!rendered) benchmark_.cancel();
+    if (!rendered && benchmark_.running()) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark cancelled due to failed frame");
+        benchmark_.cancel();
+    }
     if (rendered && mobileRestored_) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface state frame bloom=%d editor=%d tod=%.2f clip=%d browse=%d npcs=%zu x=%.3f z=%.3f",
                             (int)post_.bloom, (int)showUI_, tod_, mobileClipIndex(vrm_), vrm_ && vrm_->mm && vrm_->mm->browsing(),
