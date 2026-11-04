@@ -18,7 +18,7 @@
 
 ### Windows x64
 
-1. Open the **[full-library Windows build](https://github.com/Jacinth-19/SakugaEngine/actions/runs/41756572506)** and download the `sakuga-windows-x64` artifact (GitHub sign-in may be required). It contains an installer and a portable ZIP.
+1. Open the latest successful **[full-library Windows build](https://github.com/Jacinth-19/SakugaEngine/actions/workflows/windows.yml?query=branch%3Aarena%2Fa13c5e34-sakugaengine)** and download the `sakuga-windows-x64` artifact (GitHub sign-in may be required). It contains an installer and a portable ZIP.
 2. Run the installer, or extract the **whole** portable archive to a folder you can write to. Launch **Sakuga Engine** or `sandbox.exe`.
 3. You need a **Vulkan 1.3-capable GPU and a current graphics driver**. The installer does not include the Vulkan runtime or driver. The older [Windows release](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview) has only two clips.
 
@@ -26,7 +26,7 @@
 
 ### Android
 
-Download `sakuga-android-animation-preview-debug` from the **[full-library Android build](https://github.com/Jacinth-19/SakugaEngine/actions/runs/41756572520)**, extract the ZIP and install the APK on a compatible Android device. This debug-signed preview was tested on an x86_64 emulator, not a physical phone; it is not a Play Store release. Installing updates from builds signed with different debug keys may require uninstalling the previous APK. Allow substantial storage and first-run processing time.
+Download `sakuga-android-animation-preview-debug` from the latest successful **[full-library Android build](https://github.com/Jacinth-19/SakugaEngine/actions/workflows/android.yml?query=branch%3Aarena%2Fa13c5e34-sakugaengine)**, extract the ZIP and install the APK on a compatible Android device. This debug-signed preview was tested on an x86_64 emulator, not a physical phone; it is not a Play Store release. Installing updates from builds signed with different debug keys may require uninstalling the previous APK. Allow substantial storage and first-run processing time.
 
 ### Find your way around
 
