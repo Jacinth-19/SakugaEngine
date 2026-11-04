@@ -12,6 +12,7 @@ struct PostSettings {
     float saturation = 1.10f, contrast = 1.05f;
     glm::vec3 shadowTint{0.93f, 0.95f, 1.06f}, highlightTint{1.04f, 1.0f, 0.95f};   // cheap split-toning (multiplies)
     float grain = 0.012f;
+    bool atmosphere = false;                      // opt-in screen-space depth fog when supported
     float halation = 0.f;                          // HDR red-biased bloom diffusion, 0 = off
     float lutStrength = 0.f;                       // colour grading LUT (Renderer::setPostLut), 0 = off
 };
@@ -27,6 +28,7 @@ enum class PostProfile { Celestial, Cinematic, Atmospheric, Painterly };
 inline PostSettings applyPostProfile(PostProfile profile, PostSettings p) {
     p.bloom = true; p.bloomThreshold = 1.f; p.bloomKnee = .5f; p.bloomRadius = 1.f;
     p.tonemap = 1; p.vignetteSoftness = .65f;
+    p.atmosphere = (profile == PostProfile::Atmospheric);
     switch (profile) {
     case PostProfile::Celestial:
         p.bloomIntensity=.20f; p.halation=0.f; p.saturation=1.08f; p.contrast=1.02f;

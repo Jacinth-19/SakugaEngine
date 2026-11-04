@@ -53,7 +53,7 @@ bool Context::initAndroid(ANativeWindow* window, std::string& error) {
         // Check the mobile build's actual fixed renderer allocations before constructing them.
         if (p.limits.maxImageDimension2D < Renderer::kShadowRes * 2) { reason = "Vulkan maximum image size is below the renderer's shadow atlas"; continue; }
         if (p.limits.maxStorageBufferRange < sizeof(glm::vec4) * Renderer::kMaxMorphVec4) { reason = "Vulkan storage buffer range is below the renderer's morph buffer"; continue; }
-        if (p.limits.maxPushConstantsSize < 96) { reason = "Vulkan push constant limit is below 96 bytes"; continue; }
+        if (p.limits.maxPushConstantsSize < 128) { reason = "Vulkan push constant limit is below 128 bytes"; continue; }
         uint32_t count = 0; vkGetPhysicalDeviceQueueFamilyProperties(pd, &count, nullptr);
         std::vector<VkQueueFamilyProperties> queues(count); vkGetPhysicalDeviceQueueFamilyProperties(pd, &count, queues.data());
         for (uint32_t i = 0; i < count; ++i) {

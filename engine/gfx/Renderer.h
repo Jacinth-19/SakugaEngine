@@ -104,6 +104,7 @@ public:
     // Colour grading LUT for the post pass (applied after tonemap / sRGB). Takes effect at the start of the next frame.
     void setPostLut(const LutStrip& lut) { pendingLut_ = lut; hasPendingLut_ = true; }
     int postLutSize() const { return lutSize_; }
+    bool supportsPostAtmosphere() const { return sampleSceneDepth_; }
     Texture* whiteTex() const { return white_; }
     Texture* blackTex() const { return black_; }
     Texture* bumpTex() const { return bump_; }
@@ -181,6 +182,7 @@ private:
     VkFormat colorFormat_ = VK_FORMAT_R16G16B16A16_SFLOAT;     // HDR scene format
     VkFormat finalFormat_ = VK_FORMAT_R8G8B8A8_UNORM;          // display-referred output (tonemapped, sRGB encoded, UI on top)
     PostProcessing postProcessing_;
+    bool sampleSceneDepth_ = false;
     LutStrip pendingLut_; bool hasPendingLut_ = false; Texture* lutTex_ = nullptr; int lutSize_ = 16;
     Buffer morphDeltas_; uint32_t morphCursor_ = 0;
     Buffer readback_;

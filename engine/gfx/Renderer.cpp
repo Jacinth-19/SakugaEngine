@@ -1,6 +1,7 @@
 #include "gfx/Renderer.h"
 #include "gfx/ShadowFit.h"
 #include "gfx/SurfaceChoices.h"
+#include "post/AtmosphereMath.h"
 #include "core/Log.h"
 #ifndef __ANDROID__
 #include <GLFW/glfw3.h>
@@ -137,6 +138,12 @@ bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, co
         VK_OK(vkCreateDescriptorPool(dev, &pi, nullptr, &pool_));
     }
 
+    // Only retain/sample scene depth on devices that support this exact format, usage and sample count.
+    VkImageFormatProperties depthProps{};
+    VkResult depthResult = vkGetPhysicalDeviceImageFormatProperties(ctx.phys, kDepthFormat, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, &depthProps);
+    sampleSceneDepth_ = canSampleSceneDepth(depthResult == VK_SUCCESS, depthProps.sampleCounts,
+                                            ctx.props.limits.sampledImageDepthSampleCounts, ctx.msaa);
     postProcessing_.init(ctx);
 
     // --- samplers / targets
@@ -251,12 +258,14 @@ void Renderer::destroySwapchain() {
 void Renderer::createTargets() {
     VkSampleCountFlagBits ms = ctx_->msaa;
     msaaColor_ = ctx_->createImage(width_, height_, colorFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT, 1, ms);
-    msaaDepth_ = ctx_->createImage(width_, height_, kDepthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT, 1, ms, VK_IMAGE_ASPECT_DEPTH_BIT);
+    const VkImageUsageFlags depthUsage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+        (sampleSceneDepth_ ? VK_IMAGE_USAGE_SAMPLED_BIT : VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT);
+    msaaDepth_ = ctx_->createImage(width_, height_, kDepthFormat, depthUsage, 1, ms, VK_IMAGE_ASPECT_DEPTH_BIT);
     sceneColor_ = ctx_->createImage(width_, height_, colorFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     finalColor_ = ctx_->createImage(width_, height_, finalFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     readback_ = ctx_->createBuffer((VkDeviceSize)width_ * height_ * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
     if (!lutTex_) { LutStrip id = identityLut(16); lutSize_ = id.size; lutTex_ = createTexture("lut_identity", id.rgba.data(), id.size * id.size, id.size, false, false, false); }
-    postProcessing_.createTargets(width_, height_, colorFormat_, sceneColor_, *lutTex_);
+    postProcessing_.createTargets(width_, height_, colorFormat_, sceneColor_, msaaDepth_, sampleSceneDepth_, *lutTex_);
 }
 void Renderer::destroyTargets() {
     postProcessing_.destroyTargets();
@@ -326,8 +335,9 @@ void Renderer::createPipelines(const std::string& dir) {
     pipeSky_     = makePipeline(skyV, skyF, 0, VK_CULL_MODE_NONE, false, false, ms, true, colorFormat_, false, tri, false);
     {
         auto pv = load("post.vert"), pf = load("post_prefilter.frag"), pd = load("post_down.frag"), pu = load("post_up.frag"),
-             ph = load("post_halation.frag"), pc = load("post_composite.frag");
-        postProcessing_.createPipelines(pv, pf, pd, pu, ph, pc, colorFormat_, finalFormat_);
+             ph = load("post_halation.frag"), pc = load("post_composite.frag"),
+             pa = load(ctx_->msaa == VK_SAMPLE_COUNT_1_BIT ? "post_atmosphere_single.frag" : "post_atmosphere_ms.frag");
+        postProcessing_.createPipelines(pv, pf, pd, pu, ph, pc, pa, colorFormat_, finalFormat_);
     }
     pipeLine_    = makePipeline(lnV, lnF, 2, VK_CULL_MODE_NONE,  true, false, ms, true, colorFormat_, false, VK_PRIMITIVE_TOPOLOGY_LINE_LIST, true);
 }
@@ -663,7 +673,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         vkDeviceWaitIdle(dev);
         lutTex_ = createTexture("lut", pendingLut_.rgba.data(), pendingLut_.size * pendingLut_.size, pendingLut_.size, false, false, false);
         lutSize_ = pendingLut_.size;
-        postProcessing_.rebuildSets(sceneColor_, *lutTex_);
+        postProcessing_.rebuildSets(sceneColor_, msaaDepth_, sampleSceneDepth_, *lutTex_);
     }
 
     uint32_t imgIdx = 0;
@@ -725,7 +735,9 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     g.lightColor = glm::vec4(L.color, L.shadowBias);
     g.skyColor = glm::vec4(L.sky, L.ambient);
     g.groundColor = glm::vec4(L.ground, 0);
-    g.fogColor = glm::vec4(L.fogColor, L.fogDensity);
+    const bool screenFog = usePostAtmosphere(in.post.atmosphere, in.post.enabled, sampleSceneDepth_, L.fogDensity) && supportsAtmosphereProjection(in.proj);
+    // Avoid double fog: the post pass replaces the legacy per-surface fog when active.
+    g.fogColor = glm::vec4(L.fogColor, screenFog ? 0.f : L.fogDensity);
     g.misc = glm::vec4(1.f, 0.f, L.wetPreviewTime, 1.f / (float)kShadowRes);
     g.skyZenith = glm::vec4(L.zenith, L.cloudCover); g.skyHorizon = glm::vec4(L.horizon, L.cloudTime); g.skyParams = glm::vec4(L.starVisibility, L.sunDisc, L.sunSize, 0.f);
     g.style = glm::vec4(L.nprOnly ? 1.f : 0.f, 0.f, 0.f, 0.f);
@@ -814,7 +826,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         }
         ca.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; ca.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.f}};
         da.imageView = msaaDepth_.view; da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; da.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; da.clearValue.depthStencil = {1.f, 0};
+        da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; da.storeOp = screenFog ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE; da.clearValue.depthStencil = {1.f, 0};
         VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
         ri.renderArea = {{0, 0}, {width_, height_}}; ri.layerCount = 1; ri.colorAttachmentCount = 1; ri.pColorAttachments = &ca; ri.pDepthAttachment = &da;
         ctx_->beginRendering(cmd, &ri);
@@ -840,7 +852,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     }
 
     // post-processing: bloom chain + composite (tonemap, grade, vignette, sRGB) into finalColor_
-    postProcessing_.record(cmd, sceneColor_, finalColor_, in.post, in.time, lutSize_);
+    postProcessing_.record(cmd, sceneColor_, msaaDepth_, finalColor_, in.post, screenFog, in.proj, L.fogColor, L.fogDensity, in.time, lutSize_);
 
     // UI overlay (drawn on the final image so it also shows in captures)
     if (uiFrameOpen_) {

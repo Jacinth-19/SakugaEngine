@@ -113,6 +113,23 @@ if [[ $renderer_result == presented ]]; then
   done
   if [[ $glow != 1 ]]; then echo '::error::Halation frame was not presented.'; exit 1; fi
   echo '::notice::Presented a frame with the separate HDR halation pass alongside bloom.'
+  # Test sampleable-depth fog when the emulator advertises the exact depth format/sample support.
+  ui_target=$(grep -F 'atmosphere target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y supported < <(echo "$ui_target" | sed -n 's/.*atmosphere target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) supported=\([01]\).*/\1 \2 \3/p')
+  if [[ -z ${supported:-} ]]; then echo '::error::Atmosphere capability was not reported.'; exit 1; fi
+  if [[ $supported == 1 ]]; then
+    adb shell input tap "$ui_x" "$ui_y"
+    fog=0
+    for i in $(seq 1 30); do
+      adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+      if grep -q 'depth atmosphere frame presented' /tmp/sakuga-android-log.txt; then fog=1; break; fi
+      sleep 1
+    done
+    if [[ $fog != 1 ]]; then echo '::error::Depth atmosphere frame was not presented.'; exit 1; fi
+    echo '::notice::Presented an HDR depth-atmosphere frame.'
+  else
+    echo '::notice::Sampled scene depth unsupported; using surface fog fallback.'
+  fi
   # Enable the VRM's real spring chains; they are initially off on mobile.
   ui_target=$(grep -F 'hair physics target x=' /tmp/sakuga-android-log.txt | tail -1)
   read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*hair physics target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')

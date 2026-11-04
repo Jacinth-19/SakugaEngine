@@ -15,12 +15,14 @@ void PostProcessing::init(Context& ctx) {
         VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         pl.setLayoutCount = 1; pl.pSetLayouts = &setLayout_; pl.pushConstantRangeCount = 1; pl.pPushConstantRanges = &pcr;
         VK_OK(vkCreatePipelineLayout(dev, &pl, nullptr, &layout_));
-        VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * (kBloomLevels + 3)};
-        VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO}; pi.maxSets = kBloomLevels + 3; pi.poolSizeCount = 1; pi.pPoolSizes = &ps;
+        VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * (kBloomLevels + 7)};
+        VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO}; pi.maxSets = kBloomLevels + 7; pi.poolSizeCount = 1; pi.pPoolSizes = &ps;
         VK_OK(vkCreateDescriptorPool(dev, &pi, nullptr, &pool_));
         VkSamplerCreateInfo sc{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
         sc.magFilter = sc.minFilter = VK_FILTER_LINEAR; sc.addressModeU = sc.addressModeV = sc.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         VK_OK(vkCreateSampler(dev, &sc, nullptr, &sampler_));
+        sc.magFilter = sc.minFilter = VK_FILTER_NEAREST;
+        VK_OK(vkCreateSampler(dev, &sc, nullptr, &depthSampler_));
     }
 
  }
@@ -49,12 +51,13 @@ VkPipeline PostProcessing::makePipeline(VkShaderModule fs, VkShaderModule vs, Vk
 }
 
 void PostProcessing::createPipelines(VkShaderModule vs, VkShaderModule prefilter, VkShaderModule down, VkShaderModule up,
-                                     VkShaderModule halation, VkShaderModule composite, VkFormat hdrFormat, VkFormat finalFormat) {
+                                     VkShaderModule halation, VkShaderModule composite, VkShaderModule atmosphere, VkFormat hdrFormat, VkFormat finalFormat) {
     prefilter_ = makePipeline(prefilter, vs, hdrFormat, false); down_ = makePipeline(down, vs, hdrFormat, false);
     up_ = makePipeline(up, vs, hdrFormat, true); halationPipe_ = makePipeline(halation, vs, hdrFormat, false);
     composite_ = makePipeline(composite, vs, finalFormat, false);
+    atmospherePipe_ = makePipeline(atmosphere, vs, hdrFormat, false);
 }
-void PostProcessing::createTargets(uint32_t width, uint32_t height, VkFormat format, const Image& scene, const Texture& lut) {
+void PostProcessing::createTargets(uint32_t width, uint32_t height, VkFormat format, const Image& scene, const Image& depth, bool depthSupported, const Texture& lut) {
     width_ = width; height_ = height; bloomLevels_ = 0;
     for (int i = 0; i < kBloomLevels; ++i) {
         uint32_t w = std::max(1u, width >> (i + 1)), h = std::max(1u, height >> (i + 1));
@@ -64,17 +67,18 @@ void PostProcessing::createTargets(uint32_t width, uint32_t height, VkFormat for
     }
     const auto plan = planPost(PostSettings{}, width, height);
     halation_ = ctx_->createImage(plan.halationWidth, plan.halationHeight, format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    rebuildSets(scene, lut);
+    if (depthSupported) atmosphere_ = ctx_->createImage(width, height, format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    rebuildSets(scene, depth, depthSupported, lut);
 }
-void PostProcessing::rebuildSets(const Image& scene, const Texture& lut) {
+void PostProcessing::rebuildSets(const Image& scene, const Image& depth, bool depthSupported, const Texture& lut) {
     VkDevice dev = ctx_->device;
     VK_OK(vkResetDescriptorPool(dev, pool_, 0));
-    auto make = [&](VkImageView a, VkImageView b, VkImageView h) {
+    auto make = [&](VkImageView a, VkImageView b, VkImageView h, bool sampleDepth = false) {
         VkDescriptorSet s; VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         ai.descriptorPool = pool_; ai.descriptorSetCount = 1; ai.pSetLayouts = &setLayout_;
         VK_OK(vkAllocateDescriptorSets(dev, &ai, &s));
         VkDescriptorImageInfo info[4] = {{sampler_, a, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-             {sampler_, b, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+             {sampleDepth ? depthSampler_ : sampler_, b, sampleDepth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
              {lut.sampler, lut.image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
              {sampler_, h, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
         VkWriteDescriptorSet w[4]{};
@@ -85,22 +89,29 @@ void PostProcessing::rebuildSets(const Image& scene, const Texture& lut) {
     for (int i=0; i<bloomLevels_; ++i) bloomSet_[i] = make(bloom_[i].view, bloom_[i].view, bloom_[i].view);
     compSet_ = make(scene.view, bloom_[0].view, halation_.view);
     compNoHalationSet_ = make(scene.view, bloom_[0].view, bloom_[0].view);
+    if (depthSupported) {
+        atmosphereSet_ = make(scene.view, depth.view, scene.view, true);
+        foggedSceneSet_ = make(atmosphere_.view, atmosphere_.view, atmosphere_.view);
+        foggedCompSet_ = make(atmosphere_.view, bloom_[0].view, halation_.view);
+        foggedCompNoHalationSet_ = make(atmosphere_.view, bloom_[0].view, bloom_[0].view);
+    }
 }
 void PostProcessing::destroyTargets() {
     if (!ctx_) return;
     if (pool_) vkResetDescriptorPool(ctx_->device, pool_, 0);
     for (auto& image : bloom_) ctx_->destroyImage(image);
-    ctx_->destroyImage(halation_); bloomLevels_ = 0;
+    ctx_->destroyImage(halation_); ctx_->destroyImage(atmosphere_); bloomLevels_ = 0;
 }
 void PostProcessing::shutdown() {
     if (!ctx_ || !ctx_->device) return;
     VkDevice dev = ctx_->device;
-    for (auto p : {prefilter_, down_, up_, halationPipe_, composite_}) vkDestroyPipeline(dev, p, nullptr);
+    for (auto p : {prefilter_, down_, up_, halationPipe_, composite_, atmospherePipe_}) vkDestroyPipeline(dev, p, nullptr);
     vkDestroyPipelineLayout(dev, layout_, nullptr); vkDestroyDescriptorSetLayout(dev, setLayout_, nullptr);
-    vkDestroySampler(dev, sampler_, nullptr); vkDestroyDescriptorPool(dev, pool_, nullptr);
+    vkDestroySampler(dev, sampler_, nullptr); vkDestroySampler(dev, depthSampler_, nullptr); vkDestroyDescriptorPool(dev, pool_, nullptr);
     ctx_ = nullptr;
 }
-void PostProcessing::record(VkCommandBuffer cmd, const Image& scene, Image& final, const PostSettings& P, float time, int lutSize) {
+void PostProcessing::record(VkCommandBuffer cmd, const Image& scene, const Image& depth, Image& final, const PostSettings& P,
+                            bool atmosphereOn, const glm::mat4& proj, const glm::vec3& fogColor, float fogDensity, float time, int lutSize) {
     const VkImageAspectFlags col = VK_IMAGE_ASPECT_COLOR_BIT;
     ctx_->barrier(cmd, scene.image, col, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     auto pass = [&](Image& target, VkImageLayout from, VkPipeline pipe, VkDescriptorSet set, const PostPC& pc, bool load, bool toRead) {
@@ -120,11 +131,19 @@ void PostProcessing::record(VkCommandBuffer cmd, const Image& scene, Image& fina
         ctx_->endRendering(cmd);
         if (toRead) ctx_->barrier(cmd, target.image, col, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     };
+    if (atmosphereOn) {
+        ctx_->barrier(cmd, depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+        PostPC ap{};
+        ap.a = glm::vec4(proj[0][0], proj[1][1], proj[2][2], proj[3][2]);
+        ap.b = glm::vec4(fogColor, fogDensity);
+        ap.c = glm::vec4((float)depth.samples, 0.f, 0.f, 0.f);
+        pass(atmosphere_, VK_IMAGE_LAYOUT_UNDEFINED, atmospherePipe_, atmosphereSet_, ap, false, true);
+    }
     const auto plan = planPost(P, width_, height_);
     bool bloomOn = plan.bloom;
     // prefilter (soft threshold) into level 0; when bloom is off the threshold is infinite so level 0 is black
     PostPC pf{glm::vec4(bloomOn ? P.bloomThreshold : 1e9f, P.bloomKnee, 1.f / width_, 1.f / height_), glm::vec4(0), glm::vec4(0), glm::vec4(0)};
-    pass(bloom_[0], VK_IMAGE_LAYOUT_UNDEFINED, prefilter_, sceneSet_, pf, false, true);
+    pass(bloom_[0], VK_IMAGE_LAYOUT_UNDEFINED, prefilter_, atmosphereOn ? foggedSceneSet_ : sceneSet_, pf, false, true);
     if (bloomOn) {
         for (int i = 1; i < bloomLevels_; ++i) {
             PostPC pc{glm::vec4(1.f / bloom_[i - 1].width, 1.f / bloom_[i - 1].height, 0, 0), glm::vec4(0), glm::vec4(0), glm::vec4(0)};
@@ -148,7 +167,7 @@ void PostProcessing::record(VkCommandBuffer cmd, const Image& scene, Image& fina
     pc.c = glm::vec4(en ? P.shadowTint : glm::vec3(1.f), time);
     pc.d = glm::vec4(en ? P.highlightTint : glm::vec3(1.f), (float)width_ / (float)height_);
     pc.e = glm::vec4(en ? P.lutStrength : 0.f, (float)lutSize, halationOn ? P.halation : 0.f, 0.f);
-    pass(final, VK_IMAGE_LAYOUT_UNDEFINED, composite_, halationOn ? compSet_ : compNoHalationSet_, pc, false, false);
+    pass(final, VK_IMAGE_LAYOUT_UNDEFINED, composite_, atmosphereOn ? (halationOn ? foggedCompSet_ : foggedCompNoHalationSet_) : (halationOn ? compSet_ : compNoHalationSet_), pc, false, false);
 }
 
 }
