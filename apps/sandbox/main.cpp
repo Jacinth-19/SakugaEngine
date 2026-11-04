@@ -1356,6 +1356,11 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     }
     ImGui::SameLine();
     if (ImGui::Button("UI theme")) showThemeEditor_ = !showThemeEditor_;
+    if (ImGui::Checkbox("Sandbox editor", &showUI_)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor toggled");
+    if (frame_ == 0) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
+    }
     if (vrm_) {
         if (ImGui::Checkbox("Hair physics", &vrm_->spring.enabled)) {
             vrm_->springState.reset();
@@ -1365,13 +1370,8 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
             ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
             __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "hair physics target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
         }
-        ImGui::SetNextItemWidth(-1);
+        ImGui::SameLine(); ImGui::SetNextItemWidth(std::max(40.f * density, ImGui::GetContentRegionAvail().x));
         ImGui::SliderFloat("##upright", &vrm_->posture.hunchCorrection, 0.f, 1.f, "Upright %.2f");
-    }
-    if (ImGui::Checkbox("Sandbox editor", &showUI_)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor toggled");
-    if (frame_ == 0) {
-        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
-        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
     }
     ImGui::End();
     if (mobileClipBrowser_ && vrm_ && vrm_->mm && vrm_->mmDb) {
