@@ -245,6 +245,7 @@ private:
     MobilePointerRouter mobilePointers_;
     std::string mobileError_;
     bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false;
+    bool mobileClipBrowser_ = false, mobileBrowserTargetLogged_ = false, mobileLastItemLogged_ = false; int mobileClipPage_ = 0;
     bool mobileLoadNpcs_ = false, mobileNpcsRequested_ = false, mobileNpcsPendingFrame_ = false, mobileRestored_ = false;
 #endif
     struct Showcase { std::string name; std::vector<Entity*> entities; Entity* hero = nullptr; bool lab = false; };
@@ -1306,7 +1307,7 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     drawUI(wallDt);
     const float density = opt_.uiFontSize / 14.f;
     ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .65f, 10.f * density), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .34f, renderer_.height() * .48f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .34f, renderer_.height() * .58f), ImGuiCond_Always);
     ImGui::Begin("SAKUGA / MOBILE", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
     ImGui::TextUnformatted("Sandbox"); ImGui::SameLine();
     if (ImGui::Button((tod_ >= 19.f || tod_ < 5.f) ? "DAY" : "NIGHT")) {
@@ -1327,6 +1328,12 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     if (frame_ == 0) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox next target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("CLIPS")) { mobileClipBrowser_ = !mobileClipBrowser_; mobileBrowserTargetLogged_ = false; mobileLastItemLogged_ = false; }
+    if (frame_ == 0) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox clips target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
     }
     if (ImGui::Checkbox("Bloom", &post_.bloom)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "imgui bloom changed");
     if (!mobileLoggedControls_) {
@@ -1349,12 +1356,58 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     }
     ImGui::SameLine();
     if (ImGui::Button("UI theme")) showThemeEditor_ = !showThemeEditor_;
+    if (vrm_) {
+        if (ImGui::Checkbox("Hair physics", &vrm_->spring.enabled)) {
+            vrm_->springState.reset();
+            __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "hair physics enabled=%d chains=%zu", (int)vrm_->spring.enabled, vrm_->model->springs.chains.size());
+        }
+        if (frame_ == 0) {
+            ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "hair physics target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
+        }
+        ImGui::SetNextItemWidth(-1);
+        ImGui::SliderFloat("##upright", &vrm_->posture.hunchCorrection, 0.f, 1.f, "Upright %.2f");
+    }
     if (ImGui::Checkbox("Sandbox editor", &showUI_)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor toggled");
     if (frame_ == 0) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
     }
     ImGui::End();
+    if (mobileClipBrowser_ && vrm_ && vrm_->mm && vrm_->mmDb) {
+        const auto& names = vrm_->mmDb->clipNames;
+        constexpr int perPage = 6;
+        const int pages = std::max(1, ((int)names.size() + perPage - 1) / perPage);
+        mobileClipPage_ = std::clamp(mobileClipPage_, 0, pages - 1);
+        ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .03f, renderer_.height() * .08f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .56f, renderer_.height() * .80f), ImGuiCond_Always);
+        ImGui::Begin("Animations", &mobileClipBrowser_, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
+        if (ImGui::Button("FIRST")) mobileClipPage_ = 0; ImGui::SameLine();
+        if (ImGui::Button("PREV")) mobileClipPage_ = std::max(0, mobileClipPage_ - 1); ImGui::SameLine();
+        ImGui::Text("%d / %d", mobileClipPage_ + 1, pages); ImGui::SameLine();
+        if (ImGui::Button("NEXT")) mobileClipPage_ = std::min(pages - 1, mobileClipPage_ + 1); ImGui::SameLine();
+        if (ImGui::Button("LAST")) mobileClipPage_ = pages - 1;
+        if (!mobileBrowserTargetLogged_) {
+            ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "browser last target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+            mobileBrowserTargetLogged_ = true;
+        }
+        ImGui::TextDisabled("Tap to play; move to resume matching.");
+        ImGui::BeginChild("clip-items", ImVec2(0, 0), true);
+        for (int i = mobileClipPage_ * perPage; i < std::min((int)names.size(), (mobileClipPage_ + 1) * perPage); ++i) {
+            if (ImGui::Selectable(names[i].c_str(), vrm_->mm->browsing() && mobileClipIndex(vrm_) == i)) {
+                vrm_->mm->playClip(i, vrm_->pos, vrm_->yaw);
+                __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox browser selected %d of %zu", i, names.size());
+                mobileClipBrowser_ = false;
+            }
+            if (i == (int)names.size() - 1 && !mobileLastItemLogged_) {
+                ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+                __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "browser final clip target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+                mobileLastItemLogged_ = true;
+            }
+        }
+        ImGui::EndChild(); ImGui::End();
+    }
     // The UI changes are reflected on the next frame, as with desktop sandbox controls.
     ++frame_;
     bool rendered = renderer_.renderFrame(fi);

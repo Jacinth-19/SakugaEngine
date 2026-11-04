@@ -47,6 +47,12 @@ inline SpringSettings applyTuning(const SpringSettings& base, const SpringTuning
     return s;
 }
 
+// A zero gravity or wind vector is legal in VRM; normalizing it would inject NaNs.
+inline glm::vec3 springUnitDirection(const glm::vec3& v) {
+    float l2 = glm::dot(v, v);
+    return std::isfinite(l2) && l2 > 1e-12f ? v * (1.f / std::sqrt(l2)) : glm::vec3(0.f);
+}
+
 // One verlet step of a spring tail: drag on the implicit velocity, the rest-direction spring, external forces
 // (gravity + wind), then the length constraint that keeps the bone length. `head` is the world position of the joint.
 inline glm::vec3 springTailStep(const glm::vec3& cur, const glm::vec3& prev, const glm::vec3& head,

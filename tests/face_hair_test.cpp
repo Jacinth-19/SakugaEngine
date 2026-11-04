@@ -139,6 +139,11 @@ int main() {
         CHECK(applyTuning(base, neg).stiffnessScale >= 0.f);
     }
 
+    // Legal zero vectors and corrupt directions cannot poison the spring solver with NaNs.
+    CHECK_NEAR(glm::length(springUnitDirection(glm::vec3(0.f))), 0.f, 1e-9f);
+    CHECK_NEAR(glm::length(springUnitDirection(glm::vec3(0.f, -2.f, 0.f))), 1.f, 1e-6f);
+    CHECK_FINITE(springUnitDirection(glm::vec3(std::numeric_limits<float>::quiet_NaN(), 0.f, 0.f)).x);
+
     // ------------------------------------------------------------------ verlet step keeps the bone length
     {
         glm::vec3 head(0.f, 2.f, 0.f);

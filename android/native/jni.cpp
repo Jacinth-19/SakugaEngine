@@ -53,6 +53,11 @@ extern "C" JNIEXPORT jfloatArray JNICALL Java_com_sakuga_preview_MainActivity_na
     if (array) env->SetFloatArrayRegion(array, 0, 2, values);
     return array;
 }
+extern "C" JNIEXPORT jboolean JNICALL Java_com_sakuga_preview_MainActivity_nativeSelectClip(JNIEnv*, jclass, jlong h, jint index) {
+    if (!h || !session(h)->selectClip(index)) return JNI_FALSE;
+    __android_log_print(ANDROID_LOG_INFO, tag, "canvas clip selected %d of %d", index, session(h)->clipCount());
+    return JNI_TRUE;
+}
 extern "C" JNIEXPORT jfloatArray JNICALL Java_com_sakuga_preview_MainActivity_nativeJoints(JNIEnv* env, jclass, jlong h) {
     if (!h) return nullptr;
     auto joints = session(h)->joints();

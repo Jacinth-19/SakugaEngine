@@ -12,6 +12,7 @@ public:
     bool load(const std::vector<std::string>& paths, std::string& error, const std::string& cacheDir = "");
     void update(float dt, float moveX, float moveY);
     void nextClip();
+    bool selectClip(int index);
     std::array<float, kHumanBoneCount * 3> joints() const;
     int clipIndex() const { return matcher_.debug.clip; }
     int clipCount() const { return static_cast<int>(db_.clipNames.size()); }

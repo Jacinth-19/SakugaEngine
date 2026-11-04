@@ -100,6 +100,51 @@ if [[ $renderer_result == presented ]]; then
     echo '::error::Android ImGui checkbox did not respond to a tap.'; exit 1
   fi
   echo '::notice::Android ImGui checkbox responded to touch.'
+  # Enable the VRM's real spring chains; they are initially off on mobile.
+  ui_target=$(grep -F 'hair physics target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*hair physics target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo '::error::Hair control target missing.'; exit 1; fi
+  adb shell input tap "$ui_x" "$ui_y"
+  hair=0
+  for i in $(seq 1 30); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -Eq 'hair physics enabled=1 chains=[1-9][0-9]*' /tmp/sakuga-android-log.txt; then hair=1; break; fi
+    sleep 1
+  done
+  if [[ $hair != 1 ]]; then echo '::error::Hair spring chains could not be enabled.'; exit 1; fi
+  # Open the paginated browser and choose the final clip, not just NEXT.
+  ui_target=$(grep -F 'sandbox clips target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*sandbox clips target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo '::error::Clip browser button target missing.'; exit 1; fi
+  adb shell input tap "$ui_x" "$ui_y"
+  browser=0
+  for i in $(seq 1 30); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'browser last target x=' /tmp/sakuga-android-log.txt; then browser=1; break; fi
+    sleep 1
+  done
+  if [[ $browser != 1 ]]; then echo '::error::Clip browser did not open.'; exit 1; fi
+  ui_target=$(grep -F 'browser last target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*browser last target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  adb shell input tap "$ui_x" "$ui_y"
+  final_target=0
+  for i in $(seq 1 30); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'browser final clip target x=' /tmp/sakuga-android-log.txt; then final_target=1; break; fi
+    sleep 1
+  done
+  if [[ $final_target != 1 ]]; then echo '::error::Could not open final clip browser page.'; exit 1; fi
+  ui_target=$(grep -F 'browser final clip target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*browser final clip target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  adb shell input tap "$ui_x" "$ui_y"
+  selected=0
+  for i in $(seq 1 30); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'sandbox browser selected 76 of 77' /tmp/sakuga-android-log.txt; then selected=1; break; fi
+    sleep 1
+  done
+  if [[ $selected != 1 ]]; then echo '::error::Final clip could not be selected from the browser.'; exit 1; fi
+  echo '::notice::Selected the final animation from the Android browser.'
   # Open the actual sandbox editor, not just the compact mobile panel.
   ui_target=$(grep -F 'sandbox editor target x=' /tmp/sakuga-android-log.txt | tail -1)
   read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*sandbox editor target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
@@ -308,6 +353,31 @@ if not m or int(m[3]) != 77 or int(m[2]) != (int(m[1]) + 1) % 77:
     raise SystemExit('Canvas NEXT CLIP did not advance through the full library')
 PYCODE
 adb exec-out screencap -p > apk/android-canvas.png
+# The Canvas path also has a direct, scrollable native clip picker.
+ui_target=$(grep -F 'canvas picker target x=' /tmp/sakuga-android-log.txt | tail -1)
+read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*canvas picker target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo '::error::Canvas clip picker target missing.'; exit 1; fi
+adb shell input tap "$ui_x" "$ui_y"
+adb shell uiautomator dump /sdcard/sakuga-picker.xml >/dev/null
+adb shell cat /sdcard/sakuga-picker.xml > /tmp/sakuga-picker.xml
+read -r ui_x ui_y < <(python3 - <<'PYCODE'
+import re, xml.etree.ElementTree as ET
+for node in ET.parse('/tmp/sakuga-picker.xml').iter():
+    if node.get('text') == 'aiming1_subject1':
+        x0, y0, x1, y1 = map(int, re.findall(r'\d+', node.get('bounds', '')))
+        print((x0+x1)//2, (y0+y1)//2)
+        break
+PYCODE
+)
+if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo '::error::Canvas clip list did not open.'; exit 1; fi
+adb shell input tap "$ui_x" "$ui_y"
+selected=0
+for i in $(seq 1 30); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  if grep -q 'canvas clip selected 0 of 77' /tmp/sakuga-android-log.txt; then selected=1; break; fi
+  sleep 1
+done
+if [[ $selected != 1 ]]; then echo '::error::Canvas clip picker did not select the animation.'; exit 1; fi
 # Exercise the retained fallback across a surface destruction/recreation.
 adb logcat -c
 adb shell input keyevent KEYCODE_HOME

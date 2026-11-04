@@ -36,6 +36,7 @@ public final class MainActivity extends Activity {
     private static native float[] nativeJoints(long handle);
     private static native String nativeInfo(long handle);
     private static native int nativeClipIndex(long handle);
+    private static native boolean nativeSelectClip(long handle, int index);
     private static native String nativeProbeSurface(Surface surface);
     private static native long nativeRendererCreate(Surface surface, String shaderDir, String modelPath, String[] motionPaths, float density);
     private static native int nativeRendererFrame(long renderer, float x, float y, int clip);
@@ -327,7 +328,7 @@ public final class MainActivity extends Activity {
         private long lastNs; private boolean running;
         private String message = "Preparing Android sandbox and 77 animations...";
         private String surfaceStatus = "Waiting for Android surface...";
-        private boolean vulkanActive;
+        private boolean vulkanActive, loggedClipPicker;
         private float stickX, stickY;
         private final HashSet<Integer> gamePointers = new HashSet<>();
         private final float density = getResources().getDisplayMetrics().density;
@@ -370,6 +371,22 @@ public final class MainActivity extends Activity {
         private void text(Canvas c, String value, float x, float y, float size, int color) {
             paint.setStyle(Paint.Style.FILL); paint.setColor(color); paint.setTextSize(size * density); c.drawText(value, x, y, paint);
         }
+        private void showClipPicker() {
+            final String[] paths = motionPaths;
+            if (paths == null) return;
+            String[] names = new String[paths.length];
+            for (int i = 0; i < paths.length; ++i) {
+                String name = new File(paths[i]).getName();
+                names[i] = name.endsWith(".bvh") ? name.substring(0, name.length() - 4) : name;
+            }
+            new android.app.AlertDialog.Builder(MainActivity.this).setTitle("Animations (77)")
+                .setItems(names, (dialog, index) -> {
+                    if (!fallbackLock.tryLock()) return;
+                    try { if (hasFallbackLocked()) nativeSelectClip(fallbackHandle, index); }
+                    finally { fallbackLock.unlock(); }
+                    invalidate();
+                }).setNegativeButton("Close", null).show();
+        }
         @Override protected void onDraw(Canvas c) {
             super.onDraw(c);
             // The Vulkan sandbox draws its own ImGui and virtual controls. The Canvas view is only
@@ -379,9 +396,16 @@ public final class MainActivity extends Activity {
             float margin = 18 * density;
             text(c, "SAKUGA  /  ANIMATION PREVIEW", margin, 28 * density, 17, Color.rgb(184,235,250));
             text(c, "77 motion clips  •  synthetic rig  •  Canvas fallback", margin, 48 * density, 11, Color.LTGRAY);
+            paint.setColor(Color.rgb(33,60,78)); paint.setStyle(Paint.Style.FILL);
+            c.drawRoundRect(new RectF(w - margin - 90*density, margin, w - margin, margin + 38*density), 10*density, 10*density, paint);
+            text(c, "CLIPS", w - margin - 70*density, margin + 25*density, 12, Color.WHITE);
             if (!fallbackLock.tryLock()) { text(c, message == null ? "Loading..." : message, margin, h * .5f, 14, Color.WHITE); return; }
             try {
             if (!hasFallbackLocked()) { text(c, message == null ? "Loading..." : message, margin, h * .5f, 14, Color.WHITE); return; }
+            if (!loggedClipPicker) {
+                android.util.Log.i("SakugaPreview", "canvas picker target x=" + (int)(w-margin-45*density) + " y=" + (int)(margin+19*density));
+                loggedClipPicker = true;
+            }
             long handle = fallbackHandle;
             long now = System.nanoTime(); float dt = lastNs == 0 ? 0 : (now - lastNs) / 1000000000f; lastNs = now;
             if (running && !vulkanActive) nativeUpdate(handle, dt, stickX, -stickY);
@@ -429,6 +453,16 @@ public final class MainActivity extends Activity {
         }
         @Override public boolean onTouchEvent(MotionEvent e) {
             int action = e.getActionMasked(), index = e.getActionIndex();
+            if (!vulkanActive && action == MotionEvent.ACTION_DOWN &&
+                    e.getX(index) >= getWidth() - 108*density && e.getX(index) <= getWidth() - 18*density &&
+                    e.getY(index) >= 18*density && e.getY(index) <= 56*density) {
+                if (fallbackLock.tryLock()) {
+                    boolean ready;
+                    try { ready = hasFallbackLocked(); } finally { fallbackLock.unlock(); }
+                    if (ready) showClipPicker();
+                }
+                return true;
+            }
             if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
                 int id = e.getPointerId(index); float x = e.getX(index), y = e.getY(index);
                 if (vulkanActive) { gamePointers.add(id); uiTouches.add(new UiTouch(false, 0, id, x, y)); }

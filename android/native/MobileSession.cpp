@@ -43,12 +43,14 @@ void MobileSession::update(float dt, float moveX, float moveY) {
     matcher_.update(dt, glm::vec3(move.x, 0.f, move.y) * 1.6f, position_, yaw_, pose_);
 }
 void MobileSession::nextClip() {
-    if (db_.clipNames.empty()) return;
-    const int clip = (std::max(-1, matcher_.debug.clip) + 1) % clipCount();
+    if (!db_.clipNames.empty()) selectClip((std::max(-1, matcher_.debug.clip) + 1) % clipCount());
+}
+bool MobileSession::selectClip(int clip) {
+    if (clip < 0 || clip >= clipCount()) return false;
     matcher_.playClip(clip, position_, yaw_);
-    // playClip changes the matcher's frame immediately, but its public debug index and
-    // pose are refreshed in update. Publish the selection before a second tap can arrive.
+    // Publish the selected frame and pose before another tap arrives.
     update(0.000001f, 0.f, 0.f);
+    return true;
 }
 std::array<float, kHumanBoneCount * 3> MobileSession::joints() const {
     std::array<float, kHumanBoneCount * 3> result{};

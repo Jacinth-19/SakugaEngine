@@ -18,6 +18,11 @@ int main() {
     sk::MobileSession session; std::string error;
     CHECK_MSG(session.load(paths, error), error);
     if (session.clipCount() != 77) { CHECK(session.clipCount() == 77); return t_.finish(); }
+    CHECK(!session.selectClip(-1)); CHECK(!session.selectClip(77));
+    for (int i = 0; i < 77; ++i) {
+        CHECK(session.selectClip(i)); CHECK(session.clipIndex() == i);
+        CHECK(!session.clipName().empty());
+    }
     session.update(1.f / 30.f, 0, 0);
     int previous = session.clipIndex();
     CHECK(previous >= 0 && previous < 77);

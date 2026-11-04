@@ -167,18 +167,23 @@ float splitNprSide() {
 // Main light shadow: 3x3 PCF with hardware comparison (== _SHADOWS_SOFT).
 // One cascade (atlas: near = left half, far = right half): 3x3 PCF with hardware comparison; returns -1 when outside.
 float shadowCascadeSample(vec4 sc, float cascade, float biasScale, out float border) {
+    if (sc.w <= 0.0) { border = 1.0; return -1.0; }
     vec3 p = sc.xyz / sc.w;
     vec2 uv = p.xy * 0.5 + 0.5;
     vec2 e = abs(uv - 0.5) * 2.0;
     border = max(e.x, e.y);
-    if (border >= 1.0 || p.z > 1.0) return -1.0;
+    if (border >= 1.0 || p.z < 0.0 || p.z > 1.0) return -1.0;
     float ngl = saturate(dot(normalize(vNormalWS), normalize(G.lightDir.xyz)));
     float lit = 0.0, ref = p.z - G.lightColor.w * biasScale * (1.0 + 4.0 * (1.0 - ngl));   // slope-scaled bias
     vec2 texel = vec2(G.misc.w * 0.5, G.misc.w);
     vec2 base = vec2(uv.x * 0.5 + 0.5 * cascade, uv.y);
+    // Clamp the filtering footprint within its own half of the atlas. Otherwise
+    // taps at the cascade seam can read the other cascade and cast false shadows.
+    vec2 lo = vec2(0.5 * cascade, 0.0) + texel * 0.5;
+    vec2 hi = vec2(0.5 * (cascade + 1.0), 1.0) - texel * 0.5;
     for (int y = -1; y <= 1; ++y)
         for (int x = -1; x <= 1; ++x)
-            lit += texture(uShadow, vec3(base + vec2(x, y) * texel, ref));
+            lit += texture(uShadow, vec3(clamp(base + vec2(x, y) * texel, lo, hi), ref));
     return lit / 9.0;
 }
 // Contact shadow: a soft, cel-edged blob under every character, applied to the world (materials with selfShadow = 1), not to the characters.
@@ -198,7 +203,7 @@ float mainLightShadow(vec4 sc) {
     float s0 = shadowCascadeSample(sc, 0.0, bs, b0);
     float s1 = shadowCascadeSample(G.lightViewProj1 * vec4(vPosWS, 1.0), 1.0, bs, b1);
     if (s0 < 0.0) s0 = s1;
-    if (s1 < 0.0) return 1.0;                                       // beyond both cascades
+    if (s1 < 0.0) return s0 < 0.0 ? 1.0 : s0;                     // keep valid near cascade
     float lit = mix(s0, s1, smoothstep(0.78, 0.96, b0));           // blend into the far cascade near the border of the near one
     return mix(lit, 1.0, smoothstep(0.80, 1.0, b1));               // fade out at the far cascade border
 }

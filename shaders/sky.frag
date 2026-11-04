@@ -46,14 +46,18 @@ void main() {
     c = mix(c, zenith, smoothstep(0.16, 0.85, h));
     c += horizon * 0.22 * (1.0 - smoothstep(0.0, 0.07, h)) * (1.0 - night);               // thin bright haze line on the horizon
     c += sunCol * (pow(sd, 6.0) * 0.22 + pow(sd, 28.0) * 0.28) * (1.0 - 0.6 * h) * (1.0 - night * 0.7);
-    c = mix(c, mix(horizon, G.groundColor.rgb, 0.6), smoothstep(0.0, -0.18, d.y));
+    // Warm atmospheric scattering at the horizon when the sun is low, restrained at noon.
+    float lowSun = 1.0 - smoothstep(0.08, 0.50, L.y);
+    float horizonGlow = exp(-h * 7.0) * pow(sd, 3.0) * lowSun * (1.0 - night);
+    c += sunCol * vec3(1.0, 0.62, 0.44) * horizonGlow * 0.20;
+    c = mix(c, mix(horizon, G.groundColor.rgb, 0.6), (1.0 - smoothstep(-0.18, 0.0, d.y)));
 
     // --- stars
     if (night > 0.01 && d.y > 0.0) {
         vec2 sp = vec2(atan(d.z, d.x) * 90.0, asin(clamp(d.y, -1.0, 1.0)) * 180.0 / 1.5707963 * 1.0);
         vec2 cell = floor(sp); float r = hash12(cell);
         vec2 fp = fract(sp) - 0.5 - (vec2(hash12(cell + 7.7), hash12(cell + 3.1)) - 0.5) * 0.6;
-        float star = step(0.985, r) * smoothstep(0.28, 0.0, length(fp)) * (0.5 + 0.5 * sin(time * (1.5 + r * 4.0) + r * 40.0));
+        float star = step(0.985, r) * (1.0 - smoothstep(0.0, 0.28, length(fp))) * (0.5 + 0.5 * sin(time * (1.5 + r * 4.0) + r * 40.0));
         c += vec3(0.85, 0.9, 1.0) * star * night * smoothstep(0.02, 0.2, d.y) * 1.4;
     }
 
@@ -65,7 +69,7 @@ void main() {
     c += sunCol * ring * 0.35 * G.skyParams.y * step(0.0, d.y + 0.03);
 
     // --- cel-shaded cumulus on a projected plane: large puffy bodies, three light bands (shade / lit / sun-side highlight), silver lining
-    float fade = smoothstep(0.012, 0.16, d.y);
+    float fade = smoothstep(0.012, 0.16, d.y) * smoothstep(0.0, 0.15, cover);
     vec3 dayLight = mix(vec3(1.0), sunCol, 0.45) * 1.06;
     vec3 shade = mix(horizon, zenith, 0.55) * 0.86 + vec3(0.07, 0.06, 0.14);              // violet-blue cloud shade (anime)
     vec3 shade2 = shade * vec3(0.78, 0.80, 0.98);                                          // deepest belly band
@@ -74,7 +78,7 @@ void main() {
         vec2 pb = d.xz / (d.y + 0.06) * vec2(0.16, 0.55) + vec2(time * 0.004, 0.0);
         float bank = smoothstep(0.50, 0.58, fbm(pb * 1.6 + 7.0)) * (1.0 - smoothstep(0.10, 0.34, d.y)) * smoothstep(0.012, 0.05, d.y);
         vec3 bankCol = mix(horizon * 0.92 + vec3(0.04, 0.03, 0.08), dayLight, 0.55 * (1.0 - night));
-        c = mix(c, bankCol * mix(1.0, 0.2, night), bank * 0.75);
+        c = mix(c, bankCol * mix(1.0, 0.2, night), bank * fade * 0.75);
 
         float n = cloudField(d, time);
         float thr = mix(0.70, 0.40, clamp(cover, 0.0, 1.0));
@@ -103,9 +107,9 @@ void main() {
         for (int i = 0; i < 3; ++i) {
             float fi = float(i);
             float hy = 0.006 + 0.022 * fi + (fbm(vec2(cos(az), sin(az)) * (2.4 + 1.1 * fi) + vec2(11.0 * fi, 3.0 * fi)) - 0.22) * (0.20 - 0.045 * fi);
-            float m = smoothstep(hy + 0.003, hy - 0.002, d.y) * smoothstep(-0.03, -0.004, d.y);
+            float m = (1.0 - smoothstep(hy - 0.002, hy + 0.003, d.y)) * smoothstep(-0.03, -0.004, d.y);
             vec3 hill = mix(hz, zenith * vec3(0.78, 0.74, 0.95) + vec3(0.03, 0.02, 0.08), 0.20 + 0.28 * fi);
-            hill = mix(hill, hill * vec3(0.78, 0.80, 0.96), smoothstep(hy - 0.01, hy - 0.10, d.y));          // darker towards the foot of each ridge
+            hill = mix(hill, hill * vec3(0.78, 0.80, 0.96), (1.0 - smoothstep(hy - 0.10, hy - 0.01, d.y)));          // darker towards the foot of each ridge
             c = mix(c, hill * mix(1.0, 0.22, night), m * 0.92);
         }
     }
@@ -113,8 +117,8 @@ void main() {
     {
         float ang = atan(dot(d, normalize(cross(L, vec3(0, 1, 0) + vec3(1e-3)))), dot(d, normalize(cross(cross(L, vec3(0, 1, 0) + vec3(1e-3)), L))));
         float streak = 0.5 + 0.5 * sin(ang * 11.0 + vnoise(vec2(ang * 3.0, time * 0.05)) * 6.0);
-        float lowSun = 1.0 - smoothstep(0.1, 0.55, L.y);
-        c += sunCol * pow(sd, 3.0) * streak * streak * (0.04 + 0.10 * lowSun) * (1.0 - night) * smoothstep(-0.05, 0.2, d.y);
+        float rayLowSun = 1.0 - smoothstep(0.1, 0.55, L.y);
+        c += sunCol * pow(sd, 3.0) * streak * streak * (0.04 + 0.10 * rayLowSun) * (1.0 - night) * smoothstep(-0.05, 0.2, d.y);
     }
     outColor = vec4(encodeOutput(c), 1.0);
 }

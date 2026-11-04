@@ -5,6 +5,7 @@
 //   * the near-cascade sphere derived from the camera frustum slice contains that slice, and grows to contain the focus;
 //   * point lights: 6 finite faces and all valid lights get slots, with a deterministic reduced-budget priority.
 #include "Check.h"
+#include "gfx/ShadowAtlas.h"
 #include "gfx/ShadowFit.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -19,6 +20,13 @@ static bool insideNdc(glm::vec3 p) { return std::fabs(p.x) <= 1.001f && std::fab
 
 int main() {
     SK_TEST("shadow_fit_test");
+    // 3x3 directional PCF taps at either atlas edge never reach the adjacent tile.
+    for (int cascade = 0; cascade < 2; ++cascade) for (int x = -1; x <= 1; ++x) for (int y = -1; y <= 1; ++y) {
+        glm::vec2 tap = sk::clampCascadeTap(glm::vec2(.5f * (cascade + 1), 1.f) + glm::vec2(x / 2048.f, y / 1024.f), cascade, {2048, 1024});
+        CHECK(tap.x >= .5f * cascade && tap.x < .5f * (cascade + 1));
+        CHECK(tap.y >= 0.f && tap.y < 1.f);
+    }
+
 
     const glm::vec3 light = glm::normalize(glm::vec3(0.45f, 0.62f, 0.64f));
     const glm::vec3 lowSun = glm::normalize(glm::vec3(0.9f, 0.05f, 0.2f));   // near-horizontal: exercises the up-vector fallback

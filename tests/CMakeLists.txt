@@ -92,6 +92,7 @@ set(SAKUGA_TESTS
   mm_search_test
   motion_cache_test
   motion_library_test
+  real_rig_retarget_test
   lut_parsing_test
   blink_curve_test
   posture_clamp_test

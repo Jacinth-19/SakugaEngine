@@ -18,6 +18,8 @@ void stepSpringBones(const Model& model, const std::vector<glm::mat4>& restG, Po
     // static data per joint (computed once)
     for (size_t c = 0; c < sd.chains.size(); ++c) for (size_t k = 0; k < sd.chains[c].joints.size(); ++k) {
         auto& j = st.chains[c][k]; const SpringJoint& sj = sd.chains[c].joints[k];
+        if (sj.node < 0 || sj.node >= (int)rig.nodes.size() || sj.node >= (int)restG.size() || sj.node >= (int)G.size() ||
+            sj.child >= (int)restG.size() || sj.child >= (int)G.size()) continue;
         if (!j.init) {
             glm::vec3 localTail;
             if (sj.child >= 0) localTail = glm::vec3(glm::inverse(restG[sj.node]) * restG[sj.child][3]);
@@ -29,15 +31,17 @@ void stepSpringBones(const Model& model, const std::vector<glm::mat4>& restG, Po
         }
     }
     int steps = std::clamp((int)std::ceil(dt * 60.f), 1, 4); float h = dt / steps;
-    glm::vec3 wind = set.windStrength > 0 ? glm::normalize(set.windDir) * set.windStrength * (0.6f + 0.4f * std::sin(set.time * 1.7f) + 0.25f * std::sin(set.time * 4.1f)) : glm::vec3(0);
+    glm::vec3 wind = set.windStrength > 0 ? springUnitDirection(set.windDir) * set.windStrength * (0.6f + 0.4f * std::sin(set.time * 1.7f) + 0.25f * std::sin(set.time * 4.1f)) : glm::vec3(0);
 
     for (int step = 0; step < steps; ++step) {
         for (size_t c = 0; c < sd.chains.size(); ++c) {
             const SpringChain& ch = sd.chains[c];
             for (size_t k = 0; k < ch.joints.size(); ++k) {
                 const SpringJoint& sj = ch.joints[k]; auto& j = st.chains[c][k];
-                int node = sj.node, par = rig.nodes[node].parent;
-                if (node < 0 || par < 0) continue;
+                int node = sj.node;
+                if (!j.init || node < 0 || node >= (int)rig.nodes.size()) continue;
+                int par = rig.nodes[node].parent;
+                if (par < 0 || par >= (int)G.size()) continue;
                 glm::mat4 PW = T * G[par];
                 glm::vec3 head = glm::vec3(T * G[node][3]);
                 glm::quat parentRot = rotOf(PW);
@@ -45,7 +49,7 @@ void stepSpringBones(const Model& model, const std::vector<glm::mat4>& restG, Po
                 float len = j.boneLength * scale;
                 glm::vec3 restDir = restWorld * j.boneAxisLocal;
                 // verlet integration (SpringStep.h: shared with the unit tests)
-                glm::vec3 ext = (glm::normalize(sj.gravityDir) * sj.gravityPower * set.gravityScale + wind) * scale;
+                glm::vec3 ext = (springUnitDirection(sj.gravityDir) * sj.gravityPower * set.gravityScale + wind) * scale;
                 glm::vec3 next = springTailStep(j.cur, j.prev, head, restDir, sj.drag * set.dragScale,
                                                 sj.stiffness * set.stiffnessScale * scale, ext, len, h);
                 // colliders (sphere / capsule) of every group attached to this chain
@@ -53,7 +57,7 @@ void stepSpringBones(const Model& model, const std::vector<glm::mat4>& restG, Po
                     if (g < 0 || g >= (int)sd.groups.size()) continue;
                     for (int ci : sd.groups[g]) {
                         if (ci < 0 || ci >= (int)sd.colliders.size()) continue;
-                        const SpringCollider& col = sd.colliders[ci]; if (col.node < 0) continue;
+                        const SpringCollider& col = sd.colliders[ci]; if (col.node < 0 || col.node >= (int)G.size()) continue;
                         glm::mat4 CW = T * G[col.node];
                         glm::vec3 a = glm::vec3(CW * glm::vec4(col.offset, 1.f));
                         glm::vec3 b = col.capsule ? glm::vec3(CW * glm::vec4(col.tail, 1.f)) : a;

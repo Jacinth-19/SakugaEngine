@@ -1,4 +1,5 @@
 #include "platform/TouchControls.h"
+#include "platform/TouchLayout.h"
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <algorithm>
@@ -7,13 +8,11 @@
 namespace sk {
 
 void TouchControls::layout(Btn b[kButtons]) const {
-    float u = std::min(w_, h_) * 0.0014f * uiScale, r = 52.f * u, m = 40.f * u;
-    glm::vec2 br(w_ - m - r * 1.2f, h_ - m - r * 1.2f);
-    b[0] = {br + glm::vec2(0, r * 1.15f), r, "JUMP", GLFW_GAMEPAD_BUTTON_A};                 // south
-    b[1] = {br + glm::vec2(-r * 1.15f, 0), r, "ATK", GLFW_GAMEPAD_BUTTON_X};                  // west
-    b[2] = {br + glm::vec2(0, -r * 1.15f), r, "USE", GLFW_GAMEPAD_BUTTON_Y};                  // north
-    b[3] = {br + glm::vec2(r * 1.15f, 0), r, "CROUCH", GLFW_GAMEPAD_BUTTON_B};                // east
-    b[4] = {glm::vec2(m + r * 1.6f, h_ - m - r * 4.2f), r * 0.85f, "SPRINT", GLFW_GAMEPAD_BUTTON_LEFT_THUMB};
+    TouchButtonGeometry g[kButtons]; touchButtonLayout(w_, h_, uiScale, g);
+    const char* labels[kButtons] = {"JUMP", "ATK", "USE", "DUCK", "RUN"};
+    const int pads[kButtons] = {GLFW_GAMEPAD_BUTTON_A, GLFW_GAMEPAD_BUTTON_X, GLFW_GAMEPAD_BUTTON_Y,
+                                GLFW_GAMEPAD_BUTTON_B, GLFW_GAMEPAD_BUTTON_LEFT_THUMB};
+    for (int i = 0; i < kButtons; ++i) b[i] = {g[i].center, g[i].radius, labels[i], pads[i]};
 }
 
 void TouchControls::injectTouch(int id, float x, float y, bool down) {
@@ -67,8 +66,8 @@ void TouchControls::draw(ImDrawList* dl) const {
     dl->AddCircleFilled(ImVec2(k.x, k.y), radius * 0.42f, IM_COL32(255, 255, 255, stickOn ? 150 : 70), 32);
     for (int i = 0; i < kButtons; ++i) {
         bool on = btnHeld_[i];
-        dl->AddCircleFilled(ImVec2(b[i].c.x, b[i].c.y), b[i].r, on ? IM_COL32(255, 200, 80, 150) : IM_COL32(255, 255, 255, 40), 32);
-        dl->AddCircle(ImVec2(b[i].c.x, b[i].c.y), b[i].r, IM_COL32(255, 255, 255, 120), 32, 2.f);
+        dl->AddCircleFilled(ImVec2(b[i].c.x, b[i].c.y), b[i].r, on ? IM_COL32(61, 187, 216, 210) : IM_COL32(12, 23, 38, 160), 32);
+        dl->AddCircle(ImVec2(b[i].c.x, b[i].c.y), b[i].r, on ? IM_COL32(214, 251, 255, 240) : IM_COL32(142, 224, 244, 180), 32, 2.f);
         ImVec2 ts = ImGui::CalcTextSize(b[i].label);
         dl->AddText(ImVec2(b[i].c.x - ts.x * 0.5f, b[i].c.y - ts.y * 0.5f), IM_COL32(255, 255, 255, 200), b[i].label);
     }
