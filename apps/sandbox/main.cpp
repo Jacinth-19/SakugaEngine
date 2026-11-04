@@ -388,8 +388,13 @@ void Sandbox::loadAssets() {
             if (opt_.mm && m->isVRM) {
                 // every *.bvh under assets/motion (recursive), $SAKUGA_MOTION_DIR and --motion-dir (e.g. the Assets/lafan1 folder of the Unity project)
                 std::vector<std::string> dirs = {root_ + "/assets/motion"}, files;
+                const char* home = std::getenv("HOME");
+#ifdef _WIN32
+                if (!home || !*home) home = std::getenv("USERPROFILE");
+#endif
+                if (home && !*home) home = nullptr;
                 if (const char* e = std::getenv("SAKUGA_MOTION_DIR")) dirs.push_back(e);
-                if (const char* h = std::getenv("HOME")) dirs.push_back(std::string(h) + "/.cache/lafan1");   // where tools/fetch_assets.sh puts the full dataset
+                if (home) dirs.push_back(std::string(home) + "/.cache/lafan1");   // where tools/fetch_assets.sh puts the full dataset
                 for (auto& d : opt_.motionDirs) dirs.push_back(d);
                 std::set<std::string> seen;
                 for (auto& d : dirs) {
@@ -398,7 +403,6 @@ void Sandbox::loadAssets() {
                         if (f.path().extension() == ".bvh" && seen.insert(f.path().stem().string()).second) files.push_back(f.path().string());
                 }
                 SK_LOG("mm: %zu BVH files found", files.size());
-                const char* home = std::getenv("HOME");
 #ifdef __ANDROID__
                 (void)home;
                 std::string cacheDir = opt_.mmCache ? root_ + "/user/mm_cache" : "";
