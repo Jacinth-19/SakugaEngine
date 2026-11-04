@@ -121,8 +121,11 @@ for i in $(seq 1 20); do
   sleep 1
 done
 if [[ $shared != 1 ]]; then adb exec-out screencap -p > apk/android-fail.png; echo '::error::Benchmark share chooser did not open'; exit 1; fi
+# The chooser opens asynchronously; wait for its transition before dismissing it.
+sleep 5
 adb shell input keyevent KEYCODE_BACK
-sleep 2
+adb shell am start -W -n com.sakuga.preview/.MainActivity >/dev/null
+sleep 5
 close_target=$(grep -F 'benchmark close target x=' /tmp/sakuga-android-log.txt | tail -1)
 read -r close_x close_y < <(echo "$close_target" | sed -n 's/.*benchmark close target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
 adb shell input tap "$close_x" "$close_y"
