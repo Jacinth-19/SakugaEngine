@@ -46,6 +46,9 @@ void MobileSession::nextClip() {
     if (db_.clipNames.empty()) return;
     const int clip = (std::max(-1, matcher_.debug.clip) + 1) % clipCount();
     matcher_.playClip(clip, position_, yaw_);
+    // playClip changes the matcher's frame immediately, but its public debug index and
+    // pose are refreshed in update. Publish the selection before a second tap can arrive.
+    update(0.000001f, 0.f, 0.f);
 }
 std::array<float, kHumanBoneCount * 3> MobileSession::joints() const {
     std::array<float, kHumanBoneCount * 3> result{};

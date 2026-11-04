@@ -23,6 +23,7 @@ int main() {
     for (float v : a) CHECK_FINITE(v);
     const int first = session.clipIndex();
     session.nextClip();
+    CHECK(session.clipIndex() != first);
     session.update(1.f/30.f, 0.f, 0.f);
     CHECK(session.clipIndex() != first);
     for (int i = 0; i < 15; ++i) session.update(1.f/30.f, 0.5f, 0.8f);

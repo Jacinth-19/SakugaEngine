@@ -22,7 +22,9 @@ int main() {
     int previous = session.clipIndex();
     CHECK(previous >= 0 && previous < 77);
     for (int i = 0; i < 77; ++i) {
-        session.nextClip(); session.update(1.f / 30.f, 0, 0);
+        session.nextClip();
+        CHECK(session.clipIndex() == (previous + 1) % 77);
+        session.update(1.f / 30.f, 0, 0);
         CHECK(session.clipIndex() == (previous + 1) % 77);
         CHECK(!session.clipName().empty());
         for (float v : session.joints()) CHECK_FINITE(v);
