@@ -143,12 +143,16 @@ else()
   target_compile_options(recastdetour PRIVATE /w)
 endif()
 
+# ---------------------------------------------------------------- FBX parser (MIT; inspection only)
+add_library(ufbx STATIC ${CMAKE_SOURCE_DIR}/third_party/ufbx/ufbx.c)
+target_include_directories(ufbx PUBLIC ${CMAKE_SOURCE_DIR}/third_party)
+
 # ---------------------------------------------------------------- engine
 file(GLOB_RECURSE ENGINE_SRC CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/engine/*.cpp)
 add_library(sakuga STATIC ${ENGINE_SRC})
 target_include_directories(sakuga PUBLIC ${CMAKE_SOURCE_DIR}/engine ${CMAKE_SOURCE_DIR}/third_party)
 target_compile_definitions(sakuga PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RADIANS GLM_ENABLE_EXPERIMENTAL)
-target_link_libraries(sakuga PUBLIC Vulkan::Vulkan glfw glm::glm imgui recastdetour Threads::Threads)
+target_link_libraries(sakuga PUBLIC Vulkan::Vulkan glfw glm::glm imgui recastdetour Threads::Threads ufbx)
 if(WIN32)
   target_link_libraries(sakuga PUBLIC advapi32)
 endif()
@@ -171,17 +175,22 @@ add_custom_command(TARGET sandbox POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_BINARY_DIR}/shaders $<TARGET_FILE_DIR:sandbox>/shaders
   COMMENT "Sakuga: copying SPIR-V next to the sandbox executable" VERBATIM)
 
+add_executable(sakuga-fbx-info tools/fbx_info.cpp engine/asset/FbxInfo.cpp)
+target_include_directories(sakuga-fbx-info PRIVATE ${CMAKE_SOURCE_DIR}/engine)
+target_link_libraries(sakuga-fbx-info PRIVATE ufbx)
+
 # ---------------------------------------------------------------- install
 # A relocatable layout the installer packages as-is:  <prefix>/sandbox[.exe]  assets/  shaders/  config/  README.md
 # (the sandbox looks for these next to the executable, see findRoot()). CMake's --install is what
 # installer/sakuga.iss packs, and what a Linux `make install` produces.
 # The layout is flat on purpose: findRoot() (engine/core/FileUtil.cpp) searches for a directory that contains both
 # assets/ and shaders/, starting at the executable, so the app stays relocatable - copy the whole folder anywhere.
-install(TARGETS sandbox RUNTIME DESTINATION . COMPONENT Runtime)
+install(TARGETS sandbox sakuga-fbx-info RUNTIME DESTINATION . COMPONENT Runtime)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets DESTINATION . COMPONENT Runtime)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/config DESTINATION . COMPONENT Runtime)
 install(DIRECTORY ${CMAKE_BINARY_DIR}/shaders DESTINATION . COMPONENT Runtime)   # compiled SPIR-V the renderer loads
 install(FILES ${CMAKE_SOURCE_DIR}/README.md DESTINATION . COMPONENT Runtime)
+install(FILES ${CMAKE_SOURCE_DIR}/third_party/ufbx/LICENSE DESTINATION licenses RENAME ufbx-LICENSE.txt COMPONENT Runtime)
 if(WIN32)
   install(FILES ${CMAKE_SOURCE_DIR}/installer/Sakuga-Performance.bat DESTINATION . COMPONENT Runtime)
 endif()

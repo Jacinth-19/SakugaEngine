@@ -113,8 +113,8 @@ float faceSilhouetteAura(float dotNV, float strength, float power) {
 
 float computeFaceSDFShadow(vec2 uv, vec3 lightDirWS) {
     bool headDriven = PC.pad0 == 1u;     // VRM face: axes follow the head bone
-    vec3 forwardVec = normalize(mat3(PC.model) * (headDriven ? G.faceForward.xyz : M.m_faceForwardOS.xyz));
-    vec3 rightVec   = normalize(mat3(PC.model) * (headDriven ? G.faceRight.xyz : M.m_faceRightOS.xyz));
+    vec3 forwardVec = normalize(mat3(PC.model) * (headDriven ? PC.faceForward.xyz : M.m_faceForwardOS.xyz));
+    vec3 rightVec   = normalize(mat3(PC.model) * (headDriven ? PC.faceRight.xyz : M.m_faceRightOS.xyz));
     vec3 upVec = cross(forwardVec, rightVec);
     float sqrUpLen = dot(upVec, upVec);
     vec3 projectedUp = sqrUpLen > 1e-12 ? dot(lightDirWS, upVec) / sqrUpLen * upVec : vec3(0.0);

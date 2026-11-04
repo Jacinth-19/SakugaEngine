@@ -65,7 +65,8 @@ struct DrawItem {
     uint32_t boneOffset = 0;
     bool skinned = false;
     uint32_t morphWeightOffset = 0, morphCount = 0;   // index/count into FrameInput::morphWeights (count 0 = no morph targets)
-    bool faceFrame = false;                       // use FrameInput::faceForward/faceRight (head bone) instead of the material's object-space axes
+    bool faceFrame = false;                       // per-entity head bone frame for face SDF
+    glm::vec3 faceForward{0, 0, 1}, faceRight{1, 0, 0};
 };
 
 struct FrameInput {
@@ -73,7 +74,6 @@ struct FrameInput {
     glm::vec3 cameraPos{0.f};
     float time = 0.f;
     glm::vec3 shadowFocus{0.f};
-    glm::vec3 faceForward{0, 0, 1}, faceRight{1, 0, 0};   // head frame in the hero's model space (face SDF)
     LightingSettings light;
     PostSettings post;
     std::vector<float> morphWeights;              // per draw: one weight per morph slot of the mesh

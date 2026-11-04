@@ -57,8 +57,13 @@ struct GlobalUBO {
     glm::mat4 pointViewProj[Renderer::kMaxPointShadows * kPointShadowFaces]; // one matrix per light and cube face
     glm::vec4 pointShadow[4];             // per point light: x = shadow slot (-1 = none), y = normal offset, z = depth bias
 };
-struct PushConstants { glm::mat4 model; uint32_t boneOffset, skinned, pad0, pad1; uint32_t morphWeightOffset, morphCount, morphBase, vertexCount; };
-static_assert(sizeof(PushConstants) == 96);
+struct PushConstants {
+    glm::mat4 model; uint32_t boneOffset, skinned, pad0, pad1;
+    uint32_t morphWeightOffset, morphCount, morphBase, vertexCount;
+    glm::vec4 faceForward, faceRight;
+};
+// Vulkan guarantees at least 128 bytes of push constants.
+static_assert(sizeof(PushConstants) == 128);
 struct PostPC { glm::vec4 a, b, c, d, e; };
 const VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 }
@@ -608,7 +613,7 @@ void Renderer::drawList(VkCommandBuffer cmd, const FrameInput& in, DrawFilter fi
     for (const DrawItem* dp : order) {
         const DrawItem& d = *dp;
         bool morph = d.morphCount > 0 && d.mesh->morphSlots > 0;
-        PushConstants pc{d.model, d.boneOffset, d.skinned ? 1u : 0u, d.faceFrame ? 1u : 0u, (uint32_t)cascadeIdx_, morph ? d.morphWeightOffset : 0u, morph ? std::min(d.morphCount, d.mesh->morphSlots) : 0u, d.mesh->morphBase, d.mesh->vertexCount};
+        PushConstants pc{d.model, d.boneOffset, d.skinned ? 1u : 0u, d.faceFrame ? 1u : 0u, (uint32_t)cascadeIdx_, morph ? d.morphWeightOffset : 0u, morph ? std::min(d.morphCount, d.mesh->morphSlots) : 0u, d.mesh->morphBase, d.mesh->vertexCount, glm::vec4(d.faceForward, 0.f), glm::vec4(d.faceRight, 0.f)};
         vkCmdPushConstants(cmd, pipeLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout_, 1, 1, &d.material->set, 0, nullptr);
         vkCmdBindVertexBuffers(cmd, 0, 1, &d.mesh->vertex.buffer, &zero);
@@ -798,7 +803,8 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     g.envParams = glm::vec4(L.envIntensity, envMaxLod_, envHDR_ ? 1.f : 0.f, L.envRotation);
     for (int i = 0; i < kMaxPointLights; ++i) { const PointLight& pl = L.points[i];
         g.pointPos[i] = glm::vec4(pl.position, std::max(pl.range, 0.01f)); g.pointCol[i] = glm::vec4(pl.color * pl.intensity, 0.f); }
-    g.faceForward = glm::vec4(in.faceForward, 0.f); g.faceRight = glm::vec4(in.faceRight, 0.f);
+    // Reserved legacy fields, retained so all other global UBO offsets remain unchanged.
+    g.faceForward = glm::vec4(0, 0, 1, 0); g.faceRight = glm::vec4(1, 0, 0, 0);
     std::memcpy(f.globalUBO.mapped, &g, sizeof(g));
     size_t nb = std::min<size_t>(in.bones.size(), kMaxBones);
     if (nb) std::memcpy(f.bones.mapped, in.bones.data(), nb * sizeof(glm::mat4));

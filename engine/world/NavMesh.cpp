@@ -197,11 +197,11 @@ int NavMesh::addAgent(glm::vec3 pos, float radius, float height, float maxSpeed,
 }
 void NavMesh::removeAgent(int id) { if (crowd_ && id >= 0) crowd_->removeAgent(id); }
 
-void NavMesh::setTarget(int id, glm::vec3 t) {
-    if (!crowd_ || !query_ || id < 0) return;
+bool NavMesh::setTarget(int id, glm::vec3 t) {
+    if (!crowd_ || !query_ || id < 0) return false;
     float c[3], e[3] = {2.f, 3.f, 2.f}, n[3]; toDt(t, c); dtPolyRef ref = 0;
     query_->findNearestPoly(c, e, crowd_->getFilter(0), &ref, n);
-    if (ref) crowd_->requestMoveTarget(id, ref, n);
+    return ref && crowd_->requestMoveTarget(id, ref, n);
 }
 void NavMesh::clearTarget(int id) { if (crowd_ && id >= 0) crowd_->resetMoveTarget(id); }
 

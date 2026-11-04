@@ -45,8 +45,24 @@ bool drawMaterialInspector(Renderer& r, const std::vector<Material*>& mats, int&
     if (mats.empty()) { ImGui::TextDisabled("no materials"); return false; }
     selected = std::max(0, std::min(selected, (int)mats.size() - 1));
     Material* m = mats[selected];
+    // Lightweight colour icons are derived from the actual material base colour; no extra GPU textures required.
+    auto swatch = [](Material* mat) {
+        glm::vec4 c = glm::clamp(mat->params.baseColor, glm::vec4(0.f), glm::vec4(1.f));
+        return ImGui::ColorButton("##material-swatch", ImVec4(c.r, c.g, c.b, c.a),
+                                  ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop | ImGuiColorEditFlags_NoPicker,
+                                  ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()));
+    };
+    swatch(m); ImGui::SameLine();
     if (ImGui::BeginCombo("Material", m->name.c_str())) {
-        for (int i = 0; i < (int)mats.size(); ++i) if (ImGui::Selectable(mats[i]->name.c_str(), i == selected)) selected = i;
+        for (int i = 0; i < (int)mats.size(); ++i) {
+            ImGui::PushID(i);
+            bool picked = swatch(mats[i]); ImGui::SameLine();
+            if (ImGui::Selectable(mats[i]->name.c_str(), i == selected) || picked) {
+                selected = i;
+                if (picked) ImGui::CloseCurrentPopup();
+            }
+            ImGui::PopID();
+        }
         ImGui::EndCombo();
     }
     m = mats[selected];

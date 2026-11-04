@@ -50,7 +50,7 @@ public:
     void initCrowd(int maxAgents, float maxRadius);
     int addAgent(glm::vec3 pos, float radius, float height, float maxSpeed, float maxAccel);
     void removeAgent(int id);
-    void setTarget(int id, glm::vec3 p);
+    bool setTarget(int id, glm::vec3 p);
     void clearTarget(int id);
     void syncAgent(int id, glm::vec3 pos, glm::vec3 vel);   // overwrite the crowd's state with the animation-driven transform
     void setMaxSpeed(int id, float v);

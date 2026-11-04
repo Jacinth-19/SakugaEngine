@@ -67,6 +67,7 @@ struct MMSettings {
     // Narrows the mask to what makes sense for the current movement context (see resolveCategoryMask). Off = search
     // everything, always.
     bool contextMask = true;
+    bool idleActionClips = false;          // opt-in: allow dance/fight/interaction families while standing
     float runGateSpeed = 2.4f;
     float idlePoseWeight = 0.45f;          // when standing still: cost per radian away from the typical upright standing pose (no hands-on-knees / bowing idles)
 };
@@ -85,9 +86,8 @@ struct MMDebug {
 //   * `MMSettings::categoryMask` is the hard limit - nothing outside it is ever picked;
 //   * while moving, only the locomotion families (walk, run/sprint, obstacles) are eligible, and Run/Sprint only at or
 //     above `runGateSpeed` (no jogging when strolling);
-//   * while standing, the triggered families (Jumps, Ground/fall-and-get-up) stay locked - a character does not lie down
-//     on its own - but dance / fight / aiming / interaction poses are eligible, which is what gives idle characters the
-//     variety of the whole library instead of two locomotion clips;
+//   * while standing, use walk-family still frames by default. Dance/fight/interaction idle actions are opt-in;
+//     Jumps and Ground/fall-and-get-up stay locked unless explicitly requested;
 //   * a jump request unlocks Jumps.
 // May return 0 (e.g. a database with no walk clips, queried while strolling); search() then falls back to the
 // unrestricted mask, so such a database still animates.
@@ -100,7 +100,7 @@ inline uint32_t resolveCategoryMask(const MMSettings& s, bool moving, float spee
             mask &= kLocomotion;
             if (speed < s.runGateSpeed) mask &= ~(1u << 1);
         } else {
-            mask &= ~kTriggered;
+            mask &= s.idleActionClips ? ~kTriggered : (1u << 0);
         }
     }
     if (jumpRequested) mask |= (s.categoryMask & (1u << 3));

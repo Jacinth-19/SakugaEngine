@@ -481,7 +481,7 @@ std::unique_ptr<Model> loadGltfModel(Renderer& R, const StyleTextures& style, co
                     SK_LOG("body-under-clothes mask: %d / %zu body vertices pulled in by up to %.1f mm", n, nv, opt.bodyUnderMask * 1000.f);
                 }
             }
-            {   // real face SDF for the VRoid-style face skin material (replaces the lab's procedural one)
+            {   // approximate directional face-shadow map baked from the VRoid-style face mesh
                 int mi = gp.material ? (int)(gp.material - data->materials) : -1;
                 if (mi >= 0 && mi < (int)model->materials.size() && (!model->materials[mi]->tex[TEX_FACE_SDF] || model->materials[mi]->tex[TEX_FACE_SDF] == R.blackTex())) {
                     std::string mn = model->materials[mi]->name; for (auto& ch : mn) ch = (char)std::tolower((unsigned char)ch);

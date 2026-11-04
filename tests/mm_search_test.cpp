@@ -153,9 +153,11 @@ int main() {
         uint32_t movingFast = resolveCategoryMask(st, true, run, false);
         CHECK((movingFast & runOnly) != 0);
 
-        // standing: everything except the triggered families
+        // Standing defaults to locomotion stills, not spontaneous dance/fight/interaction.
         uint32_t idle = resolveCategoryMask(st, false, 0.f, false);
-        CHECK_MSG((idle & dance) != 0, "idle characters can use dance / fight / aiming / interaction");
+        CHECK_MSG((idle & dance) == 0, "idle characters do not spontaneously dance by default");
+        MMSettings actionIdle = st; actionIdle.idleActionClips = true;
+        CHECK((resolveCategoryMask(actionIdle, false, 0.f, false) & dance) != 0);
         CHECK_MSG((idle & jumps) == 0, "no jumping while standing still");
         CHECK_MSG((idle & ground) == 0, "no lying down on their own");
         CHECK((idle & walkOnly) != 0);

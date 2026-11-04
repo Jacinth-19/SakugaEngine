@@ -16,6 +16,8 @@
 #include "platform/TouchControls.h"
 #include "platform/FrameTiming.h"
 #include "platform/FrameBenchmark.h"
+#include "world/CrowdSteering.h"
+#include "sky/SkyProfiles.h"
 #include "scene/Scene.h"
 #include "MotionLab.h"
 #ifdef __ANDROID__
@@ -194,9 +196,10 @@ struct MobileSnapshot {
     OrbitCamera camera; LightingSettings light; PostSettings post; UiTheme theme;
     std::string themeName, ini, environment;
     std::vector<MobileEntityState> entities;
-    int showcase = 0, selectedMat = 0, lutIdx = -1, debugMode = 0, matForcedMode = -1;
+    int showcase = 0, selectedMat = 0, lutIdx = -1, debugMode = 0, matForcedMode = -1, skyStyle = 0;
     float tod = 0, todSpeed = 0, userExposure = 1, userEnv = 1, cloud = 0, cameraShoulder = 0;
     float lutStrength = 0, lightAz = 0, lightEl = 0, time = 0, rain = 0, splitOffset = 0, touchScale = 1;
+    float skyWindSpeed = 1, cloudClock = 0;
     bool todAuto = false, todEnabled = false, hdriMode = false, nprFull = false, lampsOn = false;
     bool pointLightsOn = false, navDebug = false, agentDebug = false, mmDebug = false, showFps = false;
     bool hdriSun = false, lightAuto = false, rainOn = false, skeleton = false, trajectory = false;
@@ -279,6 +282,7 @@ private:
     void scanLuts(); void setLut(int idx);
     float lightAz_ = 40, lightEl_ = 38; bool lightAuto_ = false;
     float time_ = 0, rain_ = 0; bool rainOn_ = false;
+    int skyStyle_ = 0; float skyWindSpeed_ = 1.f, cloudClock_ = 0.f;
     int debugMode_ = 0; bool skeleton_ = false, trajectory_ = false, showUI_ = true, split_ = false; float splitOffset_ = 0;
     glm::vec3 desiredVel_{0};
     int selectedMat_ = 0; bool syncMat_ = true;
@@ -629,11 +633,12 @@ void Sandbox::handleActions(float dt) {
     glm::vec3 dir = camera_.forwardFlat() * mv.y + camera_.rightFlat() * mv.x;
     float speed = 1.6f;
     if (vrm_ && vrm_->mm) { auto& s = vrm_->mm->settings; speed = input_.held("Sprint") ? s.runSpeed : input_.held("Crouch") ? s.slowSpeed : s.walkSpeed; }
-    desiredVel_ = mag > 0.01f ? glm::normalize(dir) * speed * std::min(1.f, 0.35f + mag) : glm::vec3(0);
+    const float inputScale = locomotionInputScale(mag);
+    desiredVel_ = inputScale > 0.f && glm::length(dir) > 1e-6f ? glm::normalize(dir) * speed * inputScale : glm::vec3(0);
 }
 
 void Sandbox::updateScene(float dt) {
-    time_ += dt;
+    time_ += dt; cloudClock_ += dt * .02f * skyWindSpeed_;
     if (lightAuto_) lightAz_ = std::fmod(lightAz_ + 25.f * dt, 360.f);
     if (todAuto_) tod_ = std::fmod(tod_ + todSpeed_ * dt, 24.f);
     const Showcase& sc = showcases_[showcase_];
@@ -730,12 +735,15 @@ void Sandbox::applyTimeOfDay() {
     float az = useSun ? sunAz : moonAz, el = useSun ? std::max(sunElev, 2.f) : std::max(moonElev, 14.f);
     auto q = [](glm::vec3 v) { return glm::round(v * 40.f) / 40.f; };      // quantised: the procedural IBL is re-baked whenever these change
     light_.zenith = q(L(&Key::zenith)); light_.horizon = q(L(&Key::horizon)); light_.sky = q(L(&Key::sky)); light_.ground = q(L(&Key::ground));
-    light_.fogColor = L(&Key::fog);
+    SkyPalette palette{light_.zenith, light_.horizon, light_.sky, L(&Key::fog)};
+    palette = applySkyStyle(static_cast<SkyStyle>(skyStyle_), palette, ss(-10.f, 10.f, sunElev));
+    light_.zenith = q(palette.zenith); light_.horizon = q(palette.horizon); light_.sky = q(palette.ambient);
+    light_.fogColor = palette.fog;
     light_.color = useSun ? sunCol : glm::vec3(0.55f, 0.66f, 1.0f);
     light_.intensity = std::max(sunI, moonI); light_.ambient = Lf(&Key::ambient);
     lightAz_ = az; lightEl_ = el;
     light_.starVisibility = 1.f - ss(-14.f, -3.f, sunElev);
-    light_.cloudCover = cloud_; light_.cloudTime = time_ * 0.02f;
+    light_.cloudCover = cloud_; light_.cloudTime = cloudClock_;
     light_.sunDisc = 1.f;
     post_.exposure = userExposure_ * Lf(&Key::exposure);
     if (hdriMode_) light_.envIntensity = userEnv_ * (0.06f + 0.94f * ss(-10.f, 12.f, sunElev));
@@ -856,6 +864,7 @@ void Sandbox::drawCharacterUI() {
     }
     if (showcases_[showcase_].lab && ImGui::CollapsingHeader("Navigation + NPC crowd (Recast / Detour)")) {
         ImGui::Text("navmesh: %d polys, %d verts, built in %.0f ms", lab_.nav.polyCount(), lab_.nav.vertexCount(), lab_.nav.buildMs());
+        ImGui::TextWrapped("Stairs: x=0, z=9.6 to 12; platform behind them.");
         ImGui::Checkbox("Draw navmesh (orange = mud, cost x6)", &navDebug_); ImGui::SameLine(); ImGui::Checkbox("Agents / paths", &agentDebug_);
         ImGui::Checkbox("Motion-matching feature debug", &mmDebug_);
         for (auto& n : lab_.npcs) ImGui::BulletText("%s: %s  (%.1f m/s)", n.e->name.c_str(), n.status.c_str(), glm::length(glm::vec2(n.e->velocity.x, n.e->velocity.z)));
@@ -1157,6 +1166,9 @@ void Sandbox::drawUI(float wallDt) {
         ImGui::Checkbox("Skeleton", &skeleton_); ImGui::SameLine(); ImGui::Checkbox("MM trajectory", &trajectory_);
     }
     if (ImGui::CollapsingHeader("Time of day / sky", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Combo("Sky palette", &skyStyle_, "Celestial\0Cinematic\0Atmospheric\0Painterly\0");
+        ImGui::TextDisabled("Palette profiles on the existing procedural sky");
+        ImGui::SliderFloat("Cloud wind speed", &skyWindSpeed_, 0.f, 5.f, "%.1fx");
         ImGui::Checkbox("Time of day drives sun, sky, fog, ambient", &todEnabled_);
         ImGui::SliderFloat("Hour", &tod_, 0.f, 24.f, "%.2f h"); ImGui::Checkbox("Auto advance", &todAuto_); ImGui::SameLine(); ImGui::SetNextItemWidth(120); ImGui::SliderFloat("hours/s", &todSpeed_, 0.05f, 3.f);
         if (ImGui::Button("Morning")) tod_ = 8.f; ImGui::SameLine(); if (ImGui::Button("Noon")) tod_ = 12.f; ImGui::SameLine(); if (ImGui::Button("Afternoon")) tod_ = 15.f; ImGui::SameLine();
@@ -1230,6 +1242,7 @@ void Sandbox::drawUI(float wallDt) {
         ImGui::Checkbox("Enable foot IK", &vrm_->ik.enabled); ImGui::SliderFloat("IK weight", &vrm_->ik.weight, 0, 1);
         ImGui::SliderFloat("Contact height", &vrm_->ik.contactHeight, 0.02f, 0.2f); ImGui::SliderFloat("Contact speed", &vrm_->ik.contactSpeed, 0.1f, 1.5f);
         ImGui::Text("planted: L %s (%.1f cm)  R %s (%.1f cm)", vrm_->ikState.foot[0].locked ? "yes" : "no", vrm_->ikState.debugLift[0] * 100, vrm_->ikState.foot[1].locked ? "yes" : "no", vrm_->ikState.debugLift[1] * 100);
+        ImGui::Checkbox("Allow spontaneous action clips while idle", &s.idleActionClips);
         ImGui::SeparatorText("LAFAN1 families the search may pick");
         for (int c = 0; c < kMotionCategoryCount; ++c) {
             bool on = (s.categoryMask >> c) & 1u; char lbl[96]; std::snprintf(lbl, sizeof lbl, "%s (%d clips)", kMotionCategoryNames[c], db->clipsInCategory(c));
@@ -1586,7 +1599,7 @@ MobileSnapshot Sandbox::captureMobile() const {
     s.lutStrength = lutStrength_;
     s.lightAz = lightAz_;
     s.lightEl = lightEl_;
-    s.time = time_;
+    s.time = time_; s.skyStyle = skyStyle_; s.skyWindSpeed = skyWindSpeed_; s.cloudClock = cloudClock_;
     s.rain = rain_;
     s.splitOffset = splitOffset_;
     s.todAuto = todAuto_;
@@ -1652,7 +1665,7 @@ void Sandbox::restoreMobile(const MobileSnapshot& s) {
     lutStrength_ = s.lutStrength;
     lightAz_ = s.lightAz;
     lightEl_ = s.lightEl;
-    time_ = s.time;
+    time_ = s.time; skyStyle_ = s.skyStyle; skyWindSpeed_ = s.skyWindSpeed; cloudClock_ = s.cloudClock;
     rain_ = s.rain;
     splitOffset_ = s.splitOffset;
     todAuto_ = s.todAuto;

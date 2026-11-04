@@ -7,6 +7,8 @@ get_filename_component(ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 # Link the actual engine (except the desktop GLFW window) and its vendored dependencies into the Android library.
 file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS ${ROOT}/engine/*.cpp)
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "/platform/Window\\.cpp$")
+# FBX inspection is a desktop CLI, not part of the Android renderer.
+list(FILTER ENGINE_SOURCES EXCLUDE REGEX "/asset/FbxInfo\\.cpp$")
 set(RN ${ROOT}/third_party/recastnavigation)
 file(GLOB RN_SOURCES CONFIGURE_DEPENDS ${RN}/Recast/Source/*.cpp ${RN}/Detour/Source/*.cpp ${RN}/DetourCrowd/Source/*.cpp)
 add_library(sakuga_mobile SHARED

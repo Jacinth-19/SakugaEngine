@@ -51,3 +51,9 @@ Average FPS is frames divided by measured seconds; p95 is the nearest-rank 95th 
 ## Mixamo characters
 
 Adobe requires a Mixamo account to download characters, and its FAQ restricts distribution of raw Mixamo character and animation files in engine/asset packages. No Mixamo assets are included here. A useful starting choice is **X Bot**, a standard humanoid; download it yourself from Mixamo and provide the FBX for an import/retargeting evaluation. Never send account credentials. Sakuga currently loads glTF/GLB/VRM, not FBX; Mixamo character import and retargeting are not yet implemented or verified. Converting FBX to GLB alone does not automatically provide the VRM humanoid mapping required by the current motion-matching path. See [Adobe's Mixamo FAQ](https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html) and [licensing FAQ](https://community.adobe.com/questions-696/mixamo-faq-licensing-royalties-ownership-eula-and-tos-589400).
+
+### Current sky controls and FBX inspection
+
+The sandbox's **Time of day / sky** panel now includes four artistic *palette* choices (Celestial, Cinematic, Atmospheric and Painterly) and cloud wind speed. These change colours on the existing procedural sky; they are not the standalone AnimeSky renderer, Hillaire atmosphere LUTs, 2.5D/volumetric cloud systems, weather transitions or GPU timestamp profiler described in the proposed roadmap. The existing Vulkan renderer and Android requirements remain unchanged.
+
+The Windows package includes `sakuga-fbx-info.exe`, an offline diagnostic based on vendored ufbx. Run `sakuga-fbx-info.exe "C:\path\to\Jody.fbx"` in Command Prompt to inspect counts and bone names. It parses FBX but **does not import, animate or render it**; the sandbox still accepts glTF/GLB/VRM, not FBX. Jody was not available for testing or bundled, and Adobe's Mixamo restrictions still apply. A user-supplied Jody file is needed to develop and validate a real FBX rendering/retargeting path.

@@ -9,7 +9,7 @@
 # For a machine without an installed glm, pass -DSAKUGA_GLM_INCLUDE_DIR=/path/to/glm.
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   cmake_minimum_required(VERSION 3.20)
-  project(SakugaTests LANGUAGES CXX)
+  project(SakugaTests LANGUAGES C CXX)
 endif()
 
 get_filename_component(SAKUGA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
@@ -31,6 +31,11 @@ else()
   target_link_libraries(sakuga_test_glm INTERFACE glm::glm)
 endif()
 
+if(NOT TARGET ufbx)
+  add_library(ufbx STATIC ${SAKUGA_ROOT}/third_party/ufbx/ufbx.c)
+  target_include_directories(ufbx PUBLIC ${SAKUGA_ROOT}/third_party)
+endif()
+
 # ---------------------------------------------------------------- headless engine subset
 # Only sources with no Vulkan / GLFW / ImGui dependency may appear here (checked by the compiler).
 add_library(sakuga_headless STATIC
@@ -41,6 +46,7 @@ add_library(sakuga_headless STATIC
   ${SAKUGA_ROOT}/engine/anim/Rig.cpp
   ${SAKUGA_ROOT}/engine/anim/MotionMatching.cpp
   ${SAKUGA_ROOT}/engine/asset/Lut.cpp
+  ${SAKUGA_ROOT}/engine/asset/FbxInfo.cpp
   ${SAKUGA_ROOT}/engine/world/World.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/stb_impl.cpp)
 target_include_directories(sakuga_headless PUBLIC
@@ -49,7 +55,7 @@ target_include_directories(sakuga_headless PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(sakuga_headless PUBLIC
   GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RADIANS GLM_ENABLE_EXPERIMENTAL)
-target_link_libraries(sakuga_headless PUBLIC sakuga_test_glm)
+target_link_libraries(sakuga_headless PUBLIC sakuga_test_glm ufbx)
 find_package(Threads REQUIRED)
 target_link_libraries(sakuga_headless PUBLIC Threads::Threads)
 if(WIN32)
@@ -83,6 +89,11 @@ endif()
 # ---------------------------------------------------------------- tests
 set(SAKUGA_TESTS
   frame_benchmark_test
+  crowd_steering_test
+  sky_profiles_test
+  fbx_info_test
+  course_layout_test
+  face_frame_test
   sys_info_test
   presentation_requirements_test
   surface_choices_test
@@ -112,6 +123,17 @@ foreach(test_name ${SAKUGA_TESTS})
     SAKUGA_ASSET_DIR="${SAKUGA_ROOT}/assets")
   add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
+
+# Recast/Detour navigation is CPU-only; this integration test never creates a renderer or Vulkan device.
+if(NOT TARGET recastdetour)
+  set(RN_TEST_DIR ${SAKUGA_ROOT}/third_party/recastnavigation)
+  file(GLOB RN_TEST_SOURCES CONFIGURE_DEPENDS ${RN_TEST_DIR}/Recast/Source/*.cpp ${RN_TEST_DIR}/Detour/Source/*.cpp ${RN_TEST_DIR}/DetourCrowd/Source/*.cpp)
+  add_library(recastdetour STATIC ${RN_TEST_SOURCES})
+  target_include_directories(recastdetour PUBLIC ${RN_TEST_DIR}/Recast/Include ${RN_TEST_DIR}/Detour/Include ${RN_TEST_DIR}/DetourCrowd/Include)
+endif()
+add_executable(nav_crowd_test ${CMAKE_CURRENT_SOURCE_DIR}/nav_crowd_test.cpp ${SAKUGA_ROOT}/engine/world/NavMesh.cpp)
+target_link_libraries(nav_crowd_test PRIVATE sakuga_headless recastdetour)
+add_test(NAME nav_crowd_test COMMAND nav_crowd_test)
 
 # The Android preview uses the production motion engine on a simple rig; exercise it on the host without a GPU.
 add_executable(mobile_session_test ${CMAKE_CURRENT_SOURCE_DIR}/mobile_session_test.cpp ${SAKUGA_ROOT}/android/native/MobileSession.cpp)

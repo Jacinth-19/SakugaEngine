@@ -5,6 +5,7 @@
 #include "gfx/Renderer.h"
 #include "scene/Scene.h"
 #include "world/NavMesh.h"
+#include "world/CrowdSteering.h"
 #include "world/World.h"
 #include <functional>
 #include <memory>
@@ -19,6 +20,7 @@ struct Npc {
     glm::vec3 home{0}, goal{0};
     bool hasGoal = false, holding = true;
     float timer = 0.f, side = 1.f, speed = 0.f;
+    CrowdTargetGate targetGate;
     std::string status = "idle";
 };
 

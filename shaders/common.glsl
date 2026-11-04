@@ -20,7 +20,7 @@ layout(set = 0, binding = 0, std140) uniform GlobalUBO {
     vec4 envParams;      // x intensity, y max LOD, z 1 = HDR environment drives the sky, w rotation (rad)
     vec4 pointPos[4];    // xyz position, w range
     vec4 pointCol[4];    // rgb colour * intensity (intensity 0 = off)
-    vec4 faceForward;    // head frame (model space) for draws with PC.pad0 == 1
+    vec4 faceForward;    // reserved: head frames now live in per-draw push constants
     vec4 faceRight;
     vec4 skyZenith;      // rgb zenith colour, w = cloud cover
     vec4 skyHorizon;     // rgb horizon colour, w = cloud time
@@ -58,6 +58,8 @@ layout(push_constant) uniform PushConstants {
     uint morphCount;
     uint morphBase;
     uint vertexCount;
+    vec4 faceForward;  // per-draw head frame, model space
+    vec4 faceRight;
 } PC;
 
 // The scene is rendered in linear HDR (RGBA16F); exposure, tonemapping, grading and the sRGB OETF happen in the post pass.

@@ -188,12 +188,12 @@ int main(int argc, char** argv) {
         MMSettings s;
         const uint32_t idleMask = resolveCategoryMask(s, false, 0.f, false);
         const uint32_t movingMask = resolveCategoryMask(s, true, s.runGateSpeed + 1.f, false);
+        CHECK(idleMask == (1u << 0));
+        s.idleActionClips = true;
+        const uint32_t actionMask = resolveCategoryMask(s, false, 0.f, false);
         for (int c = 0; c < kMotionCategoryCount; ++c) {
-            if (c == 3 || c == 8) {                                   // jumps / ground: triggered, not ambient
-                CHECK_NEAR((double)((idleMask >> c) & 1u), 0.0, 0);
-                continue;
-            }
-            CHECK_MSG(((idleMask >> c) & 1u) != 0, std::string("idle search may use ") + kMotionCategoryNames[c]);
+            bool expected = c != 3 && c != 8;
+            CHECK_MSG(((actionMask >> c) & 1u) == (unsigned)expected, kMotionCategoryNames[c]);
         }
         CHECK((movingMask & (1u << 0)) && (movingMask & (1u << 1)));
     }

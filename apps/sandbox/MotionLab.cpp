@@ -1,5 +1,6 @@
 #include "MotionLab.h"
 #include "core/Log.h"
+#include "world/CourseLayout.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <algorithm>
@@ -34,9 +35,9 @@ void MotionLab::build(Renderer& r, const StyleTextures& style, bool outlines, co
     };
     const glm::quat I(1, 0, 0, 0);
     // --- stairs (8 x 0.16 m) up to a platform, a 20 degree ramp down the other side
-    for (int k = 1; k <= 8; ++k) {
-        float h = k * 0.16f, zc = 12.f - (8.5f - k) * 0.3f;
-        prop("Stair", {0, h * 0.5f, zc}, {1.5f, h * 0.5f, 0.15f}, I, stair);
+    for (int k = 0; k < 8; ++k) {
+        StairBox b = motionLabStair(k);
+        prop("Stair", b.center, b.half, I, stair);
     }
     prop("Platform", {0, 0.64f, 14.f}, {2.f, 0.64f, 2.f}, I, stone);
     {
@@ -118,8 +119,14 @@ void MotionLab::updateNpcs(float dt, const Entity& player, float walkSpeed, floa
                 }
             }
         }
-        if (go) { nav.setTarget(n.agent, goal); nav.setMaxSpeed(n.agent, speed); n.speed = speed; }
-        else { nav.clearTarget(n.agent); n.speed = 0.f; }
+        n.targetGate.tick(dt);
+        if (go) {
+            if (n.targetGate.shouldRequest(goal) && nav.setTarget(n.agent, goal)) n.targetGate.requested(goal);
+            nav.setMaxSpeed(n.agent, speed); n.speed = speed;
+        } else {
+            if (n.targetGate.active) nav.clearTarget(n.agent);
+            n.targetGate.clear(); n.speed = 0.f;
+        }
     }
     nav.updateCrowd(dt);
     for (Npc& n : npcs) {
@@ -128,9 +135,9 @@ void MotionLab::updateNpcs(float dt, const Entity& player, float walkSpeed, floa
         CrowdAgentInfo a = nav.agent(n.agent);
         glm::vec3 v = a.newVel; v.y = 0;
         float len = glm::length(v);
-        bool moving = !n.holding && a.hasTarget && len > 0.15f;
-        glm::vec3 desired(0);
-        if (moving) desired = glm::normalize(v) * std::min(n.speed, std::max(len, n.speed * 0.6f));
+        bool moving = !n.holding && a.hasTarget && len > 0.05f;
+        // Respect Detour's slowdown near obstacles and destinations instead of forcing 60% speed.
+        glm::vec3 desired = moving ? crowdRequestedVelocity(v, n.speed) : glm::vec3(0);
         e.sprinting = moving && n.speed > (walkSpeed + runSpeed) * 0.5f;
         n.e->hasLookTarget = false;
         // pending desired velocity is consumed by Entity::update (stored in the Npc for the caller)
@@ -159,7 +166,9 @@ void MotionLab::updateNpcs(float dt, const Entity& player, float walkSpeed, floa
         repel(player.pos, 1.f);
         for (size_t j = 0; j < npcs.size(); ++j) if (j != i) repel(npcs[j].e->pos, 0.5f);
         glm::vec3 np = a.pos + push * k; glm::vec3 snapped = np;
-        if (glm::length(push) > 1e-4f) { if (nav.nearestPoint(np, snapped)) { a.pos.x = snapped.x; a.pos.z = snapped.z; } }
+        if (glm::length(push) > 1e-4f && nav.nearestPoint(np, snapped) && nav.walkable(a.pos, snapped)) {
+            a.pos.x = snapped.x; a.pos.z = snapped.z;
+        }
     }
 }
 

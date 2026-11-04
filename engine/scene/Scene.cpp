@@ -1,6 +1,7 @@
 #include <cstdio>
 #include "scene/Scene.h"
 #include "anim/IKCommon.h"
+#include "gfx/FaceFrame.h"
 #include "world/World.h"
 #include <array>
 #include <algorithm>
@@ -183,13 +184,12 @@ void Entity::update(float dt, const glm::vec3& desiredVelocity) {
 void Entity::collect(FrameInput& fi) const {
     if (!visible || !model) return;
     glm::mat4 T = transform();
-    {   // head-bone driven frame for the face SDF
-        int h = model->rig.bone(HumanBone::Head);
-        if (h >= 0 && !globals.empty() && !restGlobals.empty()) {
-            glm::quat d = rotOf(globals[h]) * glm::inverse(rotOf(restGlobals[h]));
-            fi.faceForward = d * glm::vec3(0, 0, 1); fi.faceRight = d * glm::vec3(1, 0, 0);
-        }
-    }
+    // Each character must carry its own head frame into its draws. A global frame was
+    // overwritten by the last collected NPC and made everyone else's face shadows turn with it.
+    FaceFrame faceFrame;
+    int h = model->rig.bone(HumanBone::Head);
+    if (h >= 0 && h < (int)globals.size() && h < (int)restGlobals.size())
+        faceFrame = makeFaceFrame(rotOf(globals[h]), rotOf(restGlobals[h]));
     std::vector<int> skinBase(model->rig.skins.size(), -1);
     for (const Primitive& p : model->prims) {
         DrawItem d; d.mesh = p.mesh; d.material = model->materials[std::min<size_t>(p.material, model->materials.size() - 1)];
@@ -205,6 +205,7 @@ void Entity::collect(FrameInput& fi) const {
             d.model = T * globals[p.node] * glm::inverse(restGlobals[p.node]);
         }
         d.faceFrame = d.material->faceFrame;
+        d.faceForward = faceFrame.forward; d.faceRight = faceFrame.right;
         // morph targets: sum the VRM expression binds that refer to this mesh's slots
         if (p.mesh && p.mesh->morphSlots > 0 && p.meshIndex >= 0 && !exprFinal.empty()) {
             std::vector<float> w(p.mesh->morphSlots, 0.f); bool any = false;

@@ -11,6 +11,7 @@ The build prefers a system installation when CMake finds one and falls back to t
 | [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | 1.3.290 | Apache-2.0 / MIT (`vulkan/LICENSE.md`) | `vulkan/include/` | C headers only (`vulkan/*.h`, `vk_video/*.h`); the C++ bindings are not used |
 | [Dear ImGui](https://github.com/ocornut/imgui) | docking-era snapshot | MIT (`imgui/LICENSE.txt`) | `imgui/` | editor UI |
 | [Recast & Detour](https://github.com/recastnavigation/recastnavigation) | 1.6-era snapshot | zlib (`recastnavigation/License.txt`) | `recastnavigation/` | navmesh build + crowd |
+| [ufbx](https://github.com/ufbx/ufbx) | 0.23.1 | MIT or Unlicense (`ufbx/LICENSE`) | `ufbx/` | FBX inspection, not yet rendering/import |
 | [cgltf](https://github.com/jkuhlmann/cgltf) | 1.x (header) | MIT | `cgltf/cgltf.h` | glTF/VRM parsing |
 | [stb](https://github.com/nothings/stb) | `stb_image` / `stb_image_write` | public domain | `stb/` | image decode/encode |
 

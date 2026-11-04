@@ -131,9 +131,7 @@ the entire library -- not the two vendored clips. The startup log says what was 
 ```
 
 (and warns when it finds <= 2 clips). What each character may *pick* is then gated per frame by
-`anim::resolveCategoryMask()` -- walking/running only reach locomotion families while moving, standing still opens up
-dance/fight/aiming/interaction, a jump request unlocks the jump family, and Ground only comes back after a fall -- so the
-whole library is reachable without the matcher answering "sit still" to a walk request. `--no-mm-context` turns the gating
+`anim::resolveCategoryMask()` -- walking/running only reach locomotion families while moving, and standing uses walk-family stills by default. Dance/fight/aiming/interaction can be explicitly enabled while idle in the Motion matching panel, and jump requests unlock the jump family. Every clip remains available in the clip browser. `--no-mm-context` turns the gating
 off and searches the raw `--mm-categories` mask on every frame (slower, and it can pick anything at any time), and
 `--mm-categories all` is the same thing without the mask restriction.
 
