@@ -81,6 +81,10 @@ for i in $(seq 1 20); do
   [[ -n $start_target ]] && break
   sleep 1
 done
+if [[ -z $start_target ]]; then
+  adb exec-out screencap -p > apk/android-fail.png
+  echo "::error::Benchmark window did not open; button target: $bench_target"; exit 1
+fi
 read -r start_x start_y < <(echo "$start_target" | sed -n 's/.*benchmark start target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
 if [[ -z ${start_x:-} || -z ${start_y:-} ]]; then echo '::error::Benchmark window did not open'; exit 1; fi
 adb shell input tap "$start_x" "$start_y"
@@ -92,6 +96,25 @@ for i in $(seq 1 100); do
 done
 if [[ $completed != 1 ]]; then echo '::error::Benchmark did not complete'; exit 1; fi
 grep -F 'benchmark completed frames=' /tmp/sakuga-android-log.txt | tail -1
+share_target=''
+for i in $(seq 1 20); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  share_target=$(grep -F 'benchmark share target x=' /tmp/sakuga-android-log.txt | tail -1 || true)
+  [[ -n $share_target ]] && break
+  sleep 1
+done
+if [[ -z $share_target ]]; then echo '::error::Benchmark report was not displayed'; exit 1; fi
+read -r share_x share_y < <(echo "$share_target" | sed -n 's/.*benchmark share target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
+adb shell input tap "$share_x" "$share_y"
+shared=0
+for i in $(seq 1 20); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  if grep -q 'benchmark share chooser opened' /tmp/sakuga-android-log.txt; then shared=1; break; fi
+  sleep 1
+done
+if [[ $shared != 1 ]]; then adb exec-out screencap -p > apk/android-fail.png; echo '::error::Benchmark share chooser did not open'; exit 1; fi
+adb shell input keyevent KEYCODE_BACK
+sleep 2
 close_target=$(grep -F 'benchmark close target x=' /tmp/sakuga-android-log.txt | tail -1)
 read -r close_x close_y < <(echo "$close_target" | sed -n 's/.*benchmark close target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
 adb shell input tap "$close_x" "$close_y"

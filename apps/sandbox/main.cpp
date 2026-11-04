@@ -284,7 +284,7 @@ private:
     int selectedMat_ = 0; bool syncMat_ = true;
     FrameBenchmark benchmark_; bool showBenchmark_ = false;
 #ifdef __ANDROID__
-    bool benchmarkTargetsLogged_ = false;
+    bool benchmarkTargetsLogged_ = false, benchmarkShareTargetLogged_ = false;
 #endif
     std::string benchmarkSetup_, benchmarkReport_;
     uint32_t benchmarkWidth_ = 0, benchmarkHeight_ = 0;
@@ -987,6 +987,9 @@ void Sandbox::startBenchmark() {
     out << "\nWarmup: 3 s; target sample: 20 s\n";
     benchmarkSetup_ = out.str(); benchmarkReport_.clear(); benchmark_.start();
 #ifdef __ANDROID__
+    benchmarkShareTargetLogged_ = false;
+#endif
+#ifdef __ANDROID__
     __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark started");
 #endif
 }
@@ -1036,6 +1039,11 @@ void Sandbox::drawBenchmarkUI() {
         if (benchmark_.state() == FrameBenchmark::State::Complete) {
 #ifdef __ANDROID__
             if (ImGui::Button("Share report")) shareAndroidBenchmark(benchmarkReport_);
+            if (!benchmarkShareTargetLogged_) {
+                ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+                __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark share target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+                benchmarkShareTargetLogged_ = true;
+            }
 #else
             if (ImGui::Button("Copy report")) ImGui::SetClipboardText(benchmarkReport_.c_str());
 #endif
@@ -1407,7 +1415,6 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .65f, 10.f * density), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .34f, renderer_.height() * .58f), ImGuiCond_Always);
     ImGui::Begin("SAKUGA / MOBILE", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
-    ImGui::TextUnformatted("Sandbox"); ImGui::SameLine();
     if (ImGui::Button((tod_ >= 19.f || tod_ < 5.f) ? "DAY" : "NIGHT")) {
         todEnabled_ = true; tod_ = (tod_ >= 19.f || tod_ < 5.f) ? 15.f : 22.f;
     }

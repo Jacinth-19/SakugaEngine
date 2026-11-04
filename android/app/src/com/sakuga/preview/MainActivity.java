@@ -83,6 +83,7 @@ public final class MainActivity extends Activity {
             send.setType("text/plain");
             send.putExtra(Intent.EXTRA_TEXT, "Device: " + Build.MANUFACTURER + " " + Build.MODEL + " (Android " + Build.VERSION.RELEASE + ")\n" + report);
             activity.startActivity(Intent.createChooser(send, "Share benchmark"));
+            android.util.Log.i("SakugaPreview", "benchmark share chooser opened");
         }});
     }
 
