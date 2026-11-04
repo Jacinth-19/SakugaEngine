@@ -5,6 +5,7 @@
 #include "common.glsl"
 layout(location = 0) in vec3 vDir;
 layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outBloomMask;
 
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float vnoise(vec2 p) {
@@ -31,6 +32,7 @@ float cloudField(vec3 d, float time) {          // seamless over the whole dome;
 }
 
 void main() {
+    outBloomMask = vec4(clamp(G.style.y, 0.0, 1.0), 0.0, 0.0, 1.0);
     vec3 d = normalize(vDir);
     if (G.envParams.z > 0.5) { outColor = vec4(encodeOutput(textureLod(uEnv, equirectUV(envRotate(d)), 0.0).rgb * G.envParams.x), 1.0); return; }
 

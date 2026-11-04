@@ -2,6 +2,7 @@
 #include "gfx/ShadowFit.h"
 #include "gfx/SurfaceChoices.h"
 #include "post/AtmosphereMath.h"
+#include "post/BloomSelection.h"
 #include "post/TimestampMath.h"
 #include "core/Log.h"
 #ifndef __ANDROID__
@@ -147,6 +148,18 @@ bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, co
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, &depthProps);
     sampleSceneDepth_ = canSampleSceneDepth(depthResult == VK_SUCCESS, depthProps.sampleCounts,
                                             ctx.props.limits.sampledImageDepthSampleCounts, ctx.msaa);
+    // A blendable, linearly sampleable R8 attachment is used for material bloom weights.
+    VkFormatProperties maskFmt{}; vkGetPhysicalDeviceFormatProperties(ctx.phys, VK_FORMAT_R8_UNORM, &maskFmt);
+    const VkFormatFeatureFlags requiredMaskFeatures = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT |
+        VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    VkImageFormatProperties maskMsaaProps{}, maskResolvedProps{};
+    VkResult maskMsaaResult = vkGetPhysicalDeviceImageFormatProperties(ctx.phys, VK_FORMAT_R8_UNORM, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT, 0, &maskMsaaProps);
+    VkResult maskResolvedResult = vkGetPhysicalDeviceImageFormatProperties(ctx.phys, VK_FORMAT_R8_UNORM, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, &maskResolvedProps);
+    materialBloomSupported_ = canUseMaterialBloomMask(maskMsaaResult == VK_SUCCESS,
+        (maskFmt.optimalTilingFeatures & requiredMaskFeatures) == requiredMaskFeatures, ctx.props.limits.maxColorAttachments,
+        maskMsaaProps.sampleCounts, ctx.msaa, maskResolvedResult == VK_SUCCESS && (maskResolvedProps.sampleCounts & VK_SAMPLE_COUNT_1_BIT));
     postProcessing_.init(ctx);
 
     // --- samplers / targets
@@ -276,14 +289,19 @@ void Renderer::createTargets() {
         (sampleSceneDepth_ ? VK_IMAGE_USAGE_SAMPLED_BIT : VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT);
     msaaDepth_ = ctx_->createImage(width_, height_, kDepthFormat, depthUsage, 1, ms, VK_IMAGE_ASPECT_DEPTH_BIT);
     sceneColor_ = ctx_->createImage(width_, height_, colorFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    if (materialBloomSupported_) {
+        bloomMask_ = ctx_->createImage(width_, height_, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+        if (ms != VK_SAMPLE_COUNT_1_BIT) msaaBloomMask_ = ctx_->createImage(width_, height_, VK_FORMAT_R8_UNORM,
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT, 1, ms);
+    }
     finalColor_ = ctx_->createImage(width_, height_, finalFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     readback_ = ctx_->createBuffer((VkDeviceSize)width_ * height_ * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
     if (!lutTex_) { LutStrip id = identityLut(16); lutSize_ = id.size; lutTex_ = createTexture("lut_identity", id.rgba.data(), id.size * id.size, id.size, false, false, false); }
-    postProcessing_.createTargets(width_, height_, colorFormat_, finalFormat_, sceneColor_, msaaDepth_, sampleSceneDepth_, *lutTex_);
+    postProcessing_.createTargets(width_, height_, colorFormat_, finalFormat_, sceneColor_, msaaDepth_, sampleSceneDepth_, bloomMask_, materialBloomSupported_, *lutTex_);
 }
 void Renderer::destroyTargets() {
     postProcessing_.destroyTargets();
-    ctx_->destroyImage(msaaColor_); ctx_->destroyImage(msaaDepth_); ctx_->destroyImage(sceneColor_); ctx_->destroyImage(finalColor_); ctx_->destroyBuffer(readback_);
+    ctx_->destroyImage(msaaColor_); ctx_->destroyImage(msaaDepth_); ctx_->destroyImage(sceneColor_); ctx_->destroyImage(finalColor_); ctx_->destroyImage(bloomMask_); ctx_->destroyImage(msaaBloomMask_); ctx_->destroyBuffer(readback_);
 }
 
 void Renderer::resize(uint32_t w, uint32_t h) {
@@ -322,11 +340,13 @@ VkPipeline Renderer::makePipeline(VkShaderModule vs, VkShaderModule fs, int vert
     cba.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA; cba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA; cba.colorBlendOp = VK_BLEND_OP_ADD;
     cba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE; cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; cba.alphaBlendOp = VK_BLEND_OP_ADD;
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    cb.attachmentCount = hasColor ? 1 : 0; cb.pAttachments = &cba;
+    VkPipelineColorBlendAttachmentState blendAttachments[2] = {cba, cba};
+    cb.attachmentCount = hasColor ? (materialBloomSupported_ ? 2u : 1u) : 0u; cb.pAttachments = blendAttachments;
     VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dy{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO}; dy.dynamicStateCount = 2; dy.pDynamicStates = dyn;
     VkPipelineRenderingCreateInfo ri{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    ri.colorAttachmentCount = hasColor ? 1 : 0; ri.pColorAttachmentFormats = &colorFmt; ri.depthAttachmentFormat = kDepthFormat;
+    VkFormat colorFormats[2] = {colorFmt, VK_FORMAT_R8_UNORM};
+    ri.colorAttachmentCount = hasColor ? (materialBloomSupported_ ? 2u : 1u) : 0u; ri.pColorAttachmentFormats = colorFormats; ri.depthAttachmentFormat = kDepthFormat;
     VkGraphicsPipelineCreateInfo gp{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     gp.pNext = &ri; gp.stageCount = 2; gp.pStages = st; gp.pVertexInputState = &vi; gp.pInputAssemblyState = &ia; gp.pViewportState = &vp;
     gp.pRasterizationState = &rs; gp.pMultisampleState = &ms; gp.pDepthStencilState = &ds; gp.pColorBlendState = &cb; gp.pDynamicState = &dy;
@@ -696,7 +716,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         vkDeviceWaitIdle(dev);
         lutTex_ = createTexture("lut", pendingLut_.rgba.data(), pendingLut_.size * pendingLut_.size, pendingLut_.size, false, false, false);
         lutSize_ = pendingLut_.size;
-        postProcessing_.rebuildSets(sceneColor_, msaaDepth_, sampleSceneDepth_, *lutTex_);
+        postProcessing_.rebuildSets(sceneColor_, msaaDepth_, sampleSceneDepth_, bloomMask_, materialBloomSupported_, *lutTex_);
     }
 
     uint32_t imgIdx = 0;
@@ -764,7 +784,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     g.fogColor = glm::vec4(L.fogColor, screenFog ? 0.f : L.fogDensity);
     g.misc = glm::vec4(1.f, 0.f, L.wetPreviewTime, 1.f / (float)kShadowRes);
     g.skyZenith = glm::vec4(L.zenith, L.cloudCover); g.skyHorizon = glm::vec4(L.horizon, L.cloudTime); g.skyParams = glm::vec4(L.starVisibility, L.sunDisc, L.sunSize, 0.f);
-    g.style = glm::vec4(L.nprOnly ? 1.f : 0.f, 0.f, 0.f, 0.f);
+    g.style = glm::vec4(L.nprOnly ? 1.f : 0.f, glm::clamp(in.post.skyBloomWeight, 0.f, 1.f), 0.f, 0.f);
     g.split = glm::vec4(L.splitOffsetPx, L.splitDir.x, L.splitDir.y, L.outlineScale);
     for (int i = 0; i < 9; ++i) g.sh[i] = sh_[i];
     g.envParams = glm::vec4(L.envIntensity, envMaxLod_, envHDR_ ? 1.f : 0.f, L.envRotation);
@@ -853,7 +873,23 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         da.imageView = msaaDepth_.view; da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
         da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; da.storeOp = (screenFog || dofOn) ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE; da.clearValue.depthStencil = {1.f, 0};
         VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
-        ri.renderArea = {{0, 0}, {width_, height_}}; ri.layerCount = 1; ri.colorAttachmentCount = 1; ri.pColorAttachments = &ca; ri.pDepthAttachment = &da;
+        VkRenderingAttachmentInfo colorAttachments[2] = {ca, {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}};
+        if (materialBloomSupported_) {
+            ctx_->barrier(cmd, bloomMask_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            auto& mask = colorAttachments[1];
+            mask.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            mask.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; mask.clearValue.color = {{0.f, 0.f, 0.f, 0.f}};
+            if (ctx_->msaa == VK_SAMPLE_COUNT_1_BIT) {
+                mask.imageView = bloomMask_.view; mask.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            } else {
+                ctx_->barrier(cmd, msaaBloomMask_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+                mask.imageView = msaaBloomMask_.view; mask.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+                mask.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT; mask.resolveImageView = bloomMask_.view;
+                mask.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            }
+        }
+        ri.renderArea = {{0, 0}, {width_, height_}}; ri.layerCount = 1; ri.colorAttachmentCount = materialBloomSupported_ ? 2u : 1u;
+        ri.pColorAttachments = colorAttachments; ri.pDepthAttachment = &da;
         ctx_->beginRendering(cmd, &ri);
         VkViewport vp{0, 0, (float)width_, (float)height_, 0, 1}; VkRect2D sc{{0, 0}, {width_, height_}};
         vkCmdSetViewport(cmd, 0, 1, &vp); vkCmdSetScissor(cmd, 0, 1, &sc);
@@ -878,7 +914,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
 
     // post-processing: bloom chain + composite (tonemap, grade, vignette, sRGB) into finalColor_
     if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 2);
-    postProcessing_.record(cmd, sceneColor_, msaaDepth_, finalColor_, in.post, screenFog, dofOn, in.proj, L.fogColor, L.fogDensity, in.time, lutSize_);
+    postProcessing_.record(cmd, sceneColor_, msaaDepth_, bloomMask_, materialBloomSupported_, finalColor_, in.post, screenFog, dofOn, in.proj, L.fogColor, L.fogDensity, in.time, lutSize_);
     if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 2 + 1);
 
     // UI overlay (drawn on the final image so it also shows in captures)

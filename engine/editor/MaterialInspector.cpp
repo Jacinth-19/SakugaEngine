@@ -29,7 +29,7 @@ const char* groupOf(const std::string& n) {
     if (sw("hair")) return "Hair";
     if (sw("outline")) return "Outline";
     if (sw("debug")) return "Debug";
-    if (sw("rim") || sw("emission") || sw("highlight")) return "Rim / Emission / Highlight";
+    if (sw("rim") || sw("emission") || sw("highlight") || sw("bloom")) return "Rim / Emission / Highlight";
     if (sw("alpha") || sw("doubleSided")) return "Alpha";
     if (sw("metallic") || sw("smooth") || sw("occlusion") || sw("specRamp") || sw("matCap") || sw("normal") ) return "PBR / Specular";
     return "Stylised Shading";

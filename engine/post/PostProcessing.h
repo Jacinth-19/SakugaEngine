@@ -11,12 +11,12 @@ public:
     void init(Context& ctx);
     void createPipelines(VkShaderModule vs, VkShaderModule prefilter, VkShaderModule down, VkShaderModule up,
                          VkShaderModule halation, VkShaderModule composite, VkShaderModule atmosphere, VkShaderModule dof, VkShaderModule finish, VkFormat hdrFormat, VkFormat finalFormat);
-    void createTargets(uint32_t width, uint32_t height, VkFormat hdrFormat, VkFormat finalFormat, const Image& scene, const Image& depth, bool depthSupported, const Texture& lut);
-    void rebuildSets(const Image& scene, const Image& depth, bool depthSupported, const Texture& lut);
+    void createTargets(uint32_t width, uint32_t height, VkFormat hdrFormat, VkFormat finalFormat, const Image& scene, const Image& depth, bool depthSupported, const Image& mask, bool maskSupported, const Texture& lut);
+    void rebuildSets(const Image& scene, const Image& depth, bool depthSupported, const Image& mask, bool maskSupported, const Texture& lut);
     void destroyTargets();
     void shutdown();
     // scene must be COLOR_ATTACHMENT_OPTIMAL; final is overwritten and left COLOR_ATTACHMENT_OPTIMAL.
-    void record(VkCommandBuffer cmd, const Image& scene, const Image& depth, Image& final, const PostSettings& settings,
+    void record(VkCommandBuffer cmd, const Image& scene, const Image& depth, const Image& mask, bool maskSupported, Image& final, const PostSettings& settings,
                 bool atmosphereOn, bool dofOn, const glm::mat4& projection, const glm::vec3& fogColor, float fogDensity, float time, int lutSize);
 private:
     VkPipeline makePipeline(VkShaderModule fs, VkShaderModule vs, VkFormat format, bool additive);

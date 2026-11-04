@@ -28,6 +28,7 @@ layout(location = 3) in vec3 vTangentWS;
 layout(location = 4) in vec3 vBitangentWS;
 layout(location = 5) in vec4 vShadowCoord;
 layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outBloomMask;
 
 float saturate(float x) { return clamp(x, 0.0, 1.0); }
 vec3  saturate(vec3 x)  { return clamp(x, 0.0, 1.0); }
@@ -332,6 +333,10 @@ void main() {
     float alpha = baseTex.a * M.m_alpha;
     alpha = saturate(min(max(gl_FrontFacing ? 1.0 : 0.0, M.m_doubleSided), alpha));
     if (alpha - M.m_alphaClip < 0.0) discard;
+    vec3 bloomEmissionRgb = emissionTex.rgb * M.m_emissionColor.rgb * M.m_emissionStrength * saturate(emissionTex.a + emissionTex.r + flowTex.r * 0.35);
+    float bloomEmission = clamp(max(bloomEmissionRgb.r, max(bloomEmissionRgb.g, bloomEmissionRgb.b)), 0.0, 1.0);
+    float bloomWeight = clamp(M.m_bloomWeight, 0.0, 1.0) * mix(1.0, bloomEmission, clamp(M.m_bloomEmissionOnly, 0.0, 1.0));
+    outBloomMask = vec4(bloomWeight, 0.0, 0.0, alpha);
 
     vec3 normalTS = texture(tNormal, vUV).xyz * 2.0 - 1.0;
     normalTS = normalize(mix(vec3(0, 0, 1), normalTS, M.m_normalStrength));

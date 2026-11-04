@@ -25,7 +25,7 @@ layout(set = 0, binding = 0, std140) uniform GlobalUBO {
     vec4 skyZenith;      // rgb zenith colour, w = cloud cover
     vec4 skyHorizon;     // rgb horizon colour, w = cloud time
     vec4 skyParams;      // x star visibility, y sun disc intensity, z sun size
-    vec4 style;          // x = 1: every material uses the pure NPR path
+    vec4 style;          // x = pure NPR, y = sky bloom mask weight
     mat4 lightViewProj1; // far shadow cascade (atlas: near = left half, far = right half)
     vec4 shadowCascade;  // x near radius, y far radius, w cascade count
     vec4 contactPos[6];  // xyz ground contact point of a character, w radius (0 = unused)

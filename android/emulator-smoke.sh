@@ -142,6 +142,20 @@ if [[ $renderer_result == presented ]]; then
   done
   if [[ $finish != 1 ]]; then echo '::error::Finishing effects frame was not presented.'; exit 1; fi
   echo '::notice::Presented a frame with finishing effects and depth of field where supported.'
+  if grep -q 'material bloom mask supported=1' /tmp/sakuga-android-log.txt; then
+    masked=0
+    for i in $(seq 1 20); do
+      adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+      if grep -q 'material bloom mask frame presented' /tmp/sakuga-android-log.txt; then masked=1; break; fi
+      sleep 1
+    done
+    if [[ $masked != 1 ]]; then echo '::error::Material bloom mask frame not presented.'; exit 1; fi
+    echo '::notice::Presented a material-mask bloom frame.'
+  elif grep -q 'material bloom mask supported=0' /tmp/sakuga-android-log.txt; then
+    echo '::notice::Material bloom mask unsupported; colour-key fallback retained.'
+  else
+    echo '::error::Material bloom mask capability was not reported.'; exit 1
+  fi
   if grep -q 'post timing supported=1' /tmp/sakuga-android-log.txt; then
     timing=0
     for i in $(seq 1 20); do

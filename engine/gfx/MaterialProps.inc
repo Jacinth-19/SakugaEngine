@@ -79,3 +79,7 @@ SK_MAT_FLOAT(depthPush,             0.00f, 0.0f, 0.08f)
 SK_MAT_FLOAT(celShadow,             0.50f, 0.0f, 1.0f)
 SK_MAT_FLOAT(sssStrength,           0.00f, 0.0f, 1.0f)
 SK_MAT_FLOAT(selfShadow,            1.00f, 0.0f, 1.0f)
+// Weight for material-controlled selective bloom (has effect only when the post mask is enabled).
+SK_MAT_FLOAT(bloomWeight,           1.00f, 0.0f, 1.0f)
+// Mix in an emission-texture/strength gate for this material's bloom selection.
+SK_MAT_FLOAT(bloomEmissionOnly,     0.00f, 0.0f, 1.0f)

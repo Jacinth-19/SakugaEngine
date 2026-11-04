@@ -2,6 +2,20 @@
 #include <algorithm>
 #include <glm/glm.hpp>
 namespace sk {
+// The R8 mask requires an extra color attachment, blendable/sampleable linear filtering, and matching MSAA support.
+inline bool canUseMaterialBloomMask(bool formatQueryOk, bool featuresOk, unsigned maxAttachments,
+                                    unsigned formatSampleCounts, unsigned samples, bool resolveOk) {
+    return formatQueryOk && featuresOk && maxAttachments >= 2 && samples != 0 &&
+           (formatSampleCounts & samples) && resolveOk;
+}
+inline float materialBloomWeight(float weight, float emissionOnly, float emissionSignal) {
+    const float e = std::clamp(emissionOnly, 0.f, 1.f);
+    return std::clamp(weight, 0.f, 1.f) * ((1.f - e) + e * std::clamp(emissionSignal, 0.f, 1.f));
+}
+inline float blendBloomWeight(float behind, float materialWeight, float opacity) {
+    float a = std::clamp(opacity, 0.f, 1.f);
+    return std::clamp(materialWeight, 0.f, 1.f) * a + std::clamp(behind, 0.f, 1.f) * (1.f-a);
+}
 // CPU mirror of the prefilter's HDR colour selection. It is a colour key, not an object/material mask.
 inline float bloomSelection(glm::vec3 c, int mode) {
     c = glm::max(c, glm::vec3(0.f));

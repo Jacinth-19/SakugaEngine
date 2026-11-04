@@ -73,5 +73,9 @@ layout(set = 1, binding = 0, std140) uniform MaterialUBO {
     float m_celShadow;
     float m_sssStrength;
     float m_selfShadow;
+    float m_bloomWeight;
+    float m_bloomEmissionOnly;
     float m_pad0;
+    float m_pad1;
+    float m_pad2;
 } M;

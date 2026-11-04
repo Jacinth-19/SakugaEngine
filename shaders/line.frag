@@ -3,4 +3,5 @@
 #include "common.glsl"
 layout(location = 0) in vec4 vColor;
 layout(location = 0) out vec4 outColor;
-void main() { outColor = vec4(encodeOutput(vColor.rgb), vColor.a); }
+layout(location = 1) out vec4 outBloomMask;
+void main() { outColor = vec4(encodeOutput(vColor.rgb), vColor.a); outBloomMask = vec4(0.0, 0.0, 0.0, vColor.a); }

@@ -256,7 +256,7 @@ private:
     ANativeWindow* mobileWindow_ = nullptr;
     MobilePointerRouter mobilePointers_;
     std::string mobileError_;
-    bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false, mobileLoggedHalation_ = false, mobileLoggedAtmosphere_ = false, mobileLoggedFinish_ = false, mobileLoggedPostTiming_ = false;
+    bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false, mobileLoggedHalation_ = false, mobileLoggedAtmosphere_ = false, mobileLoggedFinish_ = false, mobileLoggedPostTiming_ = false, mobileLoggedMaterialBloom_ = false;
     bool mobileClipBrowser_ = false, mobileBrowserTargetLogged_ = false, mobileLastItemLogged_ = false; int mobileClipPage_ = 0;
     bool mobileLoadNpcs_ = false, mobileNpcsRequested_ = false, mobileNpcsPendingFrame_ = false, mobileRestored_ = false;
 #endif
@@ -1206,6 +1206,12 @@ void Sandbox::drawUI(float wallDt) {
         ImGui::EndDisabled();
         if (!renderer_.supportsPostAtmosphere()) ImGui::TextDisabled("Sampled scene depth unsupported: surface fog remains active.");
         ImGui::Combo("Tonemap", &post_.tonemap, "Clamp\0Khronos PBR Neutral\0ACES (Narkowicz)\0");
+        ImGui::BeginDisabled(!renderer_.supportsMaterialBloomMask());
+        ImGui::Checkbox("Per-material bloom mask", &post_.materialBloomMask);
+        ImGui::SliderFloat("Sky bloom mask weight", &post_.skyBloomWeight, 0.f, 1.f);
+        ImGui::EndDisabled();
+        if (!renderer_.supportsMaterialBloomMask()) ImGui::TextDisabled("Material bloom mask unsupported; colour selection remains available.");
+        ImGui::TextDisabled("Material inspector > Rim / Emission: bloomWeight, bloomEmissionOnly");
         ImGui::Combo("Bloom selection (colour key)", &post_.bloomSelection, "All bright\0Warm highlights\0Cool highlights\0Saturated highlights\0");
         ImGui::SliderFloat("Bloom intensity", &post_.bloomIntensity, 0.f, 1.5f); ImGui::SliderFloat("Bloom threshold", &post_.bloomThreshold, 0.2f, 3.f); ImGui::SliderFloat("Bloom knee", &post_.bloomKnee, 0.f, 1.f);
         ImGui::SliderFloat("Saturation", &post_.saturation, 0.f, 2.f); ImGui::SliderFloat("Contrast", &post_.contrast, 0.5f, 1.5f);
@@ -1536,6 +1542,7 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         const bool enable = post_.ink <= 0.f;
         post_.ink = enable ? .2f : 0.f; post_.chromatic = enable ? .5f : 0.f;
         post_.lensFlare = enable ? .12f : 0.f;
+        post_.materialBloomMask = enable && renderer_.supportsMaterialBloomMask();
         post_.depthOfField = enable && renderer_.supportsPostAtmosphere() ? 2.f : 0.f;
     }
     if (frame_ == 0) {
@@ -1592,7 +1599,13 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     // The UI changes are reflected on the next frame, as with desktop sandbox controls.
     ++frame_;
     bool rendered = renderer_.renderFrame(fi);
-    if (frame_ == 1) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "post timing supported=%d", (int)renderer_.supportsPostTiming());
+    if (frame_ == 1) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "post timing supported=%d", (int)renderer_.supportsPostTiming());
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "material bloom mask supported=%d", (int)renderer_.supportsMaterialBloomMask());
+    }
+    if (rendered && !mobileLoggedMaterialBloom_ && fi.post.enabled && fi.post.bloom && fi.post.materialBloomMask && renderer_.supportsMaterialBloomMask()) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "material bloom mask frame presented"); mobileLoggedMaterialBloom_ = true;
+    }
     if (rendered && !mobileLoggedPostTiming_ && renderer_.stats.gpuPostMs >= 0.f) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "post timing sample available"); mobileLoggedPostTiming_ = true;
     }

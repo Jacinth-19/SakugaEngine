@@ -105,6 +105,7 @@ public:
     void setPostLut(const LutStrip& lut) { pendingLut_ = lut; hasPendingLut_ = true; }
     int postLutSize() const { return lutSize_; }
     bool supportsPostAtmosphere() const { return sampleSceneDepth_; }
+    bool supportsMaterialBloomMask() const { return materialBloomSupported_; }
     bool supportsPostTiming() const { return postTimingPool_ != VK_NULL_HANDLE; }
     Texture* whiteTex() const { return white_; }
     Texture* blackTex() const { return black_; }
@@ -179,11 +180,11 @@ private:
     bool needResize_ = false;
 
     // render targets
-    Image msaaColor_, msaaDepth_, sceneColor_, finalColor_, shadow_, pointShadow_;
+    Image msaaColor_, msaaDepth_, sceneColor_, finalColor_, shadow_, pointShadow_, bloomMask_, msaaBloomMask_;
     VkFormat colorFormat_ = VK_FORMAT_R16G16B16A16_SFLOAT;     // HDR scene format
     VkFormat finalFormat_ = VK_FORMAT_R8G8B8A8_UNORM;          // display-referred output (tonemapped, sRGB encoded, UI on top)
     PostProcessing postProcessing_;
-    bool sampleSceneDepth_ = false;
+    bool sampleSceneDepth_ = false, materialBloomSupported_ = false;
     LutStrip pendingLut_; bool hasPendingLut_ = false; Texture* lutTex_ = nullptr; int lutSize_ = 16;
     Buffer morphDeltas_; uint32_t morphCursor_ = 0;
     Buffer readback_;

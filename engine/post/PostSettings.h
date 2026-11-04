@@ -8,6 +8,8 @@ struct PostSettings {
     float exposure = 1.0f;
     int tonemap = 1;                               // 0 none (clamp), 1 Khronos PBR Neutral, 2 ACES (Narkowicz)
     bool bloom = true; float bloomIntensity = 0.30f, bloomThreshold = 0.92f, bloomKnee = 0.5f, bloomRadius = 1.0f;
+    bool materialBloomMask = false;               // opt in to per-material selection where supported
+    float skyBloomWeight = 1.f;                   // sky/cloud contribution to the selection mask
     int bloomSelection = 0;                       // 0 all, 1 warm, 2 cool, 3 saturated highlights
     float vignette = 0.28f, vignetteSoftness = 0.65f;
     float saturation = 1.10f, contrast = 1.05f;

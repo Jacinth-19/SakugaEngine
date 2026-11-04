@@ -9,6 +9,17 @@ int main() {
     CHECK_NEAR(sk::bloomSelection({2,2,2}, 3), 0, 1e-6);
     CHECK_NEAR(sk::bloomSelection({4,2,1}, 3), 1, 1e-6);
     CHECK_NEAR(sk::bloomSelection({0,0,0}, 0), 1, 1e-6);
+    CHECK(sk::canUseMaterialBloomMask(true, true, 2, 7, 4, true));
+    CHECK(!sk::canUseMaterialBloomMask(false, true, 2, 7, 4, true));
+    CHECK(!sk::canUseMaterialBloomMask(true, false, 2, 7, 4, true));
+    CHECK(!sk::canUseMaterialBloomMask(true, true, 1, 7, 4, true));
+    CHECK(!sk::canUseMaterialBloomMask(true, true, 2, 3, 4, true));
+    CHECK(!sk::canUseMaterialBloomMask(true, true, 2, 7, 4, false));
+    CHECK_NEAR(sk::materialBloomWeight(.8f, 0.f, 0.f), .8f, 1e-6);
+    CHECK_NEAR(sk::materialBloomWeight(.8f, 1.f, 0.f), 0.f, 1e-6);
+    CHECK_NEAR(sk::materialBloomWeight(.8f, 1.f, .5f), .4f, 1e-6);
+    CHECK_NEAR(sk::blendBloomWeight(1.f, 0.f, .25f), .75f, 1e-6);
+    CHECK_NEAR(sk::blendBloomWeight(0.f, 1.f, .25f), .25f, 1e-6);
     sk::PostSettings base;
     base.exposure = 1.42f; base.lutStrength = .35f; base.enabled = false;
     for (auto style : {sk::PostProfile::Celestial, sk::PostProfile::Cinematic,
