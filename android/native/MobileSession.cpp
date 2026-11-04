@@ -28,9 +28,10 @@ Rig makeRig() {
     rig.buildOrder(); return rig;
 }
 }
-bool MobileSession::load(const std::vector<std::string>& paths, std::string& error) {
+bool MobileSession::load(const std::vector<std::string>& paths, std::string& error, const std::string& cacheDir) {
     rig_ = makeRig();
-    if (!db_.buildFromFiles(rig_, paths, "", 0, &error) || db_.clipNames.empty()) return false;
+    if (!db_.buildFromFiles(rig_, paths, cacheDir, 0, &error) || db_.clipNames.empty()) return false;
+    if (db_.clipNames.size() != paths.size()) { error = "Some animation clips could not be loaded"; return false; }
     pose_ = rig_.restPose(); matcher_.init(&rig_, &db_); matcher_.reset(position_, yaw_);
     matcher_.playClip(0, position_, yaw_); return true;
 }

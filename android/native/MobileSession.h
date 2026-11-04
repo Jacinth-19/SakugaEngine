@@ -5,11 +5,11 @@
 #include <string>
 #include <vector>
 
-// GPU-free Android animation preview. The full renderer has not yet been ported to Android.
+// GPU-free synthetic-rig animation fallback for the Android Vulkan sandbox.
 namespace sk {
 class MobileSession {
 public:
-    bool load(const std::vector<std::string>& paths, std::string& error);
+    bool load(const std::vector<std::string>& paths, std::string& error, const std::string& cacheDir = "");
     void update(float dt, float moveX, float moveY);
     void nextClip();
     std::array<float, kHumanBoneCount * 3> joints() const;

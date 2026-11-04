@@ -7,12 +7,12 @@ adb shell am start -W -n com.sakuga.preview/.MainActivity
 ready=0
 for i in $(seq 1 60); do
   adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
-  if grep -q 'ready clips=2' /tmp/sakuga-android-log.txt; then ready=1; break; fi
+  if grep -q 'motion assets ready clips=77' /tmp/sakuga-android-log.txt; then ready=1; break; fi
   sleep 2
 done
 if [[ $ready != 1 ]]; then
   adb logcat -d -s SakugaPreview:V AndroidRuntime:E '*:S' | tail -80
-  echo '::error::The Android preview did not load its two native motion clips.'
+  echo '::error::The Android app did not extract all 77 motion clips.'
   exit 1
 fi
 adb shell pidof com.sakuga.preview
@@ -194,7 +194,7 @@ if [[ $renderer_result == presented ]]; then
   if [[ $selected != 1 ]]; then echo '::error::Could not select a browser clip before recreation.'; exit 1; fi
   sleep 3
 fi
-echo 'Android Vulkan sandbox loaded 77 clips and dispatched a NEXT CLIP touch; the Canvas fallback uses two.'
+echo 'Android Vulkan sandbox loaded 77 clips and dispatched a NEXT CLIP touch.'
 
 # Background and resume: verify a newly-created surface can be probed again and the preview survives.
 adb logcat -c
@@ -267,3 +267,55 @@ if [[ $persisted != 1 ]]; then
   echo '::error::User theme was not loaded after process restart.'; exit 1
 fi
 echo '::notice::User theme loaded from writable storage after process restart.'
+
+# Force the genuine non-Vulkan path after stopping the renderer. It must load the same
+# complete dataset rather than silently starting the former two-clip synthetic preview.
+adb shell am force-stop com.sakuga.preview
+adb logcat -c
+adb shell am start -W -n com.sakuga.preview/.MainActivity --ez sakuga_force_canvas true
+fallback_ready=0
+for i in $(seq 1 240); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  if grep -q 'canvas fallback ready clips=77' /tmp/sakuga-android-log.txt; then fallback_ready=1; break; fi
+  sleep 2
+done
+if [[ $fallback_ready != 1 ]]; then
+  adb logcat -d -s SakugaPreview:V AndroidRuntime:E '*:S' | tail -100
+  echo '::error::Canvas fallback did not load all 77 animations.'; exit 1
+fi
+if grep -q 'engine renderer initialized' /tmp/sakuga-android-log.txt; then
+  echo '::error::Forced Canvas check unexpectedly initialized Vulkan.'; exit 1
+fi
+# A real tap on the fallback button must reach its full-library matcher.
+adb shell input tap "$((width * 90 / 100))" "$((height * 90 / 100))"
+fallback_tap=0
+for i in $(seq 1 30); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  if grep -q 'next clip requested' /tmp/sakuga-android-log.txt; then fallback_tap=1; break; fi
+  sleep 1
+done
+if [[ $fallback_tap != 1 ]]; then echo '::error::Canvas NEXT CLIP did not respond.'; exit 1; fi
+python3 - <<'PYCODE'
+import re
+log = open('/tmp/sakuga-android-log.txt').read()
+m = re.search(r'next clip requested from=(\d+) to=(\d+) count=(\d+)', log)
+if not m or int(m[3]) != 77 or int(m[2]) != (int(m[1]) + 1) % 77:
+    raise SystemExit('Canvas NEXT CLIP did not advance through the full library')
+PYCODE
+adb exec-out screencap -p > apk/android-canvas.png
+# Exercise the retained fallback across a surface destruction/recreation.
+adb logcat -c
+adb shell input keyevent KEYCODE_HOME
+sleep 3
+adb shell am start -W -n com.sakuga.preview/.MainActivity --ez sakuga_force_canvas true
+fallback_resumed=0
+for i in $(seq 1 120); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  if grep -q 'canvas fallback ready clips=77' /tmp/sakuga-android-log.txt; then fallback_resumed=1; break; fi
+  sleep 2
+done
+if [[ $fallback_resumed != 1 ]]; then
+  adb logcat -d -s SakugaPreview:V AndroidRuntime:E '*:S' | tail -100
+  echo '::error::Full-library Canvas fallback did not resume.'; exit 1
+fi
+echo '::notice::Canvas fallback loaded all 77 animations, accepted a clip tap and resumed after backgrounding.'

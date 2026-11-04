@@ -13,7 +13,7 @@ namespace {
 sk::MobileSession* session(jlong h) { return reinterpret_cast<sk::MobileSession*>(static_cast<intptr_t>(h)); }
 constexpr const char* tag = "SakugaPreview";
 }
-extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeCreate(JNIEnv* env, jclass, jobjectArray files) {
+extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeCreate(JNIEnv* env, jclass, jobjectArray files, jstring cacheDir) {
     try {
         std::vector<std::string> paths;
         const jsize n = env->GetArrayLength(files);
@@ -24,8 +24,15 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeCr
             if (!raw) { env->DeleteLocalRef(str); return 0; }
             paths.emplace_back(raw); env->ReleaseStringUTFChars(str, raw); env->DeleteLocalRef(str);
         }
+        std::string cache;
+        if (cacheDir) {
+            const char* raw = env->GetStringUTFChars(cacheDir, nullptr);
+            if (!raw) return 0;
+            cache = raw; env->ReleaseStringUTFChars(cacheDir, raw);
+        }
         auto s = std::make_unique<sk::MobileSession>(); std::string error;
-        if (!s->load(paths, error)) { __android_log_print(ANDROID_LOG_ERROR, tag, "Motion database: %s", error.c_str()); return 0; }
+        if (paths.size() != 77) { __android_log_print(ANDROID_LOG_ERROR, tag, "Canvas fallback requires all 77 motion clips; got %zu", paths.size()); return 0; }
+        if (!s->load(paths, error, cache)) { __android_log_print(ANDROID_LOG_ERROR, tag, "Motion database: %s", error.c_str()); return 0; }
         __android_log_print(ANDROID_LOG_INFO, tag, "ready clips=%d", s->clipCount());
         return static_cast<jlong>(reinterpret_cast<intptr_t>(s.release()));
     } catch (const std::exception& e) { __android_log_print(ANDROID_LOG_ERROR, tag, "initialization: %s", e.what()); return 0; }
@@ -37,7 +44,10 @@ extern "C" JNIEXPORT jfloatArray JNICALL Java_com_sakuga_preview_MainActivity_na
     if (!h || action < 0 || action > 3) return nullptr;
     auto* s = session(h);
     auto result = s->touch.event(static_cast<sk::MobileTouch::Action>(action), id, x, y, width, height, density);
-    if (result.nextClip) { s->nextClip(); __android_log_print(ANDROID_LOG_INFO, tag, "next clip requested"); }
+    if (result.nextClip) {
+        int previous = s->clipIndex(); s->nextClip();
+        __android_log_print(ANDROID_LOG_INFO, tag, "next clip requested from=%d to=%d count=%d", previous, s->clipIndex(), s->clipCount());
+    }
     const jfloat values[] = {result.stickX, result.stickY};
     jfloatArray array = env->NewFloatArray(2);
     if (array) env->SetFloatArrayRegion(array, 0, 2, values);

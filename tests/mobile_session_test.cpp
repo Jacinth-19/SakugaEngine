@@ -8,6 +8,8 @@ int main() {
     SK_TEST("mobile_session_test");
     sk::MobileSession bad; std::string error;
     CHECK(!bad.load({std::string(SAKUGA_ROOT) + "/missing.bvh"}, error));
+    sk::MobileSession partial;
+    CHECK(!partial.load({std::string(SAKUGA_ROOT) + "/assets/motion/walk1_subject1.bvh", std::string(SAKUGA_ROOT) + "/missing.bvh"}, error));
     sk::MobileSession session;
     std::vector<std::string> paths = {std::string(SAKUGA_ROOT) + "/assets/motion/walk1_subject1.bvh",
                                       std::string(SAKUGA_ROOT) + "/assets/motion/run1_subject2.bvh"};

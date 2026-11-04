@@ -72,7 +72,7 @@ jobs:
   emulator-smoke:
     needs: build-preview
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -103,5 +103,6 @@ jobs:
             apk/android-npcs.png
             apk/android-night.png
             apk/android-editor.png
+            apk/android-canvas.png
             apk/android-fail.png
           if-no-files-found: warn

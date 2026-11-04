@@ -66,7 +66,7 @@ Captured from the x86_64 Android emulator using SwiftShader on 2 November 2026. 
 
 ### About the 77 animations
 
-Current Windows CI installer/portable builds and the Android debug APK are built with **all 77 LAFAN1 BVH clips**, verified byte-for-byte before packaging. The older [Windows release](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview) still contains only two clips; use the latest successful [Windows workflow artifact](https://github.com/Jacinth-19/SakugaEngine/actions/workflows/windows.yml?query=branch%3Aarena%2Fa13c5e34-sakugaengine) for the full library. The Android Vulkan sandbox loads the 77 clips; its separate Canvas fallback still uses two.
+Current Windows CI installer/portable builds and the Android debug APK are built with **all 77 LAFAN1 BVH clips**, verified byte-for-byte before packaging. The older [Windows release](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview) still contains only two clips; use the latest successful [Windows workflow artifact](https://github.com/Jacinth-19/SakugaEngine/actions/workflows/windows.yml?query=branch%3Aarena%2Fa13c5e34-sakugaengine) for the full library. The Android Vulkan sandbox and its separate synthetic-rig Canvas fallback both load all 77 clips.
 
 LAFAN1 is by Ubisoft La Forge and is **CC BY-NC-ND 4.0: non-commercial use only; no sharing adapted material**. See [attribution and license](assets/licenses/LAFAN1-NOTICE.txt). First launch builds a large motion cache; allow substantial disk space and memory. The app's Motion matching panel reports its actual loaded count.
 

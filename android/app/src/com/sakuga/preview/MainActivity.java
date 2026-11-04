@@ -20,11 +20,14 @@ import java.io.InputStream;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.HashSet;
+import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 /** Shared Android Vulkan sandbox, with a separate Canvas animation fallback. */
 public final class MainActivity extends Activity {
     static { System.loadLibrary("sakuga_mobile"); }
-    private static native long nativeCreate(String[] paths);
+    private static native long nativeCreate(String[] paths, String cacheDir);
     private static native void nativeDestroy(long handle);
     private static native void nativeUpdate(long handle, float dt, float x, float y);
     // Actions: 0 down, 1 move, 2 up, 3 cancel (kept independent of Android's integer constants).
@@ -43,7 +46,7 @@ public final class MainActivity extends Activity {
     private static native void nativeRendererDestroy(long renderer);
     private static final Object ASSET_LOCK = new Object();
     private volatile boolean destroyed, resumed;
-    private int surfaceGeneration;
+    private volatile int surfaceGeneration;
     private volatile boolean surfaceLive;
     private Thread surfaceThread;
     private volatile String[] motionPaths;
@@ -58,6 +61,12 @@ public final class MainActivity extends Activity {
     private final ConcurrentLinkedQueue<UiTouch> uiTouches = new ConcurrentLinkedQueue<>();
     private String shaderDir;
     private final Object surfaceLock = new Object();
+    // Serialize fallback creation, use and destruction across Activity recreation.
+    // The Activity is singleTask; no fallback database is kept while its Vulkan scene is alive.
+    private static final ReentrantLock fallbackLock = new ReentrantLock();
+    private static long fallbackHandle;
+    private static MainActivity fallbackOwner;
+    private boolean forceCanvas;
     private PreviewView preview;
 
     @Override public void onCreate(Bundle saved) {
@@ -66,6 +75,7 @@ public final class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        forceCanvas = getIntent().getBooleanExtra("sakuga_force_canvas", false);
         preview = new PreviewView();
         try {
             File dir = new File(getFilesDir(), "shaders");
@@ -90,6 +100,7 @@ public final class MainActivity extends Activity {
                 preview.setSurfaceStatus("Checking Android Vulkan surface...");
                 surfaceThread = new Thread(new Runnable() { @Override public void run() {
                     long renderer = 0;
+                    String fallbackReason = null;
                     try {
                         final String status;
                         synchronized (surfaceLock) {
@@ -99,17 +110,28 @@ public final class MainActivity extends Activity {
                         while (surfaceLive && !destroyed && motionPaths == null && !assetsFailed) {
                             try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
                         }
+                        if (assetsFailed || motionPaths == null) return;
+                        if (forceCanvas) { fallbackReason = "Canvas preview requested"; return; }
+                        // An old fallback may still be building on another worker. Wait without blocking
+                        // the UI thread and check surface generation so surfaceDestroyed can join promptly.
+                        boolean locked = false;
+                        while (surfaceLive && !destroyed && generation == surfaceGeneration && !locked) {
+                            try { locked = fallbackLock.tryLock(100, TimeUnit.MILLISECONDS); }
+                            catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                        }
+                        if (!locked) return;
+                        try {
+                            if (!surfaceLive || destroyed || generation != surfaceGeneration) return;
+                            preview.releaseFallbackLocked();
+                        } finally { fallbackLock.unlock(); }
                         synchronized (surfaceLock) {
                             if (!surfaceLive || generation != surfaceGeneration) return;
-                            if (surface.isValid() && shaderDir != null && motionPaths != null && modelPath != null)
+                            if (surface.isValid() && shaderDir != null && modelPath != null)
                                 renderer = nativeRendererCreate(surface, shaderDir, modelPath, motionPaths, getResources().getDisplayMetrics().density);
                         }
                         if (renderer == 0) {
-                            final String failure = shaderDir == null ? "Shaders unavailable" : nativeRendererError();
-                            runOnUiThread(new Runnable() { @Override public void run() {
-                                if (!destroyed && generation == surfaceGeneration)
-                                    preview.setSurfaceStatus("Canvas fallback: " + (failure.isEmpty() ? status : failure));
-                            }});
+                            String failure = shaderDir == null ? "Shaders unavailable" : nativeRendererError();
+                            fallbackReason = failure.isEmpty() ? status : failure;
                             return;
                         }
                         boolean firstFrame = true, wasPaused = false;
@@ -140,6 +162,7 @@ public final class MainActivity extends Activity {
                             }
                             if (frameResult < 0) {
                                 final String failure = nativeRendererError();
+                                fallbackReason = failure;
                                 android.util.Log.e("SakugaPreview", "renderer frame failed: " + failure);
                                 runOnUiThread(new Runnable() { @Override public void run() {
                                     if (!destroyed && generation == surfaceGeneration) {
@@ -161,6 +184,9 @@ public final class MainActivity extends Activity {
                         }
                     } finally {
                         if (renderer != 0) nativeRendererDestroy(renderer);
+                        // Do not build a second full database until all Vulkan resources are released.
+                        if (fallbackReason != null && surfaceLive && !destroyed && generation == surfaceGeneration)
+                            startCanvasFallback(generation, fallbackReason);
                     }
                 }}, "vulkan-renderer");
                 surfaceThread.start();
@@ -185,10 +211,8 @@ public final class MainActivity extends Activity {
         layout.addView(preview, new FrameLayout.LayoutParams(-1, -1));
         setContentView(layout);
         new Thread(new Runnable() { @Override public void run() {
-            long handle = 0; String error = null;
+            String error = null;
             try {
-                String[] names = {"walk1_subject1.bvh", "run1_subject2.bvh"};
-                String[] paths = new String[names.length];
                 File root = new File(getFilesDir(), "sandbox");
                 File dir = new File(root, "assets/motion");
                 // APK updates kill the old process. Avoid rewriting assets on Activity recreation while
@@ -212,19 +236,56 @@ public final class MainActivity extends Activity {
                         if (!marker.createNewFile()) throw new IOException("Cannot mark assets ready");
                     }
                 }
-                for (int i = 0; i < names.length; ++i) paths[i] = new File(dir, names[i]).getAbsolutePath();
+                File[] clips = dir.listFiles();
+                if (clips == null) throw new IOException("Cannot list motion clips");
+                Arrays.sort(clips);
+                java.util.ArrayList<String> paths = new java.util.ArrayList<>();
+                for (File clip : clips) if (clip.isFile() && clip.getName().endsWith(".bvh")) paths.add(clip.getAbsolutePath());
+                if (paths.size() != 77) throw new IOException("Expected 77 motion clips, found " + paths.size());
                 File model = new File(root, "assets/models/AvatarSample.vrm");
-                handle = nativeCreate(paths);
-                if (handle == 0) error = "Could not load motion data. See Android logcat.";
-                else { modelPath = model.getAbsolutePath(); motionPaths = paths; }
-            } catch (Exception e) { error = "Could not start preview: " + e.getMessage(); }
-            if (handle == 0) assetsFailed = true;
-            final long result = handle; final String message = error;
+                modelPath = model.getAbsolutePath(); motionPaths = paths.toArray(new String[0]);
+                android.util.Log.i("SakugaPreview", "motion assets ready clips=" + paths.size());
+            } catch (Exception e) { error = "Could not start preview: " + e.getMessage(); assetsFailed = true; }
+            final String message = error;
             runOnUiThread(new Runnable() { @Override public void run() {
-                if (destroyed) { if (result != 0) nativeDestroy(result); return; }
-                preview.setSession(result, message);
+                if (!destroyed && message != null) preview.setMessage(message);
             }});
         }}, "motion-loader").start();
+    }
+    private void startCanvasFallback(final int generation, final String reason) {
+        runOnUiThread(new Runnable() { @Override public void run() {
+            if (!destroyed && surfaceLive && generation == surfaceGeneration) {
+                preview.setVulkanActive(false);
+                preview.setSurfaceStatus("Canvas fallback: " + reason);
+                preview.setMessage("Preparing all 77 animations for Canvas fallback...");
+            }
+        }});
+        new Thread(new Runnable() { @Override public void run() {
+            long h = 0;
+            fallbackLock.lock();
+            try {
+                if (destroyed || !surfaceLive || generation != surfaceGeneration || motionPaths == null) return;
+                if (preview.hasFallbackLocked()) {
+                    h = fallbackHandle;
+                } else {
+                    preview.releaseFallbackLocked();
+                    File cache = new File(getFilesDir(), "sandbox/user/mm_cache");
+                    h = nativeCreate(motionPaths, cache.getAbsolutePath());
+                    if (destroyed || !surfaceLive || generation != surfaceGeneration) {
+                        if (h != 0) nativeDestroy(h);
+                        return;
+                    }
+                    if (h != 0) preview.installFallbackLocked(h);
+                }
+            } finally { fallbackLock.unlock(); }
+            final boolean ready = h != 0;
+            runOnUiThread(new Runnable() { @Override public void run() {
+                if (!destroyed && surfaceLive && generation == surfaceGeneration) {
+                    preview.setMessage(ready ? null : "Canvas fallback could not load all 77 animations.");
+                    if (ready) android.util.Log.i("SakugaPreview", "canvas fallback ready clips=77");
+                }
+            }});
+        }}, "canvas-motion-loader").start();
     }
     private void deleteAssetDirectory(File dir) throws IOException {
         if (!dir.exists()) return;
@@ -258,8 +319,8 @@ public final class MainActivity extends Activity {
         private final int[][] bones = {{0,1},{1,2},{2,3},{3,4},{4,5},{3,6},{6,7},{7,8},{8,9},
                 {3,10},{10,11},{11,12},{12,13},{0,14},{14,15},{15,16},{16,17},{0,18},{18,19},{19,20},{20,21}};
         private final Bitmap base, knob;
-        private long handle; private long lastNs; private boolean running;
-        private String message = "Loading two sample animations...";
+        private long lastNs; private boolean running;
+        private String message = "Preparing Android sandbox and 77 animations...";
         private String surfaceStatus = "Waiting for Android surface...";
         private boolean vulkanActive;
         private float stickX, stickY;
@@ -273,7 +334,14 @@ public final class MainActivity extends Activity {
             try (InputStream in = getAssets().open(name)) { return BitmapFactory.decodeStream(in); }
             catch (IOException e) { return null; }
         }
-        void setSession(long h, String error) { handle = h; message = error; lastNs = 0; invalidate(); }
+        // Caller holds fallbackLock; the Canvas UI only uses the handle while holding the same lock.
+        boolean hasFallbackLocked() { return fallbackHandle != 0 && fallbackOwner == MainActivity.this; }
+        void installFallbackLocked(long h) { fallbackHandle = h; fallbackOwner = MainActivity.this; }
+        void releaseFallbackLocked() {
+            if (fallbackHandle != 0) { long old = fallbackHandle; fallbackHandle = 0; fallbackOwner = null; nativeDestroy(old); }
+        }
+        void releaseOwnedFallbackLocked() { if (fallbackOwner == MainActivity.this) releaseFallbackLocked(); }
+        void setMessage(String text) { message = text; lastNs = 0; invalidate(); }
         void setSurfaceStatus(String status) { surfaceStatus = status; invalidate(); }
         void setVulkanActive(boolean active) {
             if (!active) cancelAllTouches();
@@ -284,7 +352,16 @@ public final class MainActivity extends Activity {
             if (!enabled) { touch(3, -1, 0, 0); stickX = stickY = 0; cancelAllTouches(); }
             invalidate();
         }
-        void close() { running = false; if (handle != 0) { nativeDestroy(handle); handle = 0; } }
+        void close() {
+            running = false;
+            // The loader checks destroyed before publishing its result, so do not block the UI
+            // if it is currently building the database.
+            if (fallbackLock.tryLock()) { try { releaseOwnedFallbackLocked(); } finally { fallbackLock.unlock(); } }
+            else new Thread(new Runnable() { @Override public void run() {
+                fallbackLock.lock();
+                try { releaseOwnedFallbackLocked(); } finally { fallbackLock.unlock(); }
+            }}, "canvas-cleanup").start();
+        }
         private void text(Canvas c, String value, float x, float y, float size, int color) {
             paint.setStyle(Paint.Style.FILL); paint.setColor(color); paint.setTextSize(size * density); c.drawText(value, x, y, paint);
         }
@@ -296,8 +373,11 @@ public final class MainActivity extends Activity {
             int w = getWidth(), h = getHeight();
             float margin = 18 * density;
             text(c, "SAKUGA  /  ANIMATION PREVIEW", margin, 28 * density, 17, Color.rgb(184,235,250));
-            text(c, vulkanActive ? "77 motion clips  •  bundled VRM  •  engine sandbox" : "2 sample clips  •  synthetic rig  •  Canvas fallback", margin, 48 * density, 11, Color.LTGRAY);
-            if (handle == 0) { text(c, message == null ? "Loading..." : message, margin, h * .5f, 14, Color.WHITE); return; }
+            text(c, "77 motion clips  •  synthetic rig  •  Canvas fallback", margin, 48 * density, 11, Color.LTGRAY);
+            if (!fallbackLock.tryLock()) { text(c, message == null ? "Loading..." : message, margin, h * .5f, 14, Color.WHITE); return; }
+            try {
+            if (!hasFallbackLocked()) { text(c, message == null ? "Loading..." : message, margin, h * .5f, 14, Color.WHITE); return; }
+            long handle = fallbackHandle;
             long now = System.nanoTime(); float dt = lastNs == 0 ? 0 : (now - lastNs) / 1000000000f; lastNs = now;
             if (running && !vulkanActive) nativeUpdate(handle, dt, stickX, -stickY);
             float[] j = nativeJoints(handle);
@@ -323,6 +403,7 @@ public final class MainActivity extends Activity {
             text(c, "NEXT CLIP", w-margin-r*1.8f, h-margin-r*.6f, 12, Color.WHITE);
             text(c, "Drag stick to match • tap NEXT to browse", margin, h - 4*density, 10, Color.LTGRAY);
             }
+            } finally { fallbackLock.unlock(); }
             if (running) postInvalidateOnAnimation();
         }
         private void bitmap(Canvas c, Bitmap img, float x, float y, float r) {
@@ -330,9 +411,12 @@ public final class MainActivity extends Activity {
             paint.setColor(Color.WHITE); paint.setAlpha(220); c.drawBitmap(img, null, new RectF(x-r,y-r,x+r,y+r), paint); paint.setAlpha(255);
         }
         private void touch(int action, int id, float x, float y) {
-            if (handle == 0) return;
-            float[] position = nativeTouch(handle, action, id, x, y, getWidth(), getHeight(), density);
-            if (position != null && position.length == 2) { stickX = position[0]; stickY = position[1]; renderMoveX = stickX; renderMoveY = -stickY; }
+            if (!fallbackLock.tryLock()) return;
+            try {
+                if (!hasFallbackLocked()) return;
+                float[] position = nativeTouch(fallbackHandle, action, id, x, y, getWidth(), getHeight(), density);
+                if (position != null && position.length == 2) { stickX = position[0]; stickY = position[1]; renderMoveX = stickX; renderMoveY = -stickY; }
+            } finally { fallbackLock.unlock(); }
         }
         private void cancelAllTouches() {
             if (!gamePointers.isEmpty()) uiTouches.add(new UiTouch(false, 3, -1, 0, 0));
