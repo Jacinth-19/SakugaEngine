@@ -107,6 +107,8 @@ jobs:
           .\build\bin\sandbox.exe --dump-ui-theme theme_check.json
           if (-not (Test-Path theme_check.json)) { throw "the executable did not write theme_check.json" }
           Get-Content theme_check.json -TotalCount 3
+          $fbx = .\build\bin\sakuga-fbx-info.exe tests/data/triangle.fbx
+          if ($LASTEXITCODE -ne 0 -or -not ($fbx | Select-String -SimpleMatch 'Triangles: 1')) { throw "FBX inspection smoke test failed" }
 
       - name: Fetch the separately licensed LAFAN1 source clips
         shell: bash
@@ -120,6 +122,7 @@ jobs:
       - name: Verify performance launcher is packaged
         shell: pwsh
         run: |
+          if (-not (Test-Path stage/sakuga-fbx-info.exe) -or -not (Test-Path stage/licenses/ufbx-LICENSE.txt)) { throw "FBX inspection tool or license missing" }
           if (-not (Test-Path stage/Sakuga-Performance.bat)) { throw "Performance launcher missing from install tree" }
           if (-not (Select-String -Path stage/Sakuga-Performance.bat -Pattern '--performance' -Quiet)) { throw "Performance launcher missing flag" }
 
