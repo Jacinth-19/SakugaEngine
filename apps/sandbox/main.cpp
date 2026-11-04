@@ -284,7 +284,7 @@ private:
     int selectedMat_ = 0; bool syncMat_ = true;
     FrameBenchmark benchmark_; bool showBenchmark_ = false;
 #ifdef __ANDROID__
-    bool benchmarkTargetsLogged_ = false, benchmarkShareTargetLogged_ = false;
+    bool benchmarkTargetsLogged_ = false, benchmarkShareTargetLogged_ = false, mobileBenchmarkTargetLogged_ = false;
 #endif
     std::string benchmarkSetup_, benchmarkReport_;
     uint32_t benchmarkWidth_ = 0, benchmarkHeight_ = 0;
@@ -1422,10 +1422,11 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox night target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
     }
-    ImGui::SameLine(); if (ImGui::Button("BENCH")) showBenchmark_ = true;
-    if (frame_ == 0) {
+    ImGui::SameLine(); if (ImGui::Button("BENCH")) { showBenchmark_ = true; __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark button pressed"); }
+    if (frame_ >= 5 && !mobileBenchmarkTargetLogged_) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
-        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark target x=%d y=%d visible=%d screen=%ux%u", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f), (int)ImGui::IsItemVisible(), renderer_.width(), renderer_.height());
+        mobileBenchmarkTargetLogged_ = true;
     }
     ImGui::Text("Clip %d/%d", vrm_ && vrm_->mm ? vrm_->mm->debug.clip + 1 : 0, vrm_ && vrm_->mmDb ? (int)vrm_->mmDb->clipNames.size() : 0);
     ImGui::SameLine();
@@ -1545,6 +1546,7 @@ void Sandbox::touchMobile(bool, int action, int id, float x, float y) {
     MobilePointerRouter::Route route;
     if (action == 0) {
         const bool overUi = renderer_.uiEnabled() && mobileHitsImGui(ImVec2(x, y));
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "touch down x=%.0f y=%.0f ui=%d", x, y, (int)overUi);
         route = mobilePointers_.down(id, overUi);
     } else if (action == 2) route = mobilePointers_.up(id);
     else route = mobilePointers_.get(id);

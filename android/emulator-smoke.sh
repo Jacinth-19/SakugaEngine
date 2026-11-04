@@ -69,8 +69,15 @@ PYCODE
   adb shell input tap "$dialog_x" "$dialog_y"
 fi
 # Exercise the real Vulkan benchmark UI and statistics (emulator speed is not phone performance).
-adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
-bench_target=$(grep -F 'benchmark target x=' /tmp/sakuga-android-log.txt | tail -1)
+sleep 3
+bench_target=''
+for i in $(seq 1 30); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  bench_target=$(grep -F 'benchmark target x=' /tmp/sakuga-android-log.txt | tail -1 || true)
+  [[ -n $bench_target ]] && break
+  sleep 1
+done
+if [[ -z $bench_target ]]; then echo '::error::Benchmark button was not drawn'; exit 1; fi
 read -r bench_x bench_y < <(echo "$bench_target" | sed -n 's/.*benchmark target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
 if [[ -z ${bench_x:-} || -z ${bench_y:-} ]]; then echo '::error::Benchmark button missing'; exit 1; fi
 adb shell input tap "$bench_x" "$bench_y"
@@ -83,6 +90,7 @@ for i in $(seq 1 20); do
 done
 if [[ -z $start_target ]]; then
   adb exec-out screencap -p > apk/android-fail.png
+  while IFS= read -r line; do echo "::notice::$line"; done < <(grep -E 'benchmark|touch down' /tmp/sakuga-android-log.txt | tail -20)
   echo "::error::Benchmark window did not open; button target: $bench_target"; exit 1
 fi
 read -r start_x start_y < <(echo "$start_target" | sed -n 's/.*benchmark start target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
