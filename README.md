@@ -9,7 +9,7 @@
 
   Vulkan · C++20 · Motion matching · VRM · ImGui
 
-  [Download the Windows preview](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview) · [Getting started](#get-started) · [Developer guide](docs/ENGINE_GUIDE.md) · [Platform status](#platform-status)
+  [Full-library builds](#get-started) · [Getting started](#get-started) · [Developer guide](docs/ENGINE_GUIDE.md) · [Platform status](#platform-status)
 </div>
 
 ---
@@ -18,11 +18,15 @@
 
 ### Windows x64
 
-1. Open the **[Windows preview release](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview)** and download either the installer (`.exe`) or the portable `.zip`.
+1. Open the **[full-library Windows build](https://github.com/Jacinth-19/SakugaEngine/actions/runs/41756572506)** and download the `sakuga-windows-x64` artifact (GitHub sign-in may be required). It contains an installer and a portable ZIP.
 2. Run the installer, or extract the **whole** portable archive to a folder you can write to. Launch **Sakuga Engine** or `sandbox.exe`.
-3. You need a **Vulkan 1.3-capable GPU and a current graphics driver**. The installer does not include the Vulkan runtime or driver.
+3. You need a **Vulkan 1.3-capable GPU and a current graphics driver**. The installer does not include the Vulkan runtime or driver. The older [Windows release](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview) has only two clips.
 
 > **Preview:** the Windows executable is built and command-line smoke-tested in GitHub Actions, but gameplay, rendering and the installer UI still need validation on a real Windows GPU. The release is **unsigned** and Windows may warn about an unknown publisher. [Signing and hardware test details](docs/WINDOWS_SIGNING_AND_TESTING.md).
+
+### Android
+
+Download `sakuga-android-animation-preview-debug` from the **[full-library Android build](https://github.com/Jacinth-19/SakugaEngine/actions/runs/41756572520)**, extract the ZIP and install the APK on a compatible Android device. This debug-signed preview was tested on an x86_64 emulator, not a physical phone; it is not a Play Store release. Installing updates from builds signed with different debug keys may require uninstalling the previous APK. Allow substantial storage and first-run processing time.
 
 ### Find your way around
 

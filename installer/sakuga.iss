@@ -7,6 +7,8 @@
 ;   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 ;   cmake --build build --parallel
 ;   cmake --install build --prefix stage
+;   bash tools/fetch_assets.sh --motion-only
+;   python tools/stage_lafan1.py --source %USERPROFILE%\.cache\lafan1 --dest stage\assets\motion
 ;   iscc /DAppVersion=0.1.0 /DSourceDir=stage /DOutputDir=dist installer\sakuga.iss
 ;
 ; which is what .github/workflows/windows.yml does; the result is uploaded as a workflow artifact.
