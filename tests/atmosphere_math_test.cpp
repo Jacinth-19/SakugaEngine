@@ -18,6 +18,8 @@ int main() {
     CHECK(sk::supportsAtmosphereProjection(p));
     CHECK(!sk::supportsAtmosphereProjection(glm::mat4(1.f)));
     auto invalid = p; invalid[0][0] = 0.f; CHECK(!sk::supportsAtmosphereProjection(invalid));
+    invalid = p; invalid[2][0] = .15f; CHECK(!sk::supportsAtmosphereProjection(invalid)); // off-centre
+    invalid = p; invalid[1][0] = .15f; CHECK(!sk::supportsAtmosphereProjection(invalid)); // skew
     for (float z : {.1f, .5f, 2.f, 20.f, 100.f}) for (auto xy : {glm::vec2(0.f), glm::vec2(.5f,-.25f), glm::vec2(-.7f,.8f)}) {
         glm::vec3 view{xy.x*z, xy.y*z, -z};
         glm::vec4 clip = p * glm::vec4(view, 1.f);

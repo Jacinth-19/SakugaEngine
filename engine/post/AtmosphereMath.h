@@ -14,7 +14,11 @@ inline bool usePostAtmosphere(bool requested, bool postEnabled, bool depthSuppor
 inline bool supportsAtmosphereProjection(const glm::mat4& p) {
     return std::isfinite(p[0][0]) && std::isfinite(p[1][1]) && std::isfinite(p[2][2]) && std::isfinite(p[3][2]) &&
         std::abs(p[0][0]) > 1e-7f && std::abs(p[1][1]) > 1e-7f && p[2][2] <= -1.f && p[3][2] < 0.f &&
-        std::abs(p[2][3] + 1.f) < 1e-6f && std::abs(p[3][3]) < 1e-6f;
+        std::abs(p[2][3] + 1.f) < 1e-6f && std::abs(p[3][3]) < 1e-6f &&
+        std::abs(p[0][1]) < 1e-6f && std::abs(p[0][2]) < 1e-6f && std::abs(p[0][3]) < 1e-6f &&
+        std::abs(p[1][0]) < 1e-6f && std::abs(p[1][2]) < 1e-6f && std::abs(p[1][3]) < 1e-6f &&
+        std::abs(p[2][0]) < 1e-6f && std::abs(p[2][1]) < 1e-6f &&
+        std::abs(p[3][0]) < 1e-6f && std::abs(p[3][1]) < 1e-6f;
 }
 // p22=p[2][2], p32=p[3][2]; p00/p11 include the Vulkan Y flip. Output is radial camera distance.
 inline float perspectiveDepthDistance(float depth, glm::vec2 uv, float p00, float p11, float p22, float p32) {
