@@ -31,6 +31,8 @@ layout(set = 0, binding = 0, std140) uniform GlobalUBO {
     vec4 contactPos[6];  // xyz ground contact point of a character, w radius (0 = unused)
     mat4 pointViewProj[24];   // cube-face matrices for four shadow-casting point lights
     vec4 pointShadow[4];      // x = shadow slot of point light i (-1 none), y = normal offset, z = depth bias
+    vec4 skyOptions;          // x = integrated scattering, y = volume clouds, z/w planet radius and atmosphere height km
+    vec4 skyOptical;          // Rayleigh/Mie scale heights km, ozone multiplier, ground albedo
 } G;
 
 layout(set = 0, binding = 1, std430) readonly buffer BoneBuffer { mat4 bones[]; };

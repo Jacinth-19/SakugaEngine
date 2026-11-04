@@ -32,11 +32,81 @@ float cloudField(vec3 d, float time) {          // seamless over the whole dome;
     return fbm3(P, 4) * 0.78 + fbm3(P * 2.9 + 3.1, 2) * 0.22 * 1.0;
 }
 
-// Texel-centre mapping must match the CPU LUT's linear mu/altitude grid.
+#define planetRadiusKm G.skyOptions.z
+#define atmosphereHeightKm G.skyOptions.w
+const vec3 betaR = vec3(0.005802, 0.013558, 0.033100);
+const float betaM = 0.003996;
+const vec3 betaO = vec3(0.000650, 0.001881, 0.000085);
+float horizonMu(float altitudeKm) {
+    float r = planetRadiusKm + clamp(altitudeKm, 0.0, atmosphereHeightKm);
+    return -sqrt(max(0.0, 1.0 - (planetRadiusKm / r) * (planetRadiusKm / r)));
+}
+// The x-axis is horizon-to-zenith at each altitude. Return zero for ground-occluded rays.
 vec4 atmosphereT(float mu, float altitudeKm) {
-    vec2 ij = vec2(clamp(mu, 0.0, 1.0) * 255.0,
-                   clamp(altitudeKm / 100.0, 0.0, 1.0) * 63.0);
+    float alt = clamp(altitudeKm, 0.0, atmosphereHeightKm);
+    float horizon = horizonMu(alt);
+    if (mu < horizon) return vec4(0.0);
+    vec2 ij = vec2(clamp((mu - horizon) / (1.0 - horizon), 0.0, 1.0) * 255.0,
+                   (alt / atmosphereHeightKm) * 63.0);
     return textureLod(uSkyTransmittance, (ij + 0.5) / vec2(256.0, 64.0), 0.0);
+}
+float ozoneDensity(float h) { return max(0.0, 1.0 - abs(h - 25.0) / 15.0); }
+// Single scattering quadrature: attenuate each view segment and sample solar
+// transmittance at the segment, rather than at the camera. World units are metres.
+vec3 integratedAtmosphere(vec3 d, vec3 sunDir, float altitudeKm) {
+    float r = planetRadiusKm + altitudeKm;
+    float top = planetRadiusKm + atmosphereHeightKm;
+    float rm = r * d.y;
+    float distanceTop = -rm + sqrt(max(0.0, rm * rm + (top - r) * (top + r)));
+    float ds = max(distanceTop, 0.0) / 8.0;
+    float ct = clamp(dot(d, sunDir), -1.0, 1.0);
+    // Phase functions scaled by 4*pi so the artistic strength remains intuitive.
+    float pr = 0.75 * (1.0 + ct * ct);
+    float gm = 0.76;
+    float pm = (1.0 - gm * gm) / pow(max(1.0 + gm * gm - 2.0 * gm * ct, 0.02), 1.5);
+    pm = min(pm, 12.0);
+    vec3 radiance = vec3(0.0), viewT = vec3(1.0);
+    // Isotropic single ground bounce approximation, not a multiple-scattering solution.
+    vec3 groundSun = atmosphereT(sunDir.y, 0.0).rgb * max(sunDir.y, 0.0) * G.skyOptical.w * 0.5;
+    for (int i = 0; i < 8; ++i) {
+        float t = (float(i) + 0.5) * ds;
+        vec3 pos = vec3(d.x * t, r + d.y * t, d.z * t);
+        float radius = length(pos);
+        float h = max(0.0, radius - planetRadiusKm);
+        float rayDensity = exp(-h / G.skyOptical.x), mieDensity = exp(-h / G.skyOptical.y);
+        vec3 ext = betaR * rayDensity + vec3(betaM * mieDensity) + betaO * ozoneDensity(h) * G.skyOptical.z;
+        vec3 attenuation = exp(-ext * ds);
+        vec3 sunT = atmosphereT(dot(pos / radius, sunDir), h).rgb;
+        vec3 scatter = betaR * rayDensity * pr * G.style.z + vec3(betaM * mieDensity * pm * G.style.w);
+        vec3 bounce = groundSun * (betaR * rayDensity * G.style.z + vec3(betaM * mieDensity * G.style.w));
+        radiance += viewT * sqrt(attenuation) * (sunT * scatter + bounce) * ds;
+        viewT *= attenuation;
+    }
+    return radiance;
+}
+// Optional low-step, flat-layer 3D density raymarch; it is not a cloud shadow system.
+vec4 volumeClouds(vec3 d, vec3 sunDir, vec3 sunCol, vec3 ambient, float altitudeKm, float cover, float time, float night) {
+    if (d.y <= 0.002 || cover <= 0.001 || altitudeKm >= 3.5) return vec4(0.0);
+    float t0 = max(0.0, (1.5 - altitudeKm) / d.y);
+    float t1 = min(40.0, (3.5 - altitudeKm) / d.y);
+    if (t1 <= t0) return vec4(0.0);
+    float ds = (t1 - t0) / 8.0;
+    vec3 cloudLight = sunCol * atmosphereT(sunDir.y, 2.5).rgb * (1.0 - night);
+    float trans = 1.0; vec3 accum = vec3(0.0);
+    vec2 cameraXZ = G.cameraPos.xz * 0.001;
+    for (int i = 0; i < 8; ++i) {
+        float t = t0 + (float(i) + 0.5) * ds;
+        float h = altitudeKm + d.y * t;
+        float layer = smoothstep(1.5, 1.8, h) * (1.0 - smoothstep(3.1, 3.5, h));
+        vec3 pos = vec3(cameraXZ.x + d.x * t + time * 0.04, h * 0.9, cameraXZ.y + d.z * t + time * 0.016);
+        float n = fbm3(pos * 0.48, 3);
+        float density = smoothstep(mix(0.66, 0.28, cover), mix(0.76, 0.38, cover), n) * layer;
+        float opacity = 1.0 - exp(-density * ds * 0.9);
+        vec3 light = ambient * 0.45 + cloudLight * (0.55 + 0.3 * pow(max(dot(d, sunDir), 0.0), 4.0));
+        accum += trans * opacity * light;
+        trans *= 1.0 - opacity;
+    }
+    return vec4(accum, 1.0 - trans);
 }
 
 void main() {
@@ -60,21 +130,23 @@ void main() {
     float lowSun = 1.0 - smoothstep(0.08, 0.50, L.y);
     float horizonGlow = exp(-h * 7.0) * pow(sd, 3.0) * lowSun * (1.0 - night);
     c += sunCol * vec3(1.0, 0.62, 0.44) * horizonGlow * 0.20;
-    // Approximate single scattering over the existing art-directed palette. The LUT stores
-    // integrated view and sun transmittance; this is not a full per-sample path integral.
-    // Virtual observer is fixed at sea level (0 km), independent of world camera height.
+    float observerAltitudeKm = clamp(G.cameraPos.y * 0.001, 0.0, atmosphereHeightKm);
+    vec3 sunTransmittance = G.skyParams.w > 0.0 ? atmosphereT(L.y, observerAltitudeKm).rgb : vec3(1.0);
     if (G.skyParams.w > 0.0 && d.y >= 0.0 && night < 1.0) {
-        vec4 viewT = atmosphereT(d.y, 0.0);
-        vec3 sunT = atmosphereT(max(L.y, 0.0), 0.0).rgb;
-        vec3 rayT = clamp(viewT.rgb / max(viewT.a, 0.0039), 0.0, 1.0);
-        float cosTheta = clamp(dot(d, L), -1.0, 1.0);
-        float rayPhase = 0.75 * (1.0 + cosTheta * cosTheta);
-        const float asymmetry = 0.76;
-        float miePhase = (1.0 - asymmetry * asymmetry) /
-            pow(max(1.0 + asymmetry * asymmetry - 2.0 * asymmetry * cosTheta, 0.02), 1.5);
-        vec3 scatter = (1.0 - rayT) * rayPhase * G.style.z +
-                       vec3(1.0 - viewT.a) * min(miePhase, 6.0) * 0.15 * G.style.w;
-        c += sunCol * sunT * scatter * G.skyParams.w * (1.0 - night);
+        vec3 scatter;
+        if (G.skyOptions.x > 0.5) {
+            scatter = integratedAtmosphere(d, L, observerAltitudeKm);
+        } else {
+            // Lower-cost artistic fallback, kept for mobile and comparisons.
+            vec4 viewT = atmosphereT(d.y, observerAltitudeKm);
+            vec3 rayT = clamp(viewT.rgb / max(viewT.a, 0.0039), 0.0, 1.0);
+            float ct = clamp(dot(d, L), -1.0, 1.0);
+            float rayPhase = 0.75 * (1.0 + ct * ct);
+            float miePhase = (1.0 - 0.76 * 0.76) / pow(max(1.0 + 0.76 * 0.76 - 2.0 * 0.76 * ct, 0.02), 1.5);
+            scatter = sunTransmittance * ((1.0 - rayT) * rayPhase * G.style.z +
+                vec3(1.0 - viewT.a) * min(miePhase, 6.0) * 0.15 * G.style.w);
+        }
+        c += sunCol * scatter * G.skyParams.w * (1.0 - night);
     }
     c = mix(c, mix(horizon, G.groundColor.rgb, 0.6), (1.0 - smoothstep(-0.18, 0.0, d.y)));
 
@@ -91,7 +163,8 @@ void main() {
     float size = 0.052 * G.skyParams.z;
     float disc = smoothstep(cos(size * 1.08), cos(size), dot(d, L));
     float ring = smoothstep(cos(size * 1.9), cos(size * 1.3), dot(d, L)) * (1.0 - disc);
-    c = mix(c, sunCol * mix(4.0, 1.4, night) * G.skyParams.y, disc * step(0.0, d.y + 0.03));
+    vec3 discCol = sunCol * mix(sunTransmittance, vec3(1.0), night);
+    c = mix(c, discCol * mix(4.0, 1.4, night) * G.skyParams.y, disc * step(0.0, d.y + 0.03));
     c += sunCol * ring * 0.35 * G.skyParams.y * step(0.0, d.y + 0.03);
 
     // --- cel-shaded cumulus on a projected plane: large puffy bodies, three light bands (shade / lit / sun-side highlight), silver lining
@@ -99,7 +172,10 @@ void main() {
     vec3 dayLight = mix(vec3(1.0), sunCol, 0.45) * 1.06;
     vec3 shade = mix(horizon, zenith, 0.55) * 0.86 + vec3(0.07, 0.06, 0.14);              // violet-blue cloud shade (anime)
     vec3 shade2 = shade * vec3(0.78, 0.80, 0.98);                                          // deepest belly band
-    if (fade > 0.0) {
+    if (G.skyOptions.y > 0.5) {
+        vec4 cloudVolume = volumeClouds(d, L, sunCol, mix(zenith, horizon, 0.5), observerAltitudeKm, cover, time, night);
+        c = c * (1.0 - cloudVolume.a) + cloudVolume.rgb;
+    } else if (fade > 0.0) {
         // far layer: a low stratocumulus bank hugging the horizon (gives depth)
         vec2 pb = d.xz / (d.y + 0.06) * vec2(0.16, 0.55) + vec2(time * 0.004, 0.0);
         float bank = smoothstep(0.50, 0.58, fbm(pb * 1.6 + 7.0)) * (1.0 - smoothstep(0.10, 0.34, d.y)) * smoothstep(0.012, 0.05, d.y);

@@ -84,6 +84,56 @@ PYCODE
 )
 # In the engine path, tap the real ImGui checkbox and verify that the native UI received it.
 if [[ $renderer_result == presented ]]; then
+  # Exercise the separate mobile sky panel and both optional renderer paths, then
+  # restore the inexpensive settings before the rest of the smoke test.
+  ui_target=$(grep -F 'sky controls target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r sky_x sky_y < <(echo "$ui_target" | sed -n 's/.*sky controls target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  if [[ -z ${sky_x:-} || -z ${sky_y:-} ]]; then echo '::error::Sky controls target missing.'; exit 1; fi
+  adb shell input tap "$sky_x" "$sky_y"
+  sky_open=0
+  for i in $(seq 1 30); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'sky scattering target x=' /tmp/sakuga-android-log.txt; then sky_open=1; break; fi
+    sleep 1
+  done
+  if [[ $sky_open != 1 ]]; then echo '::error::Mobile sky panel did not open.'; exit 1; fi
+  ui_target=$(grep -F 'sky scattering target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*sky scattering target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  adb shell input tap "$ui_x" "$ui_y"
+  changed=0
+  for i in $(seq 1 30); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'sky scattering changed' /tmp/sakuga-android-log.txt; then changed=1; break; fi
+    sleep 1
+  done
+  if [[ $changed != 1 ]]; then echo '::error::Mobile sky scattering slider did not respond.'; exit 1; fi
+  for kind in integrated volume; do
+    ui_target=$(grep -F "$kind sky target x=" /tmp/sakuga-android-log.txt | tail -1)
+    read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+    if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo "::error::$kind sky target missing."; exit 1; fi
+    adb shell input tap "$ui_x" "$ui_y"
+    drawn=0
+    for i in $(seq 1 60); do
+      adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+      if grep -q "$kind sky frame presented" /tmp/sakuga-android-log.txt; then drawn=1; break; fi
+      sleep 1
+    done
+    if [[ $drawn != 1 ]]; then echo "::error::$kind sky frame missing."; exit 1; fi
+    adb shell input tap "$ui_x" "$ui_y"
+    sleep 2
+  done
+  ui_target=$(grep -F 'sky save target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*sky save target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  adb shell input tap "$ui_x" "$ui_y"
+  saved=0
+  for i in $(seq 1 30); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'sky profiles save ok=1' /tmp/sakuga-android-log.txt; then saved=1; break; fi
+    sleep 1
+  done
+  if [[ $saved != 1 ]]; then echo '::error::Mobile sky profiles could not be saved.'; exit 1; fi
+  adb shell input tap "$sky_x" "$sky_y"
+  echo '::notice::Mobile sky slider, saved profiles, integrated scattering and 3D cloud frames exercised.'
   ui_target=$(grep -F 'imgui bloom target x=' /tmp/sakuga-android-log.txt | tail -1)
   read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*imgui bloom target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
   if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo '::error::ImGui target was not reported.'; exit 1; fi

@@ -19,6 +19,7 @@
 #include "platform/FrameBenchmark.h"
 #include "world/CrowdSteering.h"
 #include "sky/SkyProfiles.h"
+#include "sky/SkyProfileStore.h"
 #include "scene/Scene.h"
 #include "MotionLab.h"
 #ifdef __ANDROID__
@@ -201,6 +202,7 @@ struct MobileSnapshot {
     float tod = 0, todSpeed = 0, userExposure = 1, userEnv = 1, cloud = 0, cameraShoulder = 0;
     float lutStrength = 0, lightAz = 0, lightEl = 0, time = 0, rain = 0, splitOffset = 0, touchScale = 1;
     float skyWindSpeed = 1, cloudClock = 0;
+    EditableSkyProfiles skyProfiles{}; bool skyPanel = false;
     bool todAuto = false, todEnabled = false, hdriMode = false, nprFull = false, lampsOn = false;
     bool pointLightsOn = false, navDebug = false, agentDebug = false, mmDebug = false, showFps = false;
     bool hdriSun = false, lightAuto = false, rainOn = false, skeleton = false, trajectory = false;
@@ -257,6 +259,7 @@ private:
     MobilePointerRouter mobilePointers_;
     std::string mobileError_;
     bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false, mobileLoggedHalation_ = false, mobileLoggedAtmosphere_ = false, mobileLoggedFinish_ = false, mobileLoggedPostTiming_ = false, mobileLoggedSkyTiming_ = false, mobileLoggedMaterialBloom_ = false;
+    bool mobileSkyPanel_ = false, mobileSkyTargetLogged_ = false, mobileLoggedIntegratedSky_ = false, mobileLoggedVolumeSky_ = false;
     bool mobileClipBrowser_ = false, mobileBrowserTargetLogged_ = false, mobileLastItemLogged_ = false; int mobileClipPage_ = 0;
     bool mobileLoadNpcs_ = false, mobileNpcsRequested_ = false, mobileNpcsPendingFrame_ = false, mobileRestored_ = false;
 #endif
@@ -284,6 +287,9 @@ private:
     float lightAz_ = 40, lightEl_ = 38; bool lightAuto_ = false;
     float time_ = 0, rain_ = 0; bool rainOn_ = false;
     int skyStyle_ = 0; float skyWindSpeed_ = 1.f, cloudClock_ = 0.f;
+    EditableSkyProfiles skyProfiles_{}; std::string skyProfileMessage_;
+    std::string skyProfilePath() const;
+    void loadSkyProfiles(); void saveSkyProfiles(); void drawSkyProfileControls(bool compact);
     int debugMode_ = 0; bool skeleton_ = false, trajectory_ = false, showUI_ = true, split_ = false; float splitOffset_ = 0;
     glm::vec3 desiredVel_{0};
     int selectedMat_ = 0; bool syncMat_ = true;
@@ -323,6 +329,13 @@ bool Sandbox::init() {
     lightAz_ = opt_.lightAz; lightEl_ = opt_.lightEl; debugMode_ = opt_.debugMode; skeleton_ = opt_.skeleton; trajectory_ = opt_.trajectory;
     split_ = opt_.split; splitOffset_ = opt_.splitOffset; post_.tonemap = opt_.tonemap ? 2 : 1; showUI_ = opt_.ui;
     tod_ = opt_.timeOfDay; todSpeed_ = opt_.todSpeed; todAuto_ = opt_.todAuto; cloud_ = opt_.cloud; userExposure_ = opt_.exposure; nprFull_ = opt_.npr;
+    for (auto& p : skyProfiles_) {
+        p.cloudCover = std::clamp(opt_.cloud, 0.f, 1.f);
+#ifdef __ANDROID__
+        p.integratedScattering = false; // conservative default; opt in from the sky panel
+#endif
+    }
+    loadSkyProfiles();
     navDebug_ = opt_.navDebug; agentDebug_ = opt_.agentDebug; mmDebug_ = opt_.mmDebug; post_.enabled = !opt_.postOff;
     if (opt_.performance) post_.bloom = false;
     time_ = opt_.timeStart;
@@ -638,8 +651,109 @@ void Sandbox::handleActions(float dt) {
     desiredVel_ = inputScale > 0.f && glm::length(dir) > 1e-6f ? glm::normalize(dir) * speed * inputScale : glm::vec3(0);
 }
 
+std::string Sandbox::skyProfilePath() const {
+#ifdef __ANDROID__
+    return root_ + "/user/sky_profiles.json";
+#elif defined(_WIN32)
+    const char* dir = std::getenv("LOCALAPPDATA");
+    return dir && *dir ? std::string(dir) + "/SakugaEngine/sky_profiles.json" : root_ + "/user/sky_profiles.json";
+#else
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    const char* home = std::getenv("HOME");
+    if (xdg && *xdg) return std::string(xdg) + "/sakuga/sky_profiles.json";
+    return home && *home ? std::string(home) + "/.config/sakuga/sky_profiles.json" : root_ + "/user/sky_profiles.json";
+#endif
+}
+void Sandbox::loadSkyProfiles() {
+    std::string text; const auto path = skyProfilePath();
+    if (!readTextFile(path, text)) return;
+    if (!skyProfilesFromJson(text, &skyProfiles_)) skyProfileMessage_ = "Could not load sky profiles: invalid file";
+    else skyProfileMessage_ = "Sky profiles loaded";
+}
+void Sandbox::saveSkyProfiles() {
+    const auto path = skyProfilePath(); std::error_code ec;
+    fs::create_directories(fs::path(path).parent_path(), ec);
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    f << skyProfilesToJson(skyProfiles_); f.close();
+    skyProfileMessage_ = !ec && f.good() ? "Sky profiles saved" : "Could not save sky profiles";
+    SK_LOG("sky: %s (%s)", skyProfileMessage_.c_str(), path.c_str());
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sky profiles save ok=%d", (int)(!ec && f.good()));
+#endif
+}
+void Sandbox::drawSkyProfileControls(bool compact) {
+    ImGui::Combo("Profile", &skyStyle_, "Celestial\0Cinematic\0Atmospheric\0Painterly\0");
+    auto& p = skyProfiles_[std::clamp(skyStyle_, 0, 3)];
+    if (ImGui::Button("Save sky profiles")) saveSkyProfiles();
+#ifdef __ANDROID__
+    if (compact && !mobileSkyTargetLogged_) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sky save target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+    }
+#endif
+    ImGui::SameLine(); if (ImGui::Button("Reset profile")) {
+        p = EditableSkyProfile{};
+#ifdef __ANDROID__
+        p.integratedScattering = false;
+#endif
+    }
+    if (!skyProfileMessage_.empty()) ImGui::TextWrapped("%s", skyProfileMessage_.c_str());
+    bool changed = ImGui::SliderFloat("Scattering", &p.atmosphere, 0.f, 2.f);
+#ifdef __ANDROID__
+    if (compact && !mobileSkyTargetLogged_) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sky scattering target x=%d y=%d", (int)(a.x + ImGui::CalcItemWidth() * .75f), (int)((a.y+b.y)*.5f));
+    }
+    if (compact && changed) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sky scattering changed %.3f", p.atmosphere);
+#else
+    (void)changed;
+#endif
+    ImGui::SliderFloat("Rayleigh", &p.rayleigh, 0.f, 2.f);
+    ImGui::SliderFloat("Mie", &p.mie, 0.f, 2.f);
+    ImGui::SliderFloat("Cloud cover", &p.cloudCover, 0.f, 1.f);
+    ImGui::SliderFloat("Cloud wind", &p.wind, 0.f, 5.f);
+    ImGui::Checkbox("Integrated scattering", &p.integratedScattering);
+#ifdef __ANDROID__
+    if (compact && !mobileSkyTargetLogged_) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "integrated sky target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
+    }
+#endif
+    ImGui::Checkbox("3D clouds (costly)", &p.volumetricClouds);
+#ifdef __ANDROID__
+    if (compact && !mobileSkyTargetLogged_) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "volume sky target x=%d y=%d visible=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f), (int)ImGui::IsItemVisible());
+        mobileSkyTargetLogged_ = true;
+    }
+#endif
+    if (ImGui::TreeNode("Atmosphere model")) {
+        ImGui::TextDisabled("LUT rebuilds on changes; may briefly stall.");
+        ImGui::SliderFloat("Planet radius km", &p.model.planetRadiusKm, 1000.f, 10000.f, "%.0f");
+        ImGui::SliderFloat("Atmosphere height km", &p.model.atmosphereHeightKm, 20.f, 150.f, "%.0f");
+        ImGui::SliderFloat("Rayleigh height km", &p.model.rayleighHeightKm, 2.f, 20.f);
+        ImGui::SliderFloat("Mie height km", &p.model.mieHeightKm, .5f, 4.f);
+        ImGui::SliderFloat("Ozone", &p.model.ozone, 0.f, 4.f);
+        ImGui::SliderFloat("Ground albedo", &p.model.groundAlbedo, 0.f, 1.f);
+        ImGui::TreePop();
+    }
+    if (!compact) {
+        ImGui::ColorEdit3("Zenith tint", &p.zenithTint.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+        ImGui::ColorEdit3("Horizon tint", &p.horizonTint.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+        p.zenithTint = glm::clamp(p.zenithTint, glm::vec3(0.f), glm::vec3(2.f));
+        p.horizonTint = glm::clamp(p.horizonTint, glm::vec3(0.f), glm::vec3(2.f));
+        ImGui::TextDisabled("Edits apply to the selected profile; save stores all four.");
+    }
+}
+
 void Sandbox::updateScene(float dt) {
+    const auto& skyProfile = skyProfiles_[std::clamp(skyStyle_, 0, 3)];
+    skyWindSpeed_ = skyProfile.wind; cloud_ = skyProfile.cloudCover;
+    light_.skyAtmosphere = skyProfile.atmosphere; light_.skyRayleigh = skyProfile.rayleigh; light_.skyMie = skyProfile.mie;
+    light_.skyIntegrated = skyProfile.integratedScattering; light_.skyVolumetricClouds = skyProfile.volumetricClouds;
+    light_.skyModel = sanitizeAtmosphere(skyProfile.model);
     time_ += dt; cloudClock_ += dt * .02f * skyWindSpeed_;
+    light_.cloudCover = cloud_; light_.cloudTime = cloudClock_;
     if (lightAuto_) lightAz_ = std::fmod(lightAz_ + 25.f * dt, 360.f);
     if (todAuto_) tod_ = std::fmod(tod_ + todSpeed_ * dt, 24.f);
     const Showcase& sc = showcases_[showcase_];
@@ -738,6 +852,8 @@ void Sandbox::applyTimeOfDay() {
     light_.zenith = q(L(&Key::zenith)); light_.horizon = q(L(&Key::horizon)); light_.sky = q(L(&Key::sky)); light_.ground = q(L(&Key::ground));
     SkyPalette palette{light_.zenith, light_.horizon, light_.sky, L(&Key::fog)};
     palette = applySkyStyle(static_cast<SkyStyle>(skyStyle_), palette, ss(-10.f, 10.f, sunElev));
+    const auto& profile = skyProfiles_[std::clamp(skyStyle_, 0, 3)];
+    palette.zenith *= profile.zenithTint; palette.horizon *= profile.horizonTint;
     light_.zenith = q(palette.zenith); light_.horizon = q(palette.horizon); light_.sky = q(palette.ambient);
     light_.fogColor = palette.fog;
     light_.color = useSun ? sunCol : glm::vec3(0.55f, 0.66f, 1.0f);
@@ -1167,19 +1283,14 @@ void Sandbox::drawUI(float wallDt) {
         ImGui::Checkbox("Skeleton", &skeleton_); ImGui::SameLine(); ImGui::Checkbox("MM trajectory", &trajectory_);
     }
     if (ImGui::CollapsingHeader("Time of day / sky", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Combo("Sky palette", &skyStyle_, "Celestial\0Cinematic\0Atmospheric\0Painterly\0");
-        ImGui::TextDisabled("Palette and LUT scattering are independent; 0 restores palette-only sky");
-        ImGui::SliderFloat("Sky scattering strength", &light_.skyAtmosphere, 0.f, 2.f);
-        ImGui::SliderFloat("Rayleigh weight", &light_.skyRayleigh, 0.f, 2.f);
-        ImGui::SliderFloat("Mie weight", &light_.skyMie, 0.f, 2.f);
+        drawSkyProfileControls(false);
         if (renderer_.stats.gpuSkyMs >= 0.f) ImGui::TextDisabled("GPU sky draw: %.2f ms (delayed, approximate)", renderer_.stats.gpuSkyMs);
         else ImGui::TextDisabled("GPU sky timing unavailable / pending");
-        ImGui::SliderFloat("Cloud wind speed", &skyWindSpeed_, 0.f, 5.f, "%.1fx");
         ImGui::Checkbox("Time of day drives sun, sky, fog, ambient", &todEnabled_);
         ImGui::SliderFloat("Hour", &tod_, 0.f, 24.f, "%.2f h"); ImGui::Checkbox("Auto advance", &todAuto_); ImGui::SameLine(); ImGui::SetNextItemWidth(120); ImGui::SliderFloat("hours/s", &todSpeed_, 0.05f, 3.f);
         if (ImGui::Button("Morning")) tod_ = 8.f; ImGui::SameLine(); if (ImGui::Button("Noon")) tod_ = 12.f; ImGui::SameLine(); if (ImGui::Button("Afternoon")) tod_ = 15.f; ImGui::SameLine();
         if (ImGui::Button("Sunset")) tod_ = 17.8f; ImGui::SameLine(); if (ImGui::Button("Night")) tod_ = 22.f;
-        ImGui::SliderFloat("Cloud cover", &cloud_, 0.f, 1.f); ImGui::Checkbox("Street lamps at night", &lampsOn_);
+        ImGui::Checkbox("Street lamps at night", &lampsOn_);
         if (ImGui::Checkbox("HDRI image-based lighting (otherwise procedural sky IBL)", &hdriMode_)) {
             if (hdriMode_) { std::error_code ec; for (auto& f : fs::directory_iterator(root_ + "/assets/env", ec)) if (f.path().extension() == ".hdr") { loadEnvironment(f.path().string()); break; } }
             else loadEnvironment("procedural");
@@ -1481,6 +1592,12 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark target x=%d y=%d visible=%d screen=%ux%u", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f), (int)ImGui::IsItemVisible(), renderer_.width(), renderer_.height());
         mobileBenchmarkTargetLogged_ = true;
     }
+    ImGui::SameLine();
+    if (ImGui::Button("SKY")) { mobileSkyPanel_ = !mobileSkyPanel_; mobileSkyTargetLogged_ = false; __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sky controls open=%d", (int)mobileSkyPanel_); }
+    if (frame_ == 0) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sky controls target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+    }
     ImGui::Text("Clip %d/%d", vrm_ && vrm_->mm ? vrm_->mm->debug.clip + 1 : 0, vrm_ && vrm_->mmDb ? (int)vrm_->mmDb->clipNames.size() : 0);
     ImGui::SameLine();
     if (ImGui::Button("NEXT") && vrm_ && vrm_->mm && vrm_->mmDb && !vrm_->mmDb->clipNames.empty()) {
@@ -1567,6 +1684,13 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         ImGui::SliderFloat("##upright", &vrm_->posture.hunchCorrection, 0.f, 1.f, "Upright %.2f");
     }
     ImGui::End();
+    if (mobileSkyPanel_) {
+        ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .03f, renderer_.height() * .08f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .56f, renderer_.height() * .80f), ImGuiCond_Always);
+        ImGui::Begin("Sky controls", &mobileSkyPanel_, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
+        drawSkyProfileControls(true);
+        ImGui::End();
+    }
     if (mobileClipBrowser_ && vrm_ && vrm_->mm && vrm_->mmDb) {
         const auto& names = vrm_->mmDb->clipNames;
         constexpr int perPage = 6;
@@ -1610,6 +1734,12 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     }
     if (rendered && !mobileLoggedMaterialBloom_ && fi.post.enabled && fi.post.bloom && fi.post.materialBloomMask && renderer_.supportsMaterialBloomMask()) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "material bloom mask frame presented"); mobileLoggedMaterialBloom_ = true;
+    }
+    if (rendered && fi.light.skyIntegrated && !mobileLoggedIntegratedSky_) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "integrated sky frame presented"); mobileLoggedIntegratedSky_ = true;
+    }
+    if (rendered && fi.light.skyVolumetricClouds && !mobileLoggedVolumeSky_) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "volume sky frame presented"); mobileLoggedVolumeSky_ = true;
     }
     if (rendered && !mobileLoggedSkyTiming_ && renderer_.stats.gpuSkyMs >= 0.f) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sky timing sample available"); mobileLoggedSkyTiming_ = true;
@@ -1688,6 +1818,7 @@ MobileSnapshot Sandbox::captureMobile() const {
     s.lightAz = lightAz_;
     s.lightEl = lightEl_;
     s.time = time_; s.skyStyle = skyStyle_; s.skyWindSpeed = skyWindSpeed_; s.cloudClock = cloudClock_;
+    s.skyProfiles = skyProfiles_; s.skyPanel = mobileSkyPanel_;
     s.rain = rain_;
     s.splitOffset = splitOffset_;
     s.todAuto = todAuto_;
@@ -1753,7 +1884,8 @@ void Sandbox::restoreMobile(const MobileSnapshot& s) {
     lutStrength_ = s.lutStrength;
     lightAz_ = s.lightAz;
     lightEl_ = s.lightEl;
-    time_ = s.time; skyStyle_ = s.skyStyle; skyWindSpeed_ = s.skyWindSpeed; cloudClock_ = s.cloudClock;
+    time_ = s.time; skyStyle_ = std::clamp(s.skyStyle, 0, 3); skyWindSpeed_ = s.skyWindSpeed; cloudClock_ = s.cloudClock;
+    skyProfiles_ = s.skyProfiles; mobileSkyPanel_ = s.skyPanel;
     rain_ = s.rain;
     splitOffset_ = s.splitOffset;
     todAuto_ = s.todAuto;

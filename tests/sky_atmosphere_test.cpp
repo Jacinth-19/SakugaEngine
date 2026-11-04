@@ -19,6 +19,14 @@ int main() {
     for (double h : {0., 1., 25., 100.}) for (double mu : {-1., -0.1, 0., 0.1, 1.}) {
         for (double v : sk::atmosphereTransmittance(h, mu)) { CHECK_FINITE(v); CHECK(v >= 0 && v <= 1); }
     }
+    sk::AtmosphereParameters model{};
+    model.ozone = 0; auto clear = sk::atmosphereTransmittance(0, 1, 48, model);
+    model.ozone = 4; auto ozone = sk::atmosphereTransmittance(0, 1, 48, model);
+    CHECK(ozone[1] < clear[1]); CHECK_NEAR(ozone[3], clear[3], 1e-12);
+    model.rayleighHeightKm = 16; auto thick = sk::atmosphereTransmittance(0, 1, 48, model);
+    CHECK(thick[2] < ozone[2]);
+    model.planetRadiusKm = -100; model.mieHeightKm = NAN;
+    model = sk::sanitizeAtmosphere(model); CHECK(model.planetRadiusKm == 1000); CHECK_NEAR(model.mieHeightKm, 1.2, 1e-6);
     auto lut = sk::buildAtmosphereLut();
     CHECK(lut.size() == sk::kAtmosphereLutWidth * sk::kAtmosphereLutHeight * 4u);
     CHECK(lut[0] > 0); CHECK(lut[0] < lut[(sk::kAtmosphereLutWidth - 1) * 4]); CHECK(lut[(sk::kAtmosphereLutWidth - 1) * 4] > 200);

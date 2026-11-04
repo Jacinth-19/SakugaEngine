@@ -1,5 +1,6 @@
 #pragma once
 #include "gfx/Context.h"
+#include "sky/AtmosphereLut.h"
 #include "post/PostProcessing.h"
 #include "gfx/LineBatch.h"
 #include "gfx/Material.h"
@@ -32,6 +33,8 @@ struct LightingSettings {
     float cloudCover = 0.55f, cloudTime = 0.f, starVisibility = 0.f, sunDisc = 1.f;   // sky shader controls
     float sunSize = 1.f;
     float skyAtmosphere = 0.4f, skyRayleigh = 1.f, skyMie = 1.f; // artistic weights over fixed atmosphere LUT
+    bool skyIntegrated = true, skyVolumetricClouds = false;
+    AtmosphereParameters skyModel{};
     bool nprOnly = false;                          // render every material with the pure NPR (Endfield) shading path
     float shadowBias = 0.0012f;
     float shadowFarRadius = 28.f;                 // second (far) cascade; both cascades share one 2x1 atlas
@@ -200,7 +203,7 @@ private:
     glm::vec4 sh_[9]{};
     float envMaxLod_ = 0.f;
     void uploadEnvironment(const std::vector<float>& rgba, int w, int h);
-    void updateProceduralEnvironment(const LightingSettings& L);
+    void updateProceduralEnvironment(const LightingSettings& L, float altitudeKm = 0.f);
     VkPipeline pipeToon_ = VK_NULL_HANDLE, pipeOutline_ = VK_NULL_HANDLE, pipeShadow_ = VK_NULL_HANDLE,
                pipeSky_ = VK_NULL_HANDLE, pipeLine_ = VK_NULL_HANDLE, pipeToonBlend_ = VK_NULL_HANDLE;
     std::vector<VkShaderModule> modules_;
@@ -223,6 +226,9 @@ private:
     std::vector<std::unique_ptr<Material>> materials_;
     Texture *white_ = nullptr, *black_ = nullptr, *bump_ = nullptr;
     Material* skyMaterial_ = nullptr; // owns the sky LUT descriptor through materials_
+    Texture* skyTransmittance_ = nullptr;
+    AtmosphereParameters skyModel_{};
+    void updateSkyAtmosphere(AtmosphereParameters model);
 };
 
 }  // namespace sk

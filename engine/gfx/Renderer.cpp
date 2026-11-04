@@ -1,4 +1,5 @@
 #include "sky/AtmosphereLut.h"
+#include "sky/SkyScatteringMath.h"
 #include "gfx/Renderer.h"
 #include "gfx/ShadowFit.h"
 #include "gfx/SurfaceChoices.h"
@@ -60,6 +61,7 @@ struct GlobalUBO {
     glm::vec4 contactPos[kMaxContacts];   // xyz = ground contact point of a character, w = radius (0 = off)
     glm::mat4 pointViewProj[Renderer::kMaxPointShadows * kPointShadowFaces]; // one matrix per light and cube face
     glm::vec4 pointShadow[4];             // per point light: x = shadow slot (-1 = none), y = normal offset, z = depth bias
+    glm::vec4 skyOptions, skyOptical;
 };
 struct PushConstants {
     glm::mat4 model; uint32_t boneOffset, skinned, pad0, pad1;
@@ -234,13 +236,36 @@ bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, co
     // Reuse the material layout's base-texture binding for the sky draw. This avoids
     // increasing the global sampler count on devices with tight descriptor limits.
     static const auto atmospherePixels = buildAtmosphereLut();
-    Texture* atmosphereLut = createTexture("sky_transmittance", atmospherePixels.data(),
+    skyTransmittance_ = createTexture("sky_transmittance", atmospherePixels.data(),
         kAtmosphereLutWidth, kAtmosphereLutHeight, false, false, false);
     skyMaterial_ = createMaterial("sky_transmittance");
-    skyMaterial_->tex[TEX_BASE] = atmosphereLut;
+    skyMaterial_->tex[TEX_BASE] = skyTransmittance_;
     flushMaterial(skyMaterial_);
     updateProceduralEnvironment(LightingSettings{});
     return true;
+}
+
+// LUT model edits are infrequent. Wait for users of the old descriptor, upload a new
+// LUT and destroy the old image; do not accumulate one image per slider movement.
+void Renderer::updateSkyAtmosphere(AtmosphereParameters model) {
+    model = sanitizeAtmosphere(model);
+    const bool opticalChanged = model.planetRadiusKm != skyModel_.planetRadiusKm ||
+        model.atmosphereHeightKm != skyModel_.atmosphereHeightKm || model.rayleighHeightKm != skyModel_.rayleighHeightKm ||
+        model.mieHeightKm != skyModel_.mieHeightKm || model.ozone != skyModel_.ozone;
+    skyModel_ = model;
+    if (!opticalChanged) return;
+    auto pixels = buildAtmosphereLut(model);
+    VK_OK(vkDeviceWaitIdle(ctx_->device));
+    Texture* old = skyTransmittance_;
+    skyTransmittance_ = createTexture("sky_transmittance", pixels.data(), kAtmosphereLutWidth, kAtmosphereLutHeight, false, false, false);
+    skyMaterial_->tex[TEX_BASE] = skyTransmittance_;
+    flushMaterial(skyMaterial_);
+    auto it = std::find_if(textures_.begin(), textures_.end(), [old](const auto& t) { return t.get() == old; });
+    if (it != textures_.end()) {
+        vkDestroySampler(ctx_->device, (*it)->sampler, nullptr);
+        ctx_->destroyImage((*it)->image);
+        textures_.erase(it);
+    }
 }
 
 // ===================================================================================== swapchain / targets
@@ -626,21 +651,56 @@ void Renderer::setEnvironmentHDR(const float* rgb, int w, int h) {
     uploadEnvironment(px, w, h);
 }
 
-void Renderer::updateProceduralEnvironment(const LightingSettings& L) {
+void Renderer::updateProceduralEnvironment(const LightingSettings& L, float altitudeKm) {
     if (envHDR_) return;
     uint64_t hsh = 1469598103934665603ull;
     auto mix = [&](float v) { uint32_t b; std::memcpy(&b, &v, 4); hsh = (hsh ^ b) * 1099511628211ull; };
     for (int i = 0; i < 3; ++i) { mix(L.sky[i]); mix(L.ground[i]); mix(L.zenith[i]); mix(L.horizon[i]); }
+    const float atmosphereStrength = glm::clamp(std::round(L.skyAtmosphere * 20.f) / 20.f, 0.f, 2.f);
+    const float rayleigh = glm::clamp(std::round(L.skyRayleigh * 20.f) / 20.f, 0.f, 2.f);
+    const float mie = glm::clamp(std::round(L.skyMie * 20.f) / 20.f, 0.f, 2.f);
+    const float night = glm::clamp(std::round(L.starVisibility * 20.f) / 20.f, 0.f, 1.f);
+    const bool integrate = L.skyIntegrated && atmosphereStrength > 0.f && night < 1.f;
+    const auto model = sanitizeAtmosphere(L.skyModel);
+    const float altitude = glm::clamp(std::round(altitudeKm * 10.f) / 10.f, 0.f, model.atmosphereHeightKm);
+    glm::vec3 sun = glm::round(L.direction * 20.f) / 20.f;
+    if (glm::length(sun) < .001f) sun = glm::vec3(0.f, 1.f, 0.f);
+    else sun = glm::normalize(sun);
+    glm::vec3 sunColor = glm::round(L.color * 20.f) / 20.f;
+    mix(integrate ? 1.f : 0.f);
+    if (integrate) {
+        mix(altitude); mix(atmosphereStrength); mix(rayleigh); mix(mie); mix(night);
+        mix(model.planetRadiusKm); mix(model.atmosphereHeightKm); mix(model.rayleighHeightKm); mix(model.mieHeightKm); mix(model.ozone); mix(model.groundAlbedo);
+        for (int i = 0; i < 3; ++i) { mix(sun[i]); mix(sunColor[i]); }
+    }
     if (hsh == procHash_ && env_.image) return;
     procHash_ = hsh;
     const int w = 256, h = 128;
     std::vector<float> px((size_t)w * h * 4);
     glm::vec3 zenith = L.zenith, horizon = L.horizon;
+    // Low-resolution CPU reference bake keeps procedural IBL broadly in step with
+    // the integrated sky without performing a costly path integration per env texel.
+    constexpr int sw = 32, sh = 16;
+    std::array<glm::vec3, sw * sh> scatter{};
+    if (integrate) for (int y = 0; y < sh; ++y) for (int x = 0; x < sw; ++x) {
+        glm::vec3 d = equirectDir((x + .5f) / sw, (y + .5f) / sh);
+        auto v = integrateSkySingleScattering(altitude, glm::dvec3(d), glm::dvec3(sun), rayleigh, mie, 8, 24, model);
+        scatter[y * sw + x] = glm::vec3(v) * sunColor * atmosphereStrength * (1.f - night);
+    }
+    auto scatterSample = [&](float u, float v) {
+        float fx = u * sw - .5f, fy = glm::clamp(v * sh - .5f, 0.f, float(sh - 1));
+        int x0 = (int)std::floor(fx), y0 = (int)std::floor(fy), y1 = std::min(y0 + 1, sh - 1);
+        float tx = fx - x0, ty = fy - y0;
+        int a = (x0 % sw + sw) % sw, b = (a + 1) % sw;
+        return glm::mix(glm::mix(scatter[y0*sw+a], scatter[y0*sw+b], tx),
+                        glm::mix(scatter[y1*sw+a], scatter[y1*sw+b], tx), ty);
+    };
     for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
         float d = equirectDir((x + .5f) / w, (y + .5f) / h).y;
         auto ss = [](float a, float b, float v) { float t = glm::clamp((v - a) / (b - a), 0.f, 1.f); return t * t * (3 - 2 * t); };
         glm::vec3 c = glm::mix(horizon, zenith, ss(0.f, 0.65f, d));
         c = glm::mix(c, L.ground, ss(0.f, -0.25f, d));
+        if (integrate && d >= 0.f) c += scatterSample((x + .5f) / w, (y + .5f) / h);
         float* o = &px[((size_t)y * w + x) * 4]; o[0] = c.x; o[1] = c.y; o[2] = c.z; o[3] = 1.f;
     }
     envSun_ = glm::vec3(0.f);
@@ -713,6 +773,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     VkDevice dev = ctx_->device;
     FrameData& f = frames_[frameIndex_];
     VK_OK(vkWaitForFences(dev, 1, &f.fence, VK_TRUE, UINT64_MAX));
+    updateSkyAtmosphere(in.light.skyModel);
     if (postTimingPool_ && timestampRecorded_[frameIndex_]) {
         uint64_t ts[4]{};
         VkResult result = vkGetQueryPoolResults(dev, postTimingPool_, frameIndex_ * 4, 4, sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
@@ -746,7 +807,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     // ---------------- upload per-frame data
     GlobalUBO g{};
     const LightingSettings& L = in.light;
-    if (!envHDR_) updateProceduralEnvironment(L);
+    if (!envHDR_) updateProceduralEnvironment(L, in.cameraPos.y * .001f);
     glm::vec3 ld = glm::normalize(L.direction);
     {   // two directional shadow cascades, snapped to shadow texels (gfx/ShadowFit.h).
         // Far: the whole arena around the focus. Near: a bounding sphere of the *camera frustum slice* [zNear, split], grown to
@@ -796,6 +857,8 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     g.misc = glm::vec4(1.f, 0.f, L.wetPreviewTime, 1.f / (float)kShadowRes);
     g.skyZenith = glm::vec4(L.zenith, L.cloudCover); g.skyHorizon = glm::vec4(L.horizon, L.cloudTime); g.skyParams = glm::vec4(L.starVisibility, L.sunDisc, L.sunSize, glm::clamp(L.skyAtmosphere, 0.f, 2.f));
     g.style = glm::vec4(L.nprOnly ? 1.f : 0.f, glm::clamp(in.post.skyBloomWeight, 0.f, 1.f), glm::clamp(L.skyRayleigh, 0.f, 2.f), glm::clamp(L.skyMie, 0.f, 2.f));
+    g.skyOptions = glm::vec4(L.skyIntegrated ? 1.f : 0.f, L.skyVolumetricClouds ? 1.f : 0.f, skyModel_.planetRadiusKm, skyModel_.atmosphereHeightKm);
+    g.skyOptical = glm::vec4(skyModel_.rayleighHeightKm, skyModel_.mieHeightKm, skyModel_.ozone, skyModel_.groundAlbedo);
     g.split = glm::vec4(L.splitOffsetPx, L.splitDir.x, L.splitDir.y, L.outlineScale);
     for (int i = 0; i < 9; ++i) g.sh[i] = sh_[i];
     g.envParams = glm::vec4(L.envIntensity, envMaxLod_, envHDR_ ? 1.f : 0.f, L.envRotation);
