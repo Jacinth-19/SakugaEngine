@@ -68,6 +68,34 @@ PYCODE
   if [[ -z ${dialog_x:-} || -z ${dialog_y:-} ]]; then echo '::error::Could not locate the Android fullscreen confirmation.'; exit 1; fi
   adb shell input tap "$dialog_x" "$dialog_y"
 fi
+# Exercise the real Vulkan benchmark UI and statistics (emulator speed is not phone performance).
+adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+bench_target=$(grep -F 'benchmark target x=' /tmp/sakuga-android-log.txt | tail -1)
+read -r bench_x bench_y < <(echo "$bench_target" | sed -n 's/.*benchmark target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
+if [[ -z ${bench_x:-} || -z ${bench_y:-} ]]; then echo '::error::Benchmark button missing'; exit 1; fi
+adb shell input tap "$bench_x" "$bench_y"
+start_target=''
+for i in $(seq 1 20); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  start_target=$(grep -F 'benchmark start target x=' /tmp/sakuga-android-log.txt | tail -1 || true)
+  [[ -n $start_target ]] && break
+  sleep 1
+done
+read -r start_x start_y < <(echo "$start_target" | sed -n 's/.*benchmark start target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
+if [[ -z ${start_x:-} || -z ${start_y:-} ]]; then echo '::error::Benchmark window did not open'; exit 1; fi
+adb shell input tap "$start_x" "$start_y"
+completed=0
+for i in $(seq 1 100); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  if grep -q 'benchmark completed frames=' /tmp/sakuga-android-log.txt; then completed=1; break; fi
+  sleep 1
+done
+if [[ $completed != 1 ]]; then echo '::error::Benchmark did not complete'; exit 1; fi
+grep -F 'benchmark completed frames=' /tmp/sakuga-android-log.txt | tail -1
+close_target=$(grep -F 'benchmark close target x=' /tmp/sakuga-android-log.txt | tail -1)
+read -r close_x close_y < <(echo "$close_target" | sed -n 's/.*benchmark close target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
+adb shell input tap "$close_x" "$close_y"
+sleep 2
 # Save an actual emulator screenshot and tap the NEXT CLIP region, using the captured dimensions.
 sleep 3
 adb exec-out screencap -p > apk/android-preview.png

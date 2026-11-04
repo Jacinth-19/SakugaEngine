@@ -15,6 +15,7 @@
 #include "platform/Window.h"
 #include "platform/TouchControls.h"
 #include "platform/FrameTiming.h"
+#include "platform/FrameBenchmark.h"
 #include "scene/Scene.h"
 #include "MotionLab.h"
 #ifdef __ANDROID__
@@ -40,6 +41,9 @@
 #include <set>
 #include <fstream>
 
+#ifdef __ANDROID__
+void shareAndroidBenchmark(const std::string& report);
+#endif
 using namespace sk;
 namespace fs = std::filesystem;
 
@@ -213,6 +217,7 @@ public:
     bool initMobile(ANativeWindow* window, std::string& error);
     int frameMobile(float dt, float wallDt, float x, float y, int clip);
     void touchMobile(bool imgui, int action, int id, float x, float y);
+    void cancelBenchmark() { benchmark_.cancel(); }
     MobileSnapshot captureMobile() const;
     void restoreMobile(const MobileSnapshot& state);
 #endif
@@ -233,6 +238,9 @@ private:
     void updateScene(float dt);
     FrameInput buildFrame(float dt);
     void drawUI(float wallDt = 1.f / 60.f);
+    void drawBenchmarkUI();
+    void startBenchmark();
+    void benchmarkFrame(float wallDt);
     void drawUiThemeWindow();
     void loadUiTheme();
     void applyRain(float amount);
@@ -274,6 +282,12 @@ private:
     int debugMode_ = 0; bool skeleton_ = false, trajectory_ = false, showUI_ = true, split_ = false; float splitOffset_ = 0;
     glm::vec3 desiredVel_{0};
     int selectedMat_ = 0; bool syncMat_ = true;
+    FrameBenchmark benchmark_; bool showBenchmark_ = false;
+#ifdef __ANDROID__
+    bool benchmarkTargetsLogged_ = false;
+#endif
+    std::string benchmarkSetup_, benchmarkReport_;
+    uint32_t benchmarkWidth_ = 0, benchmarkHeight_ = 0;
     float fps_ = 0; FrameTiming frameTiming_; bool cursorFree_ = true;
     int matForcedMode_ = -1;
     // UI look: the preset/file this session started from, and the live state the F12 editor writes back to it
@@ -953,6 +967,84 @@ void Sandbox::drawUiThemeWindow() {
     ImGui::End();
 }
 
+void Sandbox::startBenchmark() {
+    benchmarkWidth_ = renderer_.width(); benchmarkHeight_ = renderer_.height();
+    SysInfo sys = collectSysInfo(root_);
+    std::ostringstream out;
+    out << "Sakuga frame benchmark (Vulkan; FIFO/vsync)\nGPU: " << ctx_.props.deviceName
+        << "\nCPU: " << (sys.cpu.empty() ? "unknown" : sys.cpu)
+        << "\nResolution: " << benchmarkWidth_ << "x" << benchmarkHeight_
+        << "\nScene: " << (showcase_ >= 0 && showcase_ < (int)showcases_.size() ? showcases_[showcase_].name : "unknown")
+        << "\nBloom: " << (post_.bloom && post_.enabled ? "on" : "off")
+        << "; point shadows: " << (opt_.pointShadows ? "on" : "off")
+        << "; hair physics: " << (vrm_ && vrm_->spring.enabled ? "on" : "off")
+        << "; NPCs: " << lab_.npcs.size()
+        << "\nAnimation: ";
+    int clip = vrm_ && vrm_->mm ? vrm_->mm->debug.clip : -1;
+    if (vrm_ && vrm_->mmDb && clip >= 0 && clip < (int)vrm_->mmDb->clipNames.size())
+        out << vrm_->mmDb->clipNames[clip] << (vrm_->mm->browsing() ? " (selected)" : " (matching)");
+    else out << "unknown";
+    out << "\nWarmup: 3 s; target sample: 20 s\n";
+    benchmarkSetup_ = out.str(); benchmarkReport_.clear(); benchmark_.start();
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark started");
+#endif
+}
+void Sandbox::benchmarkFrame(float wallDt) {
+    if (!benchmark_.running()) return;
+    if (renderer_.width() != benchmarkWidth_ || renderer_.height() != benchmarkHeight_) { benchmark_.cancel(); return; }
+    benchmark_.record(wallDt);
+    if (benchmark_.state() == FrameBenchmark::State::Complete) {
+        const auto& r = benchmark_.result(); char stats[512];
+        std::snprintf(stats, sizeof stats, "Frames: %d; measured: %.2f s\nAverage: %.1f FPS\n95th percentile frame interval: %.1f ms\n1%% low: %.1f FPS\nIntervals over 16.67 ms: %.1f%%\n", r.frames, r.seconds, r.averageFps, r.p95Ms, r.onePercentLowFps, r.overBudgetPercent);
+        benchmarkReport_ = benchmarkSetup_ + stats + "Wall-clock frame-loop intervals, not GPU timings or display measurements. Vsync may cap FPS. Settings are those at start; keep the scene and camera still for comparable runs.";
+#ifdef __ANDROID__
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark completed frames=%d seconds=%.2f average=%.1f p95=%.1f low=%.1f", r.frames, r.seconds, r.averageFps, r.p95Ms, r.onePercentLowFps);
+#endif
+    }
+}
+void Sandbox::drawBenchmarkUI() {
+    if (!showBenchmark_) return;
+#ifdef __ANDROID__
+    ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .03f, renderer_.height() * .06f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .58f, renderer_.height() * .84f), ImGuiCond_Always);
+#else
+    ImGui::SetNextWindowSize(ImVec2(490, 420), ImGuiCond_FirstUseEver);
+#endif
+    ImGui::Begin("Frame benchmark", &showBenchmark_, ImGuiWindowFlags_NoSavedSettings);
+    ImGui::TextWrapped("Measures this scene using wall-clock frame intervals. Keep the scene and camera unchanged. No GPU timings.");
+    if (benchmark_.running()) {
+        ImGui::Text("%s: %.1f / %.0f s", benchmark_.state() == FrameBenchmark::State::Warmup ? "Warmup" : "Measuring", benchmark_.elapsed(), benchmark_.target());
+        if (ImGui::Button("Cancel")) benchmark_.cancel();
+    } else {
+        if (ImGui::Button("Start benchmark")) startBenchmark();
+#ifdef __ANDROID__
+        if (!benchmarkTargetsLogged_) {
+            ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark start target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+        }
+#endif
+        ImGui::SameLine(); if (ImGui::Button("Close")) showBenchmark_ = false;
+#ifdef __ANDROID__
+        if (!benchmarkTargetsLogged_) {
+            ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark close target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+            benchmarkTargetsLogged_ = true;
+        }
+#endif
+        if (benchmark_.state() == FrameBenchmark::State::Cancelled) ImGui::TextWrapped("Cancelled (backgrounded, resized, or stopped). Start again.");
+        if (benchmark_.state() == FrameBenchmark::State::Complete) {
+#ifdef __ANDROID__
+            if (ImGui::Button("Share report")) shareAndroidBenchmark(benchmarkReport_);
+#else
+            if (ImGui::Button("Copy report")) ImGui::SetClipboardText(benchmarkReport_.c_str());
+#endif
+            ImGui::Separator(); ImGui::TextWrapped("%s", benchmarkReport_.c_str());
+        }
+    }
+    ImGui::End();
+}
+
 void Sandbox::drawUI(float wallDt) {
     if (!renderer_.uiEnabled()) return;
     renderer_.beginUI(wallDt);
@@ -983,6 +1075,7 @@ void Sandbox::drawUI(float wallDt) {
         }
     }
     drawUiThemeWindow();
+    drawBenchmarkUI();
     if (showImGuiDemo_) ImGui::ShowDemoWindow(&showImGuiDemo_);
     if (!showUI_) return;
 #ifdef __ANDROID__
@@ -996,6 +1089,9 @@ void Sandbox::drawUI(float wallDt) {
     ImGui::TextDisabled("/  CREATIVE SANDBOX");
     ImGui::TextWrapped("%s", ctx_.props.deviceName);
     ImGui::TextDisabled("%.0f FPS   |   %u draws   |   %u triangles", fps_, renderer_.stats.drawCalls, renderer_.stats.triangles);
+#ifndef __ANDROID__
+    if (ImGui::Button("Frame benchmark")) showBenchmark_ = true;
+#endif
 #ifndef __ANDROID__
     ImGui::TextDisabled("Tab mouse  /  F1 hide  /  F2 capture  /  F12 theme");
 #endif
@@ -1158,7 +1254,7 @@ void Sandbox::run() {
     int recorded = 0;
     if (!opt_.recordDir.empty()) fs::create_directories(opt_.recordDir);
     while (true) {
-        float dt;
+        float dt, wallDt = 0.f;
         DeviceState dev;
         if (opt_.headless) {
             dt = opt_.fixedDt;
@@ -1170,7 +1266,8 @@ void Sandbox::run() {
             if (window_.shouldClose()) break;
             window_.poll();
             auto now = std::chrono::steady_clock::now();
-            float wallDt = std::chrono::duration<float>(now - last).count(); last = now;
+            wallDt = std::chrono::duration<float>(now - last).count(); last = now;
+            if (frame_ > 0) benchmarkFrame(wallDt);
             dt = std::min(0.05f, wallDt);
             if (frame_ > 0) fps_ = frameTiming_.update(wallDt);
             dev = window_.device();
@@ -1205,6 +1302,7 @@ void Sandbox::run() {
         std::vector<uint8_t>* cap = (lastFrame && !opt_.screenshot.empty()) || record || screenshotRequested_ ? &pixels : nullptr;
         if (opt_.headless && !cap) { ++frame_; continue; }          // simulate only: nothing needs to be drawn
         bool ok = renderer_.renderFrame(fi, cap);
+        if (!ok) benchmark_.cancel();
         if (ok && cap) {
             if (record) { char name[512]; std::snprintf(name, sizeof name, "%s/frame_%05d.png", opt_.recordDir.c_str(), recorded++); Renderer::savePNG(name, pixels, renderer_.width(), renderer_.height()); }
             if (screenshotRequested_) { screenshotRequested_ = false; std::string p = "screenshot_" + std::to_string(frame_) + ".png"; Renderer::savePNG(p, pixels, renderer_.width(), renderer_.height()); SK_LOG("saved %s", p.c_str()); }
@@ -1303,7 +1401,7 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox movement reached the avatar"); mobileLoggedMove_ = true;
     }
     FrameInput fi = buildFrame(dt);
-    if (frame_ > 0) fps_ = frameTiming_.update(wallDt);
+    if (frame_ > 0) { fps_ = frameTiming_.update(wallDt); benchmarkFrame(wallDt); }
     drawUI(wallDt);
     const float density = opt_.uiFontSize / 14.f;
     ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .65f, 10.f * density), ImGuiCond_Always);
@@ -1317,7 +1415,11 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox night target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
     }
-    ImGui::SameLine(); ImGui::Text("%.0f FPS", fps_);
+    ImGui::SameLine(); if (ImGui::Button("BENCH")) showBenchmark_ = true;
+    if (frame_ == 0) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
+    }
     ImGui::Text("Clip %d/%d", vrm_ && vrm_->mm ? vrm_->mm->debug.clip + 1 : 0, vrm_ && vrm_->mmDb ? (int)vrm_->mmDb->clipNames.size() : 0);
     ImGui::SameLine();
     if (ImGui::Button("NEXT") && vrm_ && vrm_->mm && vrm_->mmDb && !vrm_->mmDb->clipNames.empty()) {
@@ -1411,6 +1513,7 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     // The UI changes are reflected on the next frame, as with desktop sandbox controls.
     ++frame_;
     bool rendered = renderer_.renderFrame(fi);
+    if (!rendered) benchmark_.cancel();
     if (rendered && mobileRestored_) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface state frame bloom=%d editor=%d tod=%.2f clip=%d browse=%d npcs=%zu x=%.3f z=%.3f",
                             (int)post_.bloom, (int)showUI_, tod_, mobileClipIndex(vrm_), vrm_ && vrm_->mm && vrm_->mm->browsing(),
@@ -1608,6 +1711,7 @@ int mobileSandboxFrame(MobileSandbox* m, float x, float y, int clip, std::string
 }
 void mobileSandboxPause(MobileSandbox* m) {
     if (!m || !m->sandbox) return;
+    m->sandbox->cancelBenchmark();
     m->sandbox->touchMobile(false, 3, -1, 0, 0);
 }
 void mobileSandboxResume(MobileSandbox* m) { if (m) m->last = std::chrono::steady_clock::now(); }

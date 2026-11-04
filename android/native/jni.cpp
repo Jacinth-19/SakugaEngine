@@ -94,6 +94,8 @@ struct RendererHandle {
     ~RendererHandle() { sk::destroyAndroidRenderSession(session); if (window) ANativeWindow_release(window); }
 };
 thread_local std::string rendererError;
+thread_local JNIEnv* frameEnv = nullptr;
+thread_local jclass frameActivityClass = nullptr;
 RendererHandle* renderer(jlong h) { return reinterpret_cast<RendererHandle*>(static_cast<intptr_t>(h)); }
 }
 extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererCreate(JNIEnv* env, jclass, jobject surface, jstring shaderDir, jstring modelPath, jobjectArray motionPaths, jfloat density) {
@@ -123,9 +125,21 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_sakuga_preview_MainActivity_nativeRe
         return static_cast<jlong>(reinterpret_cast<intptr_t>(h.release()));
     } catch (const std::exception& e) { rendererError = e.what(); return 0; }
 }
-extern "C" JNIEXPORT jint JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererFrame(JNIEnv*, jclass, jlong handle, jfloat x, jfloat y, jint clip) {
+void shareAndroidBenchmark(const std::string& report) {
+    if (!frameEnv || !frameActivityClass) return;
+    jmethodID method = frameEnv->GetStaticMethodID(frameActivityClass, "shareBenchmark", "(Ljava/lang/String;)V");
+    if (method) {
+        jstring text = frameEnv->NewStringUTF(report.c_str());
+        if (text) { frameEnv->CallStaticVoidMethod(frameActivityClass, method, text); frameEnv->DeleteLocalRef(text); }
+    }
+    if (frameEnv->ExceptionCheck()) { frameEnv->ExceptionDescribe(); frameEnv->ExceptionClear(); }
+}
+extern "C" JNIEXPORT jint JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererFrame(JNIEnv* env, jclass cls, jlong handle, jfloat x, jfloat y, jint clip) {
     auto* h = renderer(handle); if (!h) return -1;
-    return sk::renderAndroidFrame(h->session, x, y, clip, rendererError);
+    frameEnv = env; frameActivityClass = cls;
+    int result = sk::renderAndroidFrame(h->session, x, y, clip, rendererError);
+    frameEnv = nullptr; frameActivityClass = nullptr;
+    return result;
 }
 extern "C" JNIEXPORT void JNICALL Java_com_sakuga_preview_MainActivity_nativeRendererPause(JNIEnv*, jclass, jlong handle) {
     auto* h = renderer(handle); if (h) sk::pauseAndroidRenderSession(h->session);

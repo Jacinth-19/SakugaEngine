@@ -82,6 +82,7 @@ endif()
 
 # ---------------------------------------------------------------- tests
 set(SAKUGA_TESTS
+  frame_benchmark_test
   sys_info_test
   presentation_requirements_test
   surface_choices_test

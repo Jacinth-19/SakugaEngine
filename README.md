@@ -109,3 +109,7 @@ The Android debug APK is available as an artifact on successful **Android sandbo
 ## Licences
 
 LAFAN1 mocap is **CC BY-NC-ND 4.0**; review its terms before use or redistribution. Other included assets and dependencies have their own licences; see the [developer guide](docs/ENGINE_GUIDE.md#licences) and [third-party notes](third_party/README.md).
+
+### Frame benchmark
+
+On Android Vulkan tap **BENCH**, or on Windows use **Frame benchmark** in the sandbox editor. Run it with the scene and camera unchanged, then use **Share report** (Android) or **Copy report** (Windows). It reports wall-clock frame-loop statistics, not GPU timings; vsync can cap results. The Android Canvas fallback does not benchmark the 3D renderer. See [Android and diagnostics](docs/ANDROID_AND_DIAGNOSTICS.md) for methodology and Mixamo asset limitations.

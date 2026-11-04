@@ -1,6 +1,9 @@
 package com.sakuga.preview;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.os.Build;
+import java.lang.ref.WeakReference;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -69,9 +72,23 @@ public final class MainActivity extends Activity {
     private static MainActivity fallbackOwner;
     private boolean forceCanvas;
     private PreviewView preview;
+    private static volatile WeakReference<MainActivity> currentActivity = new WeakReference<MainActivity>(null);
+    // Called from the render thread; the chooser itself must run on the UI thread.
+    private static void shareBenchmark(final String report) {
+        final MainActivity activity = currentActivity.get();
+        if (activity == null || activity.destroyed) return;
+        activity.runOnUiThread(new Runnable() { @Override public void run() {
+            if (activity.destroyed || activity.isFinishing()) return;
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(Intent.EXTRA_TEXT, "Device: " + Build.MANUFACTURER + " " + Build.MODEL + " (Android " + Build.VERSION.RELEASE + ")\n" + report);
+            activity.startActivity(Intent.createChooser(send, "Share benchmark"));
+        }});
+    }
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        currentActivity = new WeakReference<MainActivity>(this);
         // Keep system bars from covering the editor and touch controls; a swipe can reveal them temporarily.
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
@@ -318,7 +335,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() { super.onResume(); resumed = true; if (preview != null) preview.setRunning(true); }
     @Override protected void onPause() { resumed = false; if (preview != null) preview.setRunning(false); super.onPause(); }
-    @Override protected void onDestroy() { destroyed = true; if (preview != null) preview.close(); super.onDestroy(); }
+    @Override protected void onDestroy() { destroyed = true; if (currentActivity.get() == this) currentActivity.clear(); if (preview != null) preview.close(); super.onDestroy(); }
 
     private final class PreviewView extends View {
         private final android.text.TextPaint paint = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
