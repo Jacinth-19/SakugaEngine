@@ -182,6 +182,9 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets DESTINATION . COMPONENT Runtime)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/config DESTINATION . COMPONENT Runtime)
 install(DIRECTORY ${CMAKE_BINARY_DIR}/shaders DESTINATION . COMPONENT Runtime)   # compiled SPIR-V the renderer loads
 install(FILES ${CMAKE_SOURCE_DIR}/README.md DESTINATION . COMPONENT Runtime)
+if(WIN32)
+  install(FILES ${CMAKE_SOURCE_DIR}/installer/Sakuga-Performance.bat DESTINATION . COMPONENT Runtime)
+endif()
 
 # ---------------------------------------------------------------- tests (GPU-free, CTest)
 # Always configureable on its own as well: cmake -S tests -B build-tests

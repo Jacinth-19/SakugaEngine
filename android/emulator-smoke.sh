@@ -146,6 +146,11 @@ if [[ $renderer_result == presented ]]; then
     echo '::error::The clip button did not update the sandbox avatar.'; exit 1
   fi
   echo '::notice::Touch input moved the sandbox avatar and selected a clip.'
+  # Point shadows start off for lower-cost devices; enable them for the night test.
+  ui_target=$(grep -F 'sandbox shadows target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*sandbox shadows target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo '::error::Point shadows target was not reported.'; exit 1; fi
+  adb shell input tap "$ui_x" "$ui_y"
   # Turn on the actual four night lamps and require their 24 atlas face passes to be presented.
   ui_target=$(grep -F 'sandbox night target x=' /tmp/sakuga-android-log.txt | tail -1)
   read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*sandbox night target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')

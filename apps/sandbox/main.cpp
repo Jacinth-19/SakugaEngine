@@ -53,7 +53,7 @@ struct Options {
     int recordEvery = 2;
     int showcase = -1, debugMode = 0;   // -1 = the Motion lab
     float timeOfDay = 15.f, todSpeed = 0.5f; bool todAuto = false, npr = false, navDebug = false, agentDebug = false, mmDebug = false, npcs = true, hands = true, lookAt = true, springs = true, postOff = false;
-    bool fitCascade = true, bodyMask = true, pointShadows = true; float cloud = 0.66f, exposure = 1.f;
+    bool fitCascade = true, bodyMask = true, pointShadows = true, performance = false; float cloud = 0.66f, exposure = 1.f;
     float wet = 0.f, cameraYaw = glm::pi<float>(), cameraPitch = 0.16f, cameraDist = 3.6f, lightAz = 40.f, lightEl = 38.f;
     float fixedDt = 1.f / 60.f;
     float splitOffset = 0.f; bool split = false;
@@ -87,6 +87,11 @@ static Options parseArgs(int argc, char** argv) {
         auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : ""; };
         if (a == "--headless") o.headless = true;
         else if (a == "--validation") o.validation = true;
+        else if (a == "--performance") {
+            // An opt-in lighter starting point; later width/height flags can override it.
+            o.performance = true; o.width = 1280; o.height = 720;
+            o.npcs = false; o.springs = false; o.pointShadows = false;
+        }
         else if (a == "--no-ui") o.ui = false;
         else if (a == "--no-outline") o.outlines = false;
         else if (a == "--no-mm") o.mm = false;
@@ -150,7 +155,7 @@ static Options parseArgs(int argc, char** argv) {
         else if (a == "--play-clip") o.playClip = next();
         else if (a == "--help") {
             std::printf("sandbox [--headless] [--screenshot out.png] [--frames N] [--width W --height H] [--showcase 0..4 (default 4 = Motion lab)]\n"
-                        "        [--debug-mode 0..13] [--wet 0..1] [--camera yawDeg,pitchDeg,dist] [--light azDeg,elDeg]\n"
+                        "        [--performance] [--debug-mode 0..13] [--wet 0..1] [--camera yawDeg,pitchDeg,dist] [--light azDeg,elDeg]\n"
                         "        [--script \"t:x,y[,sprint];...\"] [--record dir --record-every N] [--no-ui] [--no-outline] [--no-mm]\n"
                         "        [--skeleton] [--trajectory] [--split pxOffset] [--tonemap] [--validation]\n"
                         "        [--motion-dir DIR]... [--mm-clips N] [--mm-categories all|bitmask] [--no-mm-context] [--no-mm-cache] [--play-clip clipName]\n"
@@ -299,6 +304,7 @@ bool Sandbox::init() {
     split_ = opt_.split; splitOffset_ = opt_.splitOffset; post_.tonemap = opt_.tonemap ? 2 : 1; showUI_ = opt_.ui;
     tod_ = opt_.timeOfDay; todSpeed_ = opt_.todSpeed; todAuto_ = opt_.todAuto; cloud_ = opt_.cloud; userExposure_ = opt_.exposure; nprFull_ = opt_.npr;
     navDebug_ = opt_.navDebug; agentDebug_ = opt_.agentDebug; mmDebug_ = opt_.mmDebug; post_.enabled = !opt_.postOff;
+    if (opt_.performance) post_.bloom = false;
     time_ = opt_.timeStart;
     hdriSun_ = opt_.hdriSun; lutStrength_ = opt_.lutStrength;
     scanLuts();
@@ -1310,6 +1316,7 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox night target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
     }
+    ImGui::SameLine(); ImGui::Text("%.0f FPS", fps_);
     ImGui::Text("Clip %d/%d", vrm_ && vrm_->mm ? vrm_->mm->debug.clip + 1 : 0, vrm_ && vrm_->mmDb ? (int)vrm_->mmDb->clipNames.size() : 0);
     ImGui::SameLine();
     if (ImGui::Button("NEXT") && vrm_ && vrm_->mm && vrm_->mmDb && !vrm_->mmDb->clipNames.empty()) {
@@ -1335,7 +1342,12 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
             __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox npcs target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
         }
     } else ImGui::TextUnformatted(lab_.npcs.empty() ? "NPCs unavailable" : "NPCs on");
-    ImGui::Checkbox("Point shadows", &opt_.pointShadows); ImGui::SameLine();
+    ImGui::Checkbox("Point shadows", &opt_.pointShadows);
+    if (frame_ == 0) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox shadows target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
+    }
+    ImGui::SameLine();
     if (ImGui::Button("UI theme")) showThemeEditor_ = !showThemeEditor_;
     if (ImGui::Checkbox("Sandbox editor", &showUI_)) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox editor toggled");
     if (frame_ == 0) {
@@ -1523,7 +1535,7 @@ MobileSandbox* createMobileSandbox(ANativeWindow* window, const std::string& roo
     auto m = std::make_unique<MobileSandbox>();
     try {
         Options opt;
-        opt.npcs = false; opt.springs = false; opt.pointShadows = true; opt.mmCache = true;
+        opt.npcs = false; opt.springs = false; opt.pointShadows = false; opt.mmCache = true;
         opt.uiFontSize = 14.f * std::clamp(density, .75f, 4.f);
         auto previous = mobileSnapshots.load(root);
         if (previous) opt = previous->options;

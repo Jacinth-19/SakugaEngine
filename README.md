@@ -37,6 +37,8 @@ Download `sakuga-android-animation-preview-debug` from the latest successful **[
 | **F11 / F12** | Open the ImGui demo / open the theme editor |
 | **Esc** | Quit |
 
+For a lighter Windows starting point, launch **Sakuga Engine - Performance** from the Start menu, or run `Sakuga-Performance.bat` from the portable folder. It starts at 1280 × 720, without NPCs, spring bones, point-light shadows or bloom; the normal launcher is unchanged. This is not a guarantee of 60 FPS and still requires Vulkan 1.3.
+
 Open **Motion matching** to see the current animation and loaded clip count. Open **Device and performance** for CPU, RAM, storage space, GPU and frame statistics. Some values may be unavailable; HDD versus SSD is not currently detected. Press **F12** to explore the live theme editor. Saving a theme beside an installed app may require a writable location; the portable build is convenient for experiments.
 
 ## See the sandbox

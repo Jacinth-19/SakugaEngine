@@ -117,6 +117,12 @@ jobs:
       - name: Stage the install tree
         run: cmake --install build --prefix stage
 
+      - name: Verify performance launcher is packaged
+        shell: pwsh
+        run: |
+          if (-not (Test-Path stage/Sakuga-Performance.bat)) { throw "Performance launcher missing from install tree" }
+          if (-not (Select-String -Path stage/Sakuga-Performance.bat -Pattern '--performance' -Quiet)) { throw "Performance launcher missing flag" }
+
       - name: Stage all 77 verified motion clips
         shell: pwsh
         run: |

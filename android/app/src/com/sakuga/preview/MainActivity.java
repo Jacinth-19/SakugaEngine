@@ -180,7 +180,12 @@ public final class MainActivity extends Activity {
                                     }
                                 }});
                             }
-                            try { Thread.sleep(16); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+                            // FIFO presentation provides display pacing; an additional fixed sleep
+                            // after each frame adds to render time and can miss a refresh.
+                            // Avoid spinning when no frame was presented (e.g. surface resize).
+                            if (frameResult == 0) {
+                                try { Thread.sleep(8); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+                            }
                         }
                     } finally {
                         if (renderer != 0) nativeRendererDestroy(renderer);
