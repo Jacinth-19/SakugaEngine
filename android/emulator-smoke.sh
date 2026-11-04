@@ -68,72 +68,6 @@ PYCODE
   if [[ -z ${dialog_x:-} || -z ${dialog_y:-} ]]; then echo '::error::Could not locate the Android fullscreen confirmation.'; exit 1; fi
   adb shell input tap "$dialog_x" "$dialog_y"
 fi
-# Exercise the real Vulkan benchmark UI and statistics (emulator speed is not phone performance).
-sleep 3
-bench_target=''
-for i in $(seq 1 30); do
-  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
-  bench_target=$(grep -F 'benchmark target x=' /tmp/sakuga-android-log.txt | tail -1 || true)
-  [[ -n $bench_target ]] && break
-  sleep 1
-done
-if [[ -z $bench_target ]]; then echo '::error::Benchmark button was not drawn'; exit 1; fi
-read -r bench_x bench_y < <(echo "$bench_target" | sed -n 's/.*benchmark target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
-if [[ -z ${bench_x:-} || -z ${bench_y:-} ]]; then echo '::error::Benchmark button missing'; exit 1; fi
-adb shell input tap "$bench_x" "$bench_y"
-start_target=''
-for i in $(seq 1 20); do
-  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
-  start_target=$(grep -F 'benchmark start target x=' /tmp/sakuga-android-log.txt | tail -1 || true)
-  [[ -n $start_target ]] && break
-  sleep 1
-done
-if [[ -z $start_target ]]; then
-  adb exec-out screencap -p > apk/android-fail.png
-  while IFS= read -r line; do echo "::notice::$line"; done < <(grep -E 'benchmark|touch down' /tmp/sakuga-android-log.txt | tail -20)
-  echo "::error::Benchmark window did not open; button target: $bench_target"; exit 1
-fi
-read -r start_x start_y < <(echo "$start_target" | sed -n 's/.*benchmark start target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
-if [[ -z ${start_x:-} || -z ${start_y:-} ]]; then echo '::error::Benchmark window did not open'; exit 1; fi
-adb shell input tap "$start_x" "$start_y"
-completed=0
-for i in $(seq 1 100); do
-  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
-  if grep -q 'benchmark completed frames=' /tmp/sakuga-android-log.txt; then completed=1; break; fi
-  sleep 1
-done
-if [[ $completed != 1 ]]; then
-  adb exec-out screencap -p > apk/android-fail.png
-  while IFS= read -r line; do echo "::notice::$line"; done < <(grep -E 'benchmark|touch down' /tmp/sakuga-android-log.txt | tail -30 || true)
-  echo '::error::Benchmark did not complete'; exit 1
-fi
-grep -F 'benchmark completed frames=' /tmp/sakuga-android-log.txt | tail -1
-share_target=''
-for i in $(seq 1 20); do
-  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
-  share_target=$(grep -F 'benchmark share target x=' /tmp/sakuga-android-log.txt | tail -1 || true)
-  [[ -n $share_target ]] && break
-  sleep 1
-done
-if [[ -z $share_target ]]; then echo '::error::Benchmark report was not displayed'; exit 1; fi
-read -r share_x share_y < <(echo "$share_target" | sed -n 's/.*benchmark share target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
-adb shell input tap "$share_x" "$share_y"
-shared=0
-for i in $(seq 1 20); do
-  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
-  if grep -q 'benchmark share chooser opened' /tmp/sakuga-android-log.txt; then shared=1; break; fi
-  sleep 1
-done
-if [[ $shared != 1 ]]; then adb exec-out screencap -p > apk/android-fail.png; echo '::error::Benchmark share chooser did not open'; exit 1; fi
-# The chooser opens asynchronously; wait for its transition before dismissing it.
-sleep 5
-adb shell input keyevent KEYCODE_BACK
-adb shell am start -W -n com.sakuga.preview/.MainActivity >/dev/null
-sleep 5
-close_target=$(grep -F 'benchmark close target x=' /tmp/sakuga-android-log.txt | tail -1)
-read -r close_x close_y < <(echo "$close_target" | sed -n 's/.*benchmark close target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
-adb shell input tap "$close_x" "$close_y"
-sleep 2
 # Save an actual emulator screenshot and tap the NEXT CLIP region, using the captured dimensions.
 sleep 3
 adb exec-out screencap -p > apk/android-preview.png
@@ -460,3 +394,77 @@ if [[ $fallback_resumed != 1 ]]; then
   echo '::error::Full-library Canvas fallback did not resume.'; exit 1
 fi
 echo '::notice::Canvas fallback loaded all 77 animations, accepted a clip tap and resumed after backgrounding.'
+
+# Start a clean Vulkan session for the benchmark, after all normal lifecycle and Canvas checks.
+adb shell am force-stop com.sakuga.preview
+adb logcat -c
+adb shell am start -W -n com.sakuga.preview/.MainActivity
+vulkan_ready=0
+for i in $(seq 1 240); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  if grep -q 'engine renderer first frame presented' /tmp/sakuga-android-log.txt; then vulkan_ready=1; break; fi
+  if grep -q 'renderer unavailable:' /tmp/sakuga-android-log.txt; then break; fi
+  sleep 2
+done
+if [[ $vulkan_ready != 1 ]]; then echo '::error::Vulkan did not restart for benchmark'; exit 1; fi
+# Exercise the real Vulkan benchmark UI and statistics (emulator speed is not phone performance).
+sleep 3
+bench_target=''
+for i in $(seq 1 30); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  bench_target=$(grep -F 'benchmark target x=' /tmp/sakuga-android-log.txt | tail -1 || true)
+  [[ -n $bench_target ]] && break
+  sleep 1
+done
+if [[ -z $bench_target ]]; then echo '::error::Benchmark button was not drawn'; exit 1; fi
+read -r bench_x bench_y < <(echo "$bench_target" | sed -n 's/.*benchmark target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
+if [[ -z ${bench_x:-} || -z ${bench_y:-} ]]; then echo '::error::Benchmark button missing'; exit 1; fi
+adb shell input tap "$bench_x" "$bench_y"
+start_target=''
+for i in $(seq 1 20); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  start_target=$(grep -F 'benchmark start target x=' /tmp/sakuga-android-log.txt | tail -1 || true)
+  [[ -n $start_target ]] && break
+  sleep 1
+done
+if [[ -z $start_target ]]; then
+  adb exec-out screencap -p > apk/android-fail.png
+  while IFS= read -r line; do echo "::notice::$line"; done < <(grep -E 'benchmark|touch down' /tmp/sakuga-android-log.txt | tail -20)
+  echo "::error::Benchmark window did not open; button target: $bench_target"; exit 1
+fi
+read -r start_x start_y < <(echo "$start_target" | sed -n 's/.*benchmark start target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
+if [[ -z ${start_x:-} || -z ${start_y:-} ]]; then echo '::error::Benchmark window did not open'; exit 1; fi
+# ImGui needs a second frame for its hovered-window state after this window appears.
+sleep 5
+adb shell input tap "$start_x" "$start_y"
+completed=0
+for i in $(seq 1 100); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  if grep -q 'benchmark completed frames=' /tmp/sakuga-android-log.txt; then completed=1; break; fi
+  sleep 1
+done
+if [[ $completed != 1 ]]; then
+  adb exec-out screencap -p > apk/android-fail.png
+  while IFS= read -r line; do echo "::notice::$line"; done < <(grep -E 'benchmark|touch down' /tmp/sakuga-android-log.txt | tail -30 || true)
+  echo '::error::Benchmark did not complete'; exit 1
+fi
+grep -F 'benchmark completed frames=' /tmp/sakuga-android-log.txt | tail -1
+share_target=''
+for i in $(seq 1 20); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  share_target=$(grep -F 'benchmark share target x=' /tmp/sakuga-android-log.txt | tail -1 || true)
+  [[ -n $share_target ]] && break
+  sleep 1
+done
+if [[ -z $share_target ]]; then echo '::error::Benchmark report was not displayed'; exit 1; fi
+read -r share_x share_y < <(echo "$share_target" | sed -n 's/.*benchmark share target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
+sleep 3
+adb shell input tap "$share_x" "$share_y"
+shared=0
+for i in $(seq 1 20); do
+  adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+  if grep -q 'benchmark share chooser opened' /tmp/sakuga-android-log.txt; then shared=1; break; fi
+  sleep 1
+done
+if [[ $shared != 1 ]]; then adb exec-out screencap -p > apk/android-fail.png; echo '::error::Benchmark share chooser did not open'; exit 1; fi
+echo '::notice::Vulkan benchmark completed and opened the Android share chooser.'
