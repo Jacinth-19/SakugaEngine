@@ -256,7 +256,7 @@ private:
     ANativeWindow* mobileWindow_ = nullptr;
     MobilePointerRouter mobilePointers_;
     std::string mobileError_;
-    bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false, mobileLoggedHalation_ = false, mobileLoggedAtmosphere_ = false, mobileLoggedFinish_ = false;
+    bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false, mobileLoggedHalation_ = false, mobileLoggedAtmosphere_ = false, mobileLoggedFinish_ = false, mobileLoggedPostTiming_ = false;
     bool mobileClipBrowser_ = false, mobileBrowserTargetLogged_ = false, mobileLastItemLogged_ = false; int mobileClipPage_ = 0;
     bool mobileLoadNpcs_ = false, mobileNpcsRequested_ = false, mobileNpcsPendingFrame_ = false, mobileRestored_ = false;
 #endif
@@ -1592,6 +1592,10 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     // The UI changes are reflected on the next frame, as with desktop sandbox controls.
     ++frame_;
     bool rendered = renderer_.renderFrame(fi);
+    if (frame_ == 1) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "post timing supported=%d", (int)renderer_.supportsPostTiming());
+    if (rendered && !mobileLoggedPostTiming_ && renderer_.stats.gpuPostMs >= 0.f) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "post timing sample available"); mobileLoggedPostTiming_ = true;
+    }
     if (!rendered && benchmark_.running()) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark cancelled due to failed frame");
         benchmark_.cancel();

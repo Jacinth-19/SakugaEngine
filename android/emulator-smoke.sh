@@ -142,6 +142,20 @@ if [[ $renderer_result == presented ]]; then
   done
   if [[ $finish != 1 ]]; then echo '::error::Finishing effects frame was not presented.'; exit 1; fi
   echo '::notice::Presented a frame with finishing effects and depth of field where supported.'
+  if grep -q 'post timing supported=1' /tmp/sakuga-android-log.txt; then
+    timing=0
+    for i in $(seq 1 20); do
+      adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+      if grep -q 'post timing sample available' /tmp/sakuga-android-log.txt; then timing=1; break; fi
+      sleep 1
+    done
+    if [[ $timing != 1 ]]; then echo '::error::GPU post timestamp sample missing.'; exit 1; fi
+    echo '::notice::Read a GPU post-processing timestamp sample.'
+  elif grep -q 'post timing supported=0' /tmp/sakuga-android-log.txt; then
+    echo '::notice::GPU post timestamps unsupported on this queue.'
+  else
+    echo '::error::GPU post timing capability was not reported.'; exit 1
+  fi
   # Enable the VRM's real spring chains; they are initially off on mobile.
   ui_target=$(grep -F 'hair physics target x=' /tmp/sakuga-android-log.txt | tail -1)
   read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*hair physics target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')

@@ -105,6 +105,7 @@ public:
     void setPostLut(const LutStrip& lut) { pendingLut_ = lut; hasPendingLut_ = true; }
     int postLutSize() const { return lutSize_; }
     bool supportsPostAtmosphere() const { return sampleSceneDepth_; }
+    bool supportsPostTiming() const { return postTimingPool_ != VK_NULL_HANDLE; }
     Texture* whiteTex() const { return white_; }
     Texture* blackTex() const { return black_; }
     Texture* bumpTex() const { return bump_; }
