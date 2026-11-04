@@ -160,11 +160,11 @@ if [[ $renderer_result == presented ]]; then
     timing=0
     for i in $(seq 1 20); do
       adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
-      if grep -q 'post timing sample available' /tmp/sakuga-android-log.txt; then timing=1; break; fi
+      if grep -q 'post timing sample available' /tmp/sakuga-android-log.txt && grep -q 'sky timing sample available' /tmp/sakuga-android-log.txt; then timing=1; break; fi
       sleep 1
     done
-    if [[ $timing != 1 ]]; then echo '::error::GPU post timestamp sample missing.'; exit 1; fi
-    echo '::notice::Read a GPU post-processing timestamp sample.'
+    if [[ $timing != 1 ]]; then echo '::error::GPU post or sky timestamp sample missing.'; exit 1; fi
+    echo '::notice::Read GPU post-processing and sky timestamp samples.'
   elif grep -q 'post timing supported=0' /tmp/sakuga-android-log.txt; then
     echo '::notice::GPU post timestamps unsupported on this queue.'
   else

@@ -3,6 +3,7 @@
 // Stylised anime sky: time-of-day gradient driven by the C++ side, sun/moon disc with halo, cel-shaded cumulus
 // (two light bands + bright rim facing the sun), thin cirrus wisps and stars at night.
 #include "common.glsl"
+layout(set = 1, binding = 1) uniform sampler2D uSkyTransmittance;
 layout(location = 0) in vec3 vDir;
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec4 outBloomMask;
@@ -31,6 +32,13 @@ float cloudField(vec3 d, float time) {          // seamless over the whole dome;
     return fbm3(P, 4) * 0.78 + fbm3(P * 2.9 + 3.1, 2) * 0.22 * 1.0;
 }
 
+// Texel-centre mapping must match the CPU LUT's linear mu/altitude grid.
+vec4 atmosphereT(float mu, float altitudeKm) {
+    vec2 ij = vec2(clamp(mu, 0.0, 1.0) * 255.0,
+                   clamp(altitudeKm / 100.0, 0.0, 1.0) * 63.0);
+    return textureLod(uSkyTransmittance, (ij + 0.5) / vec2(256.0, 64.0), 0.0);
+}
+
 void main() {
     outBloomMask = vec4(clamp(G.style.y, 0.0, 1.0), 0.0, 0.0, 1.0);
     vec3 d = normalize(vDir);
@@ -52,6 +60,22 @@ void main() {
     float lowSun = 1.0 - smoothstep(0.08, 0.50, L.y);
     float horizonGlow = exp(-h * 7.0) * pow(sd, 3.0) * lowSun * (1.0 - night);
     c += sunCol * vec3(1.0, 0.62, 0.44) * horizonGlow * 0.20;
+    // Approximate single scattering over the existing art-directed palette. The LUT stores
+    // integrated view and sun transmittance; this is not a full per-sample path integral.
+    // Virtual observer is fixed at sea level (0 km), independent of world camera height.
+    if (G.skyParams.w > 0.0 && d.y >= 0.0 && night < 1.0) {
+        vec4 viewT = atmosphereT(d.y, 0.0);
+        vec3 sunT = atmosphereT(max(L.y, 0.0), 0.0).rgb;
+        vec3 rayT = clamp(viewT.rgb / max(viewT.a, 0.0039), 0.0, 1.0);
+        float cosTheta = clamp(dot(d, L), -1.0, 1.0);
+        float rayPhase = 0.75 * (1.0 + cosTheta * cosTheta);
+        const float asymmetry = 0.76;
+        float miePhase = (1.0 - asymmetry * asymmetry) /
+            pow(max(1.0 + asymmetry * asymmetry - 2.0 * asymmetry * cosTheta, 0.02), 1.5);
+        vec3 scatter = (1.0 - rayT) * rayPhase * G.style.z +
+                       vec3(1.0 - viewT.a) * min(miePhase, 6.0) * 0.15 * G.style.w;
+        c += sunCol * sunT * scatter * G.skyParams.w * (1.0 - night);
+    }
     c = mix(c, mix(horizon, G.groundColor.rgb, 0.6), (1.0 - smoothstep(-0.18, 0.0, d.y)));
 
     // --- stars

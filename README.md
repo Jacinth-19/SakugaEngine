@@ -114,7 +114,7 @@ LAFAN1 mocap is **CC BY-NC-ND 4.0**; review its terms before use or redistributi
 
 On Android Vulkan tap **BENCH**, or on Windows use **Frame benchmark** in the sandbox editor. Run it with the scene and camera unchanged, then use **Share report** (Android) or **Copy report** (Windows). It reports wall-clock frame-loop statistics, not GPU timings; vsync can cap results. The Android Canvas fallback does not benchmark the 3D renderer. See [Android and diagnostics](docs/ANDROID_AND_DIAGNOSTICS.md) for methodology and Mixamo asset limitations.
 
-The sandbox sky panel includes four **palette** variants and a cloud wind control on the current procedural sky. They are not the full proposed AnimeSky atmosphere/cloud architecture. Windows also includes `sakuga-fbx-info.exe` for offline FBX inspection; it does not yet import or render FBX. See [diagnostics](docs/ANDROID_AND_DIAGNOSTICS.md).
+The sandbox sky panel includes four **palette** variants, cloud wind and a tunable transmittance-LUT-informed scattering approximation on the procedural sky, plus delayed GPU sky-draw timing where supported. These are not the full proposed AnimeSky atmosphere/cloud architecture; see [sky details and limitations](docs/ANIME_SKY.md). Windows also includes `sakuga-fbx-info.exe` for offline FBX inspection; it does not yet import or render FBX. See [diagnostics](docs/ANDROID_AND_DIAGNOSTICS.md).
 
 ### AnimeSky post-processing
 

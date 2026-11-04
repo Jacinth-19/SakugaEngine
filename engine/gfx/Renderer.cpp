@@ -1,3 +1,4 @@
+#include "sky/AtmosphereLut.h"
 #include "gfx/Renderer.h"
 #include "gfx/ShadowFit.h"
 #include "gfx/SurfaceChoices.h"
@@ -106,7 +107,7 @@ bool Renderer::initAndroid(Context& ctx, ANativeWindow* window, uint32_t w, uint
 bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, const std::string& shaderDir) {
     ctx_ = &ctx; window_ = window; width_ = w; height_ = h;
     for (auto& recorded : timestampRecorded_) recorded = false;
-    stats.gpuPostMs = -1.f;
+    stats.gpuPostMs = stats.gpuSkyMs = -1.f;
     VkDevice dev = ctx.device;
 
     if (presenting()) createSwapchain();
@@ -220,7 +221,7 @@ bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, co
         timestampValidBits_ = families[ctx.queueFamily].timestampValidBits;
         if (timestampValidBits_ > 0 && timestampValidBits_ <= 64) {
             VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
-            qi.queryType = VK_QUERY_TYPE_TIMESTAMP; qi.queryCount = kFramesInFlight * 2;
+            qi.queryType = VK_QUERY_TYPE_TIMESTAMP; qi.queryCount = kFramesInFlight * 4;
             if (vkCreateQueryPool(dev, &qi, nullptr, &postTimingPool_) != VK_SUCCESS) postTimingPool_ = VK_NULL_HANDLE;
         }
     }
@@ -230,6 +231,14 @@ bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, co
     white_ = createTexture("white", w4, 1, 1, false, false);
     black_ = createTexture("black", b4, 1, 1, false, false);
     bump_ = createTexture("bump", n4, 1, 1, false, false);
+    // Reuse the material layout's base-texture binding for the sky draw. This avoids
+    // increasing the global sampler count on devices with tight descriptor limits.
+    static const auto atmospherePixels = buildAtmosphereLut();
+    Texture* atmosphereLut = createTexture("sky_transmittance", atmospherePixels.data(),
+        kAtmosphereLutWidth, kAtmosphereLutHeight, false, false, false);
+    skyMaterial_ = createMaterial("sky_transmittance");
+    skyMaterial_->tex[TEX_BASE] = atmosphereLut;
+    flushMaterial(skyMaterial_);
     updateProceduralEnvironment(LightingSettings{});
     return true;
 }
@@ -705,10 +714,12 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     FrameData& f = frames_[frameIndex_];
     VK_OK(vkWaitForFences(dev, 1, &f.fence, VK_TRUE, UINT64_MAX));
     if (postTimingPool_ && timestampRecorded_[frameIndex_]) {
-        uint64_t ts[2]{};
-        VkResult result = vkGetQueryPoolResults(dev, postTimingPool_, frameIndex_ * 2, 2, sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
-        if (result == VK_SUCCESS) stats.gpuPostMs = (float)timestampMilliseconds(ts[0], ts[1], timestampValidBits_, ctx_->props.limits.timestampPeriod);
-        else stats.gpuPostMs = -1.f;
+        uint64_t ts[4]{};
+        VkResult result = vkGetQueryPoolResults(dev, postTimingPool_, frameIndex_ * 4, 4, sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+        if (result == VK_SUCCESS) {
+            stats.gpuPostMs = (float)timestampMilliseconds(ts[0], ts[1], timestampValidBits_, ctx_->props.limits.timestampPeriod);
+            stats.gpuSkyMs = (float)timestampMilliseconds(ts[2], ts[3], timestampValidBits_, ctx_->props.limits.timestampPeriod);
+        } else stats.gpuPostMs = stats.gpuSkyMs = -1.f;
         timestampRecorded_[frameIndex_] = false;
     }
     if (hasPendingLut_) {                       // swap the grading LUT: all post descriptor sets are rebuilt
@@ -783,8 +794,8 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     // Avoid double fog: the post pass replaces the legacy per-surface fog when active.
     g.fogColor = glm::vec4(L.fogColor, screenFog ? 0.f : L.fogDensity);
     g.misc = glm::vec4(1.f, 0.f, L.wetPreviewTime, 1.f / (float)kShadowRes);
-    g.skyZenith = glm::vec4(L.zenith, L.cloudCover); g.skyHorizon = glm::vec4(L.horizon, L.cloudTime); g.skyParams = glm::vec4(L.starVisibility, L.sunDisc, L.sunSize, 0.f);
-    g.style = glm::vec4(L.nprOnly ? 1.f : 0.f, glm::clamp(in.post.skyBloomWeight, 0.f, 1.f), 0.f, 0.f);
+    g.skyZenith = glm::vec4(L.zenith, L.cloudCover); g.skyHorizon = glm::vec4(L.horizon, L.cloudTime); g.skyParams = glm::vec4(L.starVisibility, L.sunDisc, L.sunSize, glm::clamp(L.skyAtmosphere, 0.f, 2.f));
+    g.style = glm::vec4(L.nprOnly ? 1.f : 0.f, glm::clamp(in.post.skyBloomWeight, 0.f, 1.f), glm::clamp(L.skyRayleigh, 0.f, 2.f), glm::clamp(L.skyMie, 0.f, 2.f));
     g.split = glm::vec4(L.splitOffsetPx, L.splitDir.x, L.splitDir.y, L.outlineScale);
     for (int i = 0; i < 9; ++i) g.sh[i] = sh_[i];
     g.envParams = glm::vec4(L.envIntensity, envMaxLod_, envHDR_ ? 1.f : 0.f, L.envRotation);
@@ -805,7 +816,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     vkResetCommandBuffer(cmd, 0);
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO}; bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_OK(vkBeginCommandBuffer(cmd, &bi));
-    if (postTimingPool_) vkCmdResetQueryPool(cmd, postTimingPool_, frameIndex_ * 2, 2);
+    if (postTimingPool_) vkCmdResetQueryPool(cmd, postTimingPool_, frameIndex_ * 4, 4);
     stats.drawCalls = 0; stats.triangles = 0;
 
     // shadow pass
@@ -895,8 +906,11 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         vkCmdSetViewport(cmd, 0, 1, &vp); vkCmdSetScissor(cmd, 0, 1, &sc);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout_, 0, 1, &f.globalSet, 0, nullptr);
 
+        if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 4 + 2);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeSky_);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout_, 1, 1, &skyMaterial_->set, 0, nullptr);
         vkCmdDraw(cmd, 3, 1, 0, 0);
+        if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 4 + 3);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeToon_);
         drawList(cmd, in, DrawFilter::Opaque);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeOutline_);
@@ -913,9 +927,9 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     }
 
     // post-processing: bloom chain + composite (tonemap, grade, vignette, sRGB) into finalColor_
-    if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 2);
+    if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 4);
     postProcessing_.record(cmd, sceneColor_, msaaDepth_, bloomMask_, materialBloomSupported_, finalColor_, in.post, screenFog, dofOn, in.proj, L.fogColor, L.fogDensity, in.time, lutSize_);
-    if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 2 + 1);
+    if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 4 + 1);
 
     // UI overlay (drawn on the final image so it also shows in captures)
     if (uiFrameOpen_) {

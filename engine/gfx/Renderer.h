@@ -31,6 +31,7 @@ struct LightingSettings {
     glm::vec3 zenith{0.23f, 0.46f, 0.96f}, horizon{0.76f, 0.84f, 0.96f};   // procedural sky gradient (also feeds the procedural IBL)
     float cloudCover = 0.55f, cloudTime = 0.f, starVisibility = 0.f, sunDisc = 1.f;   // sky shader controls
     float sunSize = 1.f;
+    float skyAtmosphere = 0.4f, skyRayleigh = 1.f, skyMie = 1.f; // artistic weights over fixed atmosphere LUT
     bool nprOnly = false;                          // render every material with the pure NPR (Endfield) shading path
     float shadowBias = 0.0012f;
     float shadowFarRadius = 28.f;                 // second (far) cascade; both cascades share one 2x1 atlas
@@ -143,7 +144,7 @@ public:
     static glm::mat4 perspective(float fovYRadians, float aspect, float zNear, float zFar);
     static bool savePNG(const std::string& path, const std::vector<uint8_t>& rgba, uint32_t w, uint32_t h);
 
-    struct Stats { uint32_t pointShadowLights = 0, pointShadowFaces = 0; uint32_t drawCalls = 0, triangles = 0; float cpuMs = 0; float gpuPostMs = -1.f; } stats;
+    struct Stats { uint32_t pointShadowLights = 0, pointShadowFaces = 0; uint32_t drawCalls = 0, triangles = 0; float cpuMs = 0; float gpuPostMs = -1.f, gpuSkyMs = -1.f; } stats;
 
 private:
     struct FrameData;
@@ -221,6 +222,7 @@ private:
     std::vector<std::unique_ptr<Texture>> textures_;
     std::vector<std::unique_ptr<Material>> materials_;
     Texture *white_ = nullptr, *black_ = nullptr, *bump_ = nullptr;
+    Material* skyMaterial_ = nullptr; // owns the sky LUT descriptor through materials_
 };
 
 }  // namespace sk

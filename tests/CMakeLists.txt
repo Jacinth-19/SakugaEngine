@@ -91,6 +91,7 @@ set(SAKUGA_TESTS
   frame_benchmark_test
   crowd_steering_test
   sky_profiles_test
+  sky_atmosphere_test
   post_profiles_test
   atmosphere_math_test
   timestamp_math_test

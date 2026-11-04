@@ -256,7 +256,7 @@ private:
     ANativeWindow* mobileWindow_ = nullptr;
     MobilePointerRouter mobilePointers_;
     std::string mobileError_;
-    bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false, mobileLoggedHalation_ = false, mobileLoggedAtmosphere_ = false, mobileLoggedFinish_ = false, mobileLoggedPostTiming_ = false, mobileLoggedMaterialBloom_ = false;
+    bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false, mobileLoggedHalation_ = false, mobileLoggedAtmosphere_ = false, mobileLoggedFinish_ = false, mobileLoggedPostTiming_ = false, mobileLoggedSkyTiming_ = false, mobileLoggedMaterialBloom_ = false;
     bool mobileClipBrowser_ = false, mobileBrowserTargetLogged_ = false, mobileLastItemLogged_ = false; int mobileClipPage_ = 0;
     bool mobileLoadNpcs_ = false, mobileNpcsRequested_ = false, mobileNpcsPendingFrame_ = false, mobileRestored_ = false;
 #endif
@@ -1168,7 +1168,12 @@ void Sandbox::drawUI(float wallDt) {
     }
     if (ImGui::CollapsingHeader("Time of day / sky", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Combo("Sky palette", &skyStyle_, "Celestial\0Cinematic\0Atmospheric\0Painterly\0");
-        ImGui::TextDisabled("Palette profiles on the existing procedural sky");
+        ImGui::TextDisabled("Palette and LUT scattering are independent; 0 restores palette-only sky");
+        ImGui::SliderFloat("Sky scattering strength", &light_.skyAtmosphere, 0.f, 2.f);
+        ImGui::SliderFloat("Rayleigh weight", &light_.skyRayleigh, 0.f, 2.f);
+        ImGui::SliderFloat("Mie weight", &light_.skyMie, 0.f, 2.f);
+        if (renderer_.stats.gpuSkyMs >= 0.f) ImGui::TextDisabled("GPU sky draw: %.2f ms (delayed, approximate)", renderer_.stats.gpuSkyMs);
+        else ImGui::TextDisabled("GPU sky timing unavailable / pending");
         ImGui::SliderFloat("Cloud wind speed", &skyWindSpeed_, 0.f, 5.f, "%.1fx");
         ImGui::Checkbox("Time of day drives sun, sky, fog, ambient", &todEnabled_);
         ImGui::SliderFloat("Hour", &tod_, 0.f, 24.f, "%.2f h"); ImGui::Checkbox("Auto advance", &todAuto_); ImGui::SameLine(); ImGui::SetNextItemWidth(120); ImGui::SliderFloat("hours/s", &todSpeed_, 0.05f, 3.f);
@@ -1605,6 +1610,9 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     }
     if (rendered && !mobileLoggedMaterialBloom_ && fi.post.enabled && fi.post.bloom && fi.post.materialBloomMask && renderer_.supportsMaterialBloomMask()) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "material bloom mask frame presented"); mobileLoggedMaterialBloom_ = true;
+    }
+    if (rendered && !mobileLoggedSkyTiming_ && renderer_.stats.gpuSkyMs >= 0.f) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sky timing sample available"); mobileLoggedSkyTiming_ = true;
     }
     if (rendered && !mobileLoggedPostTiming_ && renderer_.stats.gpuPostMs >= 0.f) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "post timing sample available"); mobileLoggedPostTiming_ = true;
