@@ -118,4 +118,4 @@ The sandbox sky panel includes four **palette** variants and a cloud wind contro
 
 ### AnimeSky post-processing
 
-The renderer uses a separate Vulkan HDR post-processing module with bloom, optional depth-based atmospheric fog and a separate halation pass, tone mapping and grading. Four editable creative presets are in **Post-processing (HDR)**. These are initial profiles, not reproductions of named games. See [pipeline details and limitations](docs/POST_PROCESSING.md) and the [reference index](reference/AnimeSky_Reference_Images/README.md); external reference images are not bundled.
+The renderer uses a separate Vulkan HDR post-processing module with bloom, optional depth-based atmospheric fog and depth of field, halation, tone mapping, grading and optional stylised finishing. The editor also reports delayed GPU post-processing time when supported. Four editable creative presets are in **Post-processing (HDR)**. These are initial profiles, not reproductions of named games. See [pipeline details and limitations](docs/POST_PROCESSING.md) and the [reference index](reference/AnimeSky_Reference_Images/README.md); external reference images are not bundled.

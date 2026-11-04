@@ -14,6 +14,11 @@ int main() {
     CHECK(!sk::usePostAtmosphere(true, false, true, .01f));
     CHECK(!sk::usePostAtmosphere(true, true, false, .01f));
     CHECK(!sk::usePostAtmosphere(true, true, true, 0.f));
+    CHECK(sk::useDepthOfField(true, 2.f, true, true));
+    CHECK(!sk::useDepthOfField(false, 2.f, true, true));
+    CHECK(!sk::useDepthOfField(true, 0.f, true, true));
+    CHECK(!sk::useDepthOfField(true, 2.f, false, true));
+    CHECK(!sk::useDepthOfField(true, 2.f, true, false));
     auto p = glm::perspective(glm::radians(55.f), 16.f/9.f, .1f, 120.f); p[1][1] *= -1.f;
     CHECK(sk::supportsAtmosphereProjection(p));
     CHECK(!sk::supportsAtmosphereProjection(glm::mat4(1.f)));

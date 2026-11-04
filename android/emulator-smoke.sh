@@ -130,6 +130,18 @@ if [[ $renderer_result == presented ]]; then
   else
     echo '::notice::Sampled scene depth unsupported; using surface fog fallback.'
   fi
+  ui_target=$(grep -F 'finish target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*finish target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+  if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo '::error::Finishing effects target missing.'; exit 1; fi
+  adb shell input tap "$ui_x" "$ui_y"
+  finish=0
+  for i in $(seq 1 30); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'finish effects frame presented' /tmp/sakuga-android-log.txt; then finish=1; break; fi
+    sleep 1
+  done
+  if [[ $finish != 1 ]]; then echo '::error::Finishing effects frame was not presented.'; exit 1; fi
+  echo '::notice::Presented a frame with finishing effects and depth of field where supported.'
   # Enable the VRM's real spring chains; they are initially off on mobile.
   ui_target=$(grep -F 'hair physics target x=' /tmp/sakuga-android-log.txt | tail -1)
   read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*hair physics target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')

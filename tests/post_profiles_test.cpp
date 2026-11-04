@@ -1,7 +1,14 @@
 #include "Check.h"
 #include "post/PostSettings.h"
+#include "post/BloomSelection.h"
 int main() {
     SK_TEST("post_profiles_test");
+    CHECK_NEAR(sk::bloomSelection({4,2,1}, 1), 1, 1e-6);
+    CHECK_NEAR(sk::bloomSelection({1,2,4}, 1), 0, 1e-6);
+    CHECK_NEAR(sk::bloomSelection({1,2,4}, 2), 1, 1e-6);
+    CHECK_NEAR(sk::bloomSelection({2,2,2}, 3), 0, 1e-6);
+    CHECK_NEAR(sk::bloomSelection({4,2,1}, 3), 1, 1e-6);
+    CHECK_NEAR(sk::bloomSelection({0,0,0}, 0), 1, 1e-6);
     sk::PostSettings base;
     base.exposure = 1.42f; base.lutStrength = .35f; base.enabled = false;
     for (auto style : {sk::PostProfile::Celestial, sk::PostProfile::Cinematic,
@@ -16,6 +23,13 @@ int main() {
         CHECK(plan.halationWidth == 480); CHECK(plan.halationHeight == 270);
         CHECK_FINITE(p.saturation); CHECK_FINITE(p.contrast); CHECK_FINITE(p.halation);
     }
+    sk::PostSettings finish;
+    CHECK(!sk::planPost(finish, 16, 16).finish);
+    finish.ink = .2f; CHECK(sk::planPost(finish, 16, 16).finish);
+    finish.enabled = false; CHECK(!sk::planPost(finish, 16, 16).finish);
+    finish = {}; finish.colourLevels = 1; CHECK(!sk::planPost(finish, 16, 16).finish);
+    finish.colourLevels = 2; CHECK(sk::planPost(finish, 16, 16).finish);
+    finish = {}; finish.lensFlare = .2f; CHECK(!sk::planPost(finish, 16, 16).finish); // lens is HDR composite
     auto cinematic = sk::applyPostProfile(sk::PostProfile::Cinematic, sk::PostSettings{});
     cinematic.bloom = false; CHECK(!sk::planPost(cinematic, 8, 8).halation);
     cinematic.bloom = true; cinematic.bloomIntensity = 0; CHECK(!sk::planPost(cinematic, 8, 8).halation);

@@ -11,6 +11,9 @@ inline bool canSampleSceneDepth(bool imageQuerySucceeded, uint32_t formatSampleC
 inline bool usePostAtmosphere(bool requested, bool postEnabled, bool depthSupported, float fogDensity) {
     return requested && postEnabled && depthSupported && std::isfinite(fogDensity) && fogDensity > 0.f;
 }
+inline bool useDepthOfField(bool enabled, float radius, bool depthSupported, bool projectionSupported) {
+    return enabled && std::isfinite(radius) && radius > 0.f && depthSupported && projectionSupported;
+}
 inline bool supportsAtmosphereProjection(const glm::mat4& p) {
     return std::isfinite(p[0][0]) && std::isfinite(p[1][1]) && std::isfinite(p[2][2]) && std::isfinite(p[3][2]) &&
         std::abs(p[0][0]) > 1e-7f && std::abs(p[1][1]) > 1e-7f && p[2][2] <= -1.f && p[3][2] < 0.f &&

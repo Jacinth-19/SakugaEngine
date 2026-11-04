@@ -2,6 +2,7 @@
 #include "gfx/ShadowFit.h"
 #include "gfx/SurfaceChoices.h"
 #include "post/AtmosphereMath.h"
+#include "post/TimestampMath.h"
 #include "core/Log.h"
 #ifndef __ANDROID__
 #include <GLFW/glfw3.h>
@@ -103,6 +104,8 @@ bool Renderer::initAndroid(Context& ctx, ANativeWindow* window, uint32_t w, uint
 // ===================================================================================== init
 bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, const std::string& shaderDir) {
     ctx_ = &ctx; window_ = window; width_ = w; height_ = h;
+    for (auto& recorded : timestampRecorded_) recorded = false;
+    stats.gpuPostMs = -1.f;
     VkDevice dev = ctx.device;
 
     if (presenting()) createSwapchain();
@@ -197,6 +200,17 @@ bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, co
     }
 
     createPipelines(shaderDir);
+    uint32_t queueCount = 0; vkGetPhysicalDeviceQueueFamilyProperties(ctx.phys, &queueCount, nullptr);
+    std::vector<VkQueueFamilyProperties> families(queueCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(ctx.phys, &queueCount, families.data());
+    if (ctx.queueFamily < queueCount && ctx.props.limits.timestampPeriod > 0.f) {
+        timestampValidBits_ = families[ctx.queueFamily].timestampValidBits;
+        if (timestampValidBits_ > 0 && timestampValidBits_ <= 64) {
+            VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+            qi.queryType = VK_QUERY_TYPE_TIMESTAMP; qi.queryCount = kFramesInFlight * 2;
+            if (vkCreateQueryPool(dev, &qi, nullptr, &postTimingPool_) != VK_SUCCESS) postTimingPool_ = VK_NULL_HANDLE;
+        }
+    }
 
     // --- default textures
     const uint8_t w4[4] = {255, 255, 255, 255}, b4[4] = {0, 0, 0, 255}, n4[4] = {128, 128, 255, 255};
@@ -265,7 +279,7 @@ void Renderer::createTargets() {
     finalColor_ = ctx_->createImage(width_, height_, finalFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     readback_ = ctx_->createBuffer((VkDeviceSize)width_ * height_ * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
     if (!lutTex_) { LutStrip id = identityLut(16); lutSize_ = id.size; lutTex_ = createTexture("lut_identity", id.rgba.data(), id.size * id.size, id.size, false, false, false); }
-    postProcessing_.createTargets(width_, height_, colorFormat_, sceneColor_, msaaDepth_, sampleSceneDepth_, *lutTex_);
+    postProcessing_.createTargets(width_, height_, colorFormat_, finalFormat_, sceneColor_, msaaDepth_, sampleSceneDepth_, *lutTex_);
 }
 void Renderer::destroyTargets() {
     postProcessing_.destroyTargets();
@@ -336,8 +350,10 @@ void Renderer::createPipelines(const std::string& dir) {
     {
         auto pv = load("post.vert"), pf = load("post_prefilter.frag"), pd = load("post_down.frag"), pu = load("post_up.frag"),
              ph = load("post_halation.frag"), pc = load("post_composite.frag"),
-             pa = load(ctx_->msaa == VK_SAMPLE_COUNT_1_BIT ? "post_atmosphere_single.frag" : "post_atmosphere_ms.frag");
-        postProcessing_.createPipelines(pv, pf, pd, pu, ph, pc, pa, colorFormat_, finalFormat_);
+             pa = load(ctx_->msaa == VK_SAMPLE_COUNT_1_BIT ? "post_atmosphere_single.frag" : "post_atmosphere_ms.frag"),
+             pdof = load(ctx_->msaa == VK_SAMPLE_COUNT_1_BIT ? "post_dof_single.frag" : "post_dof_ms.frag"),
+             pfinish = load("post_finish.frag");
+        postProcessing_.createPipelines(pv, pf, pd, pu, ph, pc, pa, pdof, pfinish, colorFormat_, finalFormat_);
     }
     pipeLine_    = makePipeline(lnV, lnF, 2, VK_CULL_MODE_NONE,  true, false, ms, true, colorFormat_, false, VK_PRIMITIVE_TOPOLOGY_LINE_LIST, true);
 }
@@ -668,6 +684,13 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     VkDevice dev = ctx_->device;
     FrameData& f = frames_[frameIndex_];
     VK_OK(vkWaitForFences(dev, 1, &f.fence, VK_TRUE, UINT64_MAX));
+    if (postTimingPool_ && timestampRecorded_[frameIndex_]) {
+        uint64_t ts[2]{};
+        VkResult result = vkGetQueryPoolResults(dev, postTimingPool_, frameIndex_ * 2, 2, sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+        if (result == VK_SUCCESS) stats.gpuPostMs = (float)timestampMilliseconds(ts[0], ts[1], timestampValidBits_, ctx_->props.limits.timestampPeriod);
+        else stats.gpuPostMs = -1.f;
+        timestampRecorded_[frameIndex_] = false;
+    }
     if (hasPendingLut_) {                       // swap the grading LUT: all post descriptor sets are rebuilt
         hasPendingLut_ = false;
         vkDeviceWaitIdle(dev);
@@ -736,6 +759,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     g.skyColor = glm::vec4(L.sky, L.ambient);
     g.groundColor = glm::vec4(L.ground, 0);
     const bool screenFog = usePostAtmosphere(in.post.atmosphere, in.post.enabled, sampleSceneDepth_, L.fogDensity) && supportsAtmosphereProjection(in.proj);
+    const bool dofOn = useDepthOfField(in.post.enabled, in.post.depthOfField, sampleSceneDepth_, supportsAtmosphereProjection(in.proj));
     // Avoid double fog: the post pass replaces the legacy per-surface fog when active.
     g.fogColor = glm::vec4(L.fogColor, screenFog ? 0.f : L.fogDensity);
     g.misc = glm::vec4(1.f, 0.f, L.wetPreviewTime, 1.f / (float)kShadowRes);
@@ -761,6 +785,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     vkResetCommandBuffer(cmd, 0);
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO}; bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_OK(vkBeginCommandBuffer(cmd, &bi));
+    if (postTimingPool_) vkCmdResetQueryPool(cmd, postTimingPool_, frameIndex_ * 2, 2);
     stats.drawCalls = 0; stats.triangles = 0;
 
     // shadow pass
@@ -826,7 +851,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         }
         ca.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; ca.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.f}};
         da.imageView = msaaDepth_.view; da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; da.storeOp = screenFog ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE; da.clearValue.depthStencil = {1.f, 0};
+        da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; da.storeOp = (screenFog || dofOn) ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE; da.clearValue.depthStencil = {1.f, 0};
         VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
         ri.renderArea = {{0, 0}, {width_, height_}}; ri.layerCount = 1; ri.colorAttachmentCount = 1; ri.pColorAttachments = &ca; ri.pDepthAttachment = &da;
         ctx_->beginRendering(cmd, &ri);
@@ -852,7 +877,9 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     }
 
     // post-processing: bloom chain + composite (tonemap, grade, vignette, sRGB) into finalColor_
-    postProcessing_.record(cmd, sceneColor_, msaaDepth_, finalColor_, in.post, screenFog, in.proj, L.fogColor, L.fogDensity, in.time, lutSize_);
+    if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 2);
+    postProcessing_.record(cmd, sceneColor_, msaaDepth_, finalColor_, in.post, screenFog, dofOn, in.proj, L.fogColor, L.fogDensity, in.time, lutSize_);
+    if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 2 + 1);
 
     // UI overlay (drawn on the final image so it also shows in captures)
     if (uiFrameOpen_) {
@@ -894,6 +921,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         si.signalSemaphoreCount = 1; si.pSignalSemaphores = &renderDone_[imgIdx];
     }
     VK_OK(vkQueueSubmit(ctx_->queue, 1, &si, f.fence));
+    if (postTimingPool_) timestampRecorded_[frameIndex_] = true;
     bool presented = true;
     if (presenting()) {
         VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
@@ -929,6 +957,7 @@ void Renderer::shutdown() {
         ctx_->destroyBuffer(f.globalUBO); ctx_->destroyBuffer(f.bones); ctx_->destroyBuffer(f.lines); ctx_->destroyBuffer(f.morphWeights);
         vkDestroyFence(dev, f.fence, nullptr); vkDestroySemaphore(dev, f.imageAvailable, nullptr);
     }
+    if (postTimingPool_) { vkDestroyQueryPool(dev, postTimingPool_, nullptr); postTimingPool_ = VK_NULL_HANDLE; }
     for (auto p : {pipeToon_, pipeToonBlend_, pipeOutline_, pipeShadow_, pipeSky_, pipeLine_}) vkDestroyPipeline(dev, p, nullptr);
     for (auto m : modules_) vkDestroyShaderModule(dev, m, nullptr);
     vkDestroyPipelineLayout(dev, pipeLayout_, nullptr);

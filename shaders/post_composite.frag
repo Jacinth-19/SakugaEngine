@@ -38,6 +38,14 @@ void main() {
     vec3 bloom = textureLod(tBloom, vUV, 0.0).rgb;
     hdr += bloom * pc.a.x * vec3(1.0, 0.97, 0.93);
     if (pc.e.z > 0.0) hdr += textureLod(tHalation, vUV, 0.0).rgb * pc.e.z * vec3(1.0, 0.32, 0.12);
+    // Stylised ghost reflections from the already filtered HDR highlight buffer, not an occluded lens simulation.
+    if (pc.e.w > 0.0) {
+        vec2 centered = vUV - 0.5;
+        vec3 g1 = textureLod(tBloom, 0.5 - centered * 0.65, 0.0).rgb;
+        vec3 g2 = textureLod(tBloom, 0.5 + centered * 0.30, 0.0).rgb;
+        float fade = 1.0 - smoothstep(0.35, 0.70, length(centered));
+        hdr += (g1 * vec3(0.55, 0.72, 1.0) + g2 * vec3(1.0, 0.65, 0.40) * 0.5) * pc.e.w * fade;
+    }
     hdr *= pc.a.y;
     int mode = int(pc.a.z + 0.5);
     vec3 c = mode == 1 ? neutralTonemap(hdr) : (mode == 2 ? acesFilm(hdr) : clamp(hdr, 0.0, 1.0));

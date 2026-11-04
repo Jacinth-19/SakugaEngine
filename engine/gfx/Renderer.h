@@ -141,7 +141,7 @@ public:
     static glm::mat4 perspective(float fovYRadians, float aspect, float zNear, float zFar);
     static bool savePNG(const std::string& path, const std::vector<uint8_t>& rgba, uint32_t w, uint32_t h);
 
-    struct Stats { uint32_t pointShadowLights = 0, pointShadowFaces = 0; uint32_t drawCalls = 0, triangles = 0; float cpuMs = 0; float gpuBloomLevels = 0; } stats;
+    struct Stats { uint32_t pointShadowLights = 0, pointShadowFaces = 0; uint32_t drawCalls = 0, triangles = 0; float cpuMs = 0; float gpuPostMs = -1.f; } stats;
 
 private:
     struct FrameData;
@@ -211,6 +211,9 @@ private:
     };
     FrameData frames_[kFramesInFlight];
     uint32_t frameIndex_ = 0;
+    VkQueryPool postTimingPool_ = VK_NULL_HANDLE;
+    uint32_t timestampValidBits_ = 0;
+    bool timestampRecorded_[kFramesInFlight]{};
 
     std::vector<std::unique_ptr<GpuMesh>> meshes_;
     std::vector<std::unique_ptr<Texture>> textures_;
