@@ -64,7 +64,6 @@ struct PushConstants {
 };
 // Vulkan guarantees at least 128 bytes of push constants.
 static_assert(sizeof(PushConstants) == 128);
-struct PostPC { glm::vec4 a, b, c, d, e; };
 const VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 }
 
@@ -138,24 +137,7 @@ bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, co
         VK_OK(vkCreateDescriptorPool(dev, &pi, nullptr, &pool_));
     }
 
-    // --- post-processing resources
-    {
-        VkDescriptorSetLayoutBinding pb[3] = {{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-                                              {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-                                              {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
-        VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO}; ci.bindingCount = 3; ci.pBindings = pb;
-        VK_OK(vkCreateDescriptorSetLayout(dev, &ci, nullptr, &postSetLayout_));
-        VkPushConstantRange pcr{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostPC)};
-        VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        pl.setLayoutCount = 1; pl.pSetLayouts = &postSetLayout_; pl.pushConstantRangeCount = 1; pl.pPushConstantRanges = &pcr;
-        VK_OK(vkCreatePipelineLayout(dev, &pl, nullptr, &postLayout_));
-        VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 * (kBloomLevels + 3)};
-        VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO}; pi.maxSets = kBloomLevels + 3; pi.poolSizeCount = 1; pi.pPoolSizes = &ps;
-        VK_OK(vkCreateDescriptorPool(dev, &pi, nullptr, &postPool_));
-        VkSamplerCreateInfo sc{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-        sc.magFilter = sc.minFilter = VK_FILTER_LINEAR; sc.addressModeU = sc.addressModeV = sc.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        VK_OK(vkCreateSampler(dev, &sc, nullptr, &postSampler_));
-    }
+    postProcessing_.init(ctx);
 
     // --- samplers / targets
     {
@@ -273,41 +255,14 @@ void Renderer::createTargets() {
     sceneColor_ = ctx_->createImage(width_, height_, colorFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     finalColor_ = ctx_->createImage(width_, height_, finalFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     readback_ = ctx_->createBuffer((VkDeviceSize)width_ * height_ * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
-    bloomLevels_ = 0;
-    for (int i = 0; i < kBloomLevels; ++i) {
-        uint32_t w = std::max(1u, width_ >> (i + 1)), h = std::max(1u, height_ >> (i + 1));
-        if (i > 0 && (w < 4 || h < 4)) break;
-        bloom_[i] = ctx_->createImage(w, h, colorFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-        ++bloomLevels_;
-    }
-    createPostSets();
+    if (!lutTex_) { LutStrip id = identityLut(16); lutSize_ = id.size; lutTex_ = createTexture("lut_identity", id.rgba.data(), id.size * id.size, id.size, false, false, false); }
+    postProcessing_.createTargets(width_, height_, colorFormat_, sceneColor_, *lutTex_);
 }
 void Renderer::destroyTargets() {
+    postProcessing_.destroyTargets();
     ctx_->destroyImage(msaaColor_); ctx_->destroyImage(msaaDepth_); ctx_->destroyImage(sceneColor_); ctx_->destroyImage(finalColor_); ctx_->destroyBuffer(readback_);
-    for (int i = 0; i < kBloomLevels; ++i) ctx_->destroyImage(bloom_[i]);
-    bloomLevels_ = 0;
-    if (postPool_) vkResetDescriptorPool(ctx_->device, postPool_, 0);
 }
-void Renderer::createPostSets() {
-    VkDevice dev = ctx_->device;
-    if (!lutTex_) { LutStrip id = identityLut(16); lutSize_ = id.size; lutTex_ = createTexture("lut_identity", id.rgba.data(), id.size * id.size, id.size, false, false, false); }
-    auto make = [&](VkImageView a, VkImageView b) {
-        VkDescriptorSet s; VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-        ai.descriptorPool = postPool_; ai.descriptorSetCount = 1; ai.pSetLayouts = &postSetLayout_;
-        VK_OK(vkAllocateDescriptorSets(dev, &ai, &s));
-        VkDescriptorImageInfo ia{postSampler_, a, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}, ib{postSampler_, b, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo il{lutTex_->sampler, lutTex_->image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkWriteDescriptorSet w[3]{};
-        w[2] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, s, 2, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &il, nullptr, nullptr};
-        w[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, s, 0, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &ia, nullptr, nullptr};
-        w[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, s, 1, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &ib, nullptr, nullptr};
-        vkUpdateDescriptorSets(dev, 3, w, 0, nullptr);
-        return s;
-    };
-    postSceneSet_ = make(sceneColor_.view, sceneColor_.view);
-    for (int i = 0; i < bloomLevels_; ++i) postBloomSet_[i] = make(bloom_[i].view, bloom_[i].view);
-    postCompSet_ = make(sceneColor_.view, bloom_[0].view);
-}
+
 void Renderer::resize(uint32_t w, uint32_t h) {
     if (!presenting()) {                     // headless: just rebuild targets
         vkDeviceWaitIdle(ctx_->device); destroyTargets(); width_ = w; height_ = h; createTargets(); return;
@@ -357,29 +312,6 @@ VkPipeline Renderer::makePipeline(VkShaderModule vs, VkShaderModule fs, int vert
     return p;
 }
 
-VkPipeline Renderer::makePostPipeline(VkShaderModule fs, VkShaderModule vs, VkFormat fmt, bool additive) {
-    VkPipelineShaderStageCreateInfo st[2]{};
-    st[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vs, "main", nullptr};
-    st[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main", nullptr};
-    VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO}; ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO}; vp.viewportCount = vp.scissorCount = 1;
-    VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO}; rs.polygonMode = VK_POLYGON_MODE_FILL; rs.cullMode = VK_CULL_MODE_NONE; rs.lineWidth = 1.f;
-    VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO}; ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-    VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    VkPipelineColorBlendAttachmentState cba{}; cba.colorWriteMask = 0xF; cba.blendEnable = additive;
-    cba.srcColorBlendFactor = cba.dstColorBlendFactor = cba.srcAlphaBlendFactor = cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE; cba.colorBlendOp = cba.alphaBlendOp = VK_BLEND_OP_ADD;
-    VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO}; cb.attachmentCount = 1; cb.pAttachments = &cba;
-    VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dy{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO}; dy.dynamicStateCount = 2; dy.pDynamicStates = dyn;
-    VkPipelineRenderingCreateInfo ri{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO}; ri.colorAttachmentCount = 1; ri.pColorAttachmentFormats = &fmt;
-    VkGraphicsPipelineCreateInfo gp{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-    gp.pNext = &ri; gp.stageCount = 2; gp.pStages = st; gp.pVertexInputState = &vi; gp.pInputAssemblyState = &ia; gp.pViewportState = &vp;
-    gp.pRasterizationState = &rs; gp.pMultisampleState = &ms; gp.pDepthStencilState = &ds; gp.pColorBlendState = &cb; gp.pDynamicState = &dy; gp.layout = postLayout_;
-    VkPipeline p; VK_OK(vkCreateGraphicsPipelines(ctx_->device, VK_NULL_HANDLE, 1, &gp, nullptr, &p));
-    return p;
-}
-
 void Renderer::createPipelines(const std::string& dir) {
     auto load = [&](const char* n) { auto m = ctx_->loadShader(dir + "/" + n + ".spv"); modules_.push_back(m); return m; };
     auto toonV = load("toon.vert"), toonF = load("toon.frag"), outV = load("outline.vert"), outF = load("outline.frag"),
@@ -393,9 +325,9 @@ void Renderer::createPipelines(const std::string& dir) {
     pipeShadow_  = makePipeline(shV, shF, 1, VK_CULL_MODE_NONE,  true, true, VK_SAMPLE_COUNT_1_BIT, false, VK_FORMAT_UNDEFINED, true, tri, false);
     pipeSky_     = makePipeline(skyV, skyF, 0, VK_CULL_MODE_NONE, false, false, ms, true, colorFormat_, false, tri, false);
     {
-        auto pv = load("post.vert"), pf = load("post_prefilter.frag"), pd = load("post_down.frag"), pu = load("post_up.frag"), pc = load("post_composite.frag");
-        pipePrefilter_ = makePostPipeline(pf, pv, colorFormat_, false); pipeDown_ = makePostPipeline(pd, pv, colorFormat_, false);
-        pipeUp_ = makePostPipeline(pu, pv, colorFormat_, true); pipeComposite_ = makePostPipeline(pc, pv, finalFormat_, false);
+        auto pv = load("post.vert"), pf = load("post_prefilter.frag"), pd = load("post_down.frag"), pu = load("post_up.frag"),
+             ph = load("post_halation.frag"), pc = load("post_composite.frag");
+        postProcessing_.createPipelines(pv, pf, pd, pu, ph, pc, colorFormat_, finalFormat_);
     }
     pipeLine_    = makePipeline(lnV, lnF, 2, VK_CULL_MODE_NONE,  true, false, ms, true, colorFormat_, false, VK_PRIMITIVE_TOPOLOGY_LINE_LIST, true);
 }
@@ -731,8 +663,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         vkDeviceWaitIdle(dev);
         lutTex_ = createTexture("lut", pendingLut_.rgba.data(), pendingLut_.size * pendingLut_.size, pendingLut_.size, false, false, false);
         lutSize_ = pendingLut_.size;
-        vkResetDescriptorPool(dev, postPool_, 0);
-        createPostSets();
+        postProcessing_.rebuildSets(sceneColor_, *lutTex_);
     }
 
     uint32_t imgIdx = 0;
@@ -909,7 +840,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     }
 
     // post-processing: bloom chain + composite (tonemap, grade, vignette, sRGB) into finalColor_
-    recordPost(cmd, in);
+    postProcessing_.record(cmd, sceneColor_, finalColor_, in.post, in.time, lutSize_);
 
     // UI overlay (drawn on the final image so it also shows in captures)
     if (uiFrameOpen_) {
@@ -970,51 +901,6 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     return presented;
 }
 
-void Renderer::recordPost(VkCommandBuffer cmd, const FrameInput& in) {
-    const PostSettings& P = in.post;
-    const VkImageAspectFlags col = VK_IMAGE_ASPECT_COLOR_BIT;
-    ctx_->barrier(cmd, sceneColor_.image, col, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    auto pass = [&](Image& target, VkImageLayout from, VkPipeline pipe, VkDescriptorSet set, const PostPC& pc, bool load, bool toRead) {
-        ctx_->barrier(cmd, target.image, col, from, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        VkRenderingAttachmentInfo ca{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        ca.imageView = target.view; ca.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        ca.loadOp = load ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE; ca.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
-        ri.renderArea = {{0, 0}, {target.width, target.height}}; ri.layerCount = 1; ri.colorAttachmentCount = 1; ri.pColorAttachments = &ca;
-        ctx_->beginRendering(cmd, &ri);
-        VkViewport vp{0, 0, (float)target.width, (float)target.height, 0, 1}; VkRect2D sc{{0, 0}, {target.width, target.height}};
-        vkCmdSetViewport(cmd, 0, 1, &vp); vkCmdSetScissor(cmd, 0, 1, &sc);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &set, 0, nullptr);
-        vkCmdPushConstants(cmd, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
-        vkCmdDraw(cmd, 3, 1, 0, 0);
-        ctx_->endRendering(cmd);
-        if (toRead) ctx_->barrier(cmd, target.image, col, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    };
-    bool bloomOn = P.enabled && P.bloom && P.bloomIntensity > 0.f;
-    // prefilter (soft threshold) into level 0; when bloom is off the threshold is infinite so level 0 is black
-    PostPC pf{glm::vec4(bloomOn ? P.bloomThreshold : 1e9f, P.bloomKnee, 1.f / width_, 1.f / height_), glm::vec4(0), glm::vec4(0), glm::vec4(0)};
-    pass(bloom_[0], VK_IMAGE_LAYOUT_UNDEFINED, pipePrefilter_, postSceneSet_, pf, false, true);
-    if (bloomOn) {
-        for (int i = 1; i < bloomLevels_; ++i) {
-            PostPC pc{glm::vec4(1.f / bloom_[i - 1].width, 1.f / bloom_[i - 1].height, 0, 0), glm::vec4(0), glm::vec4(0), glm::vec4(0)};
-            pass(bloom_[i], VK_IMAGE_LAYOUT_UNDEFINED, pipeDown_, postBloomSet_[i - 1], pc, false, true);
-        }
-        for (int i = bloomLevels_ - 2; i >= 0; --i) {
-            PostPC pc{glm::vec4(1.f / bloom_[i + 1].width, 1.f / bloom_[i + 1].height, P.bloomRadius, 0), glm::vec4(0), glm::vec4(0), glm::vec4(0)};
-            pass(bloom_[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, pipeUp_, postBloomSet_[i + 1], pc, true, true);
-        }
-    }
-    PostPC pc;
-    bool en = P.enabled;
-    pc.a = glm::vec4(bloomOn ? P.bloomIntensity : 0.f, P.exposure, en ? (float)P.tonemap : 0.f, en ? P.vignette : 0.f);
-    pc.b = glm::vec4(en ? P.saturation : 1.f, en ? P.contrast : 1.f, en ? P.grain : 0.f, P.vignetteSoftness);
-    pc.c = glm::vec4(en ? P.shadowTint : glm::vec3(1.f), in.time);
-    pc.d = glm::vec4(en ? P.highlightTint : glm::vec3(1.f), (float)width_ / (float)height_);
-    pc.e = glm::vec4(en ? P.lutStrength : 0.f, (float)lutSize_, 0.f, 0.f);
-    pass(finalColor_, VK_IMAGE_LAYOUT_UNDEFINED, pipeComposite_, postCompSet_, pc, false, false);
-}
-
 void Renderer::shutdown() {
     if (!ctx_ || !ctx_->device) return;
     VkDevice dev = ctx_->device;
@@ -1031,15 +917,14 @@ void Renderer::shutdown() {
         ctx_->destroyBuffer(f.globalUBO); ctx_->destroyBuffer(f.bones); ctx_->destroyBuffer(f.lines); ctx_->destroyBuffer(f.morphWeights);
         vkDestroyFence(dev, f.fence, nullptr); vkDestroySemaphore(dev, f.imageAvailable, nullptr);
     }
-    for (auto p : {pipeToon_, pipeToonBlend_, pipeOutline_, pipeShadow_, pipeSky_, pipeLine_, pipePrefilter_, pipeDown_, pipeUp_, pipeComposite_}) vkDestroyPipeline(dev, p, nullptr);
+    for (auto p : {pipeToon_, pipeToonBlend_, pipeOutline_, pipeShadow_, pipeSky_, pipeLine_}) vkDestroyPipeline(dev, p, nullptr);
     for (auto m : modules_) vkDestroyShaderModule(dev, m, nullptr);
-    vkDestroyPipelineLayout(dev, pipeLayout_, nullptr); vkDestroyPipelineLayout(dev, postLayout_, nullptr);
-    vkDestroyDescriptorSetLayout(dev, postSetLayout_, nullptr); vkDestroySampler(dev, postSampler_, nullptr);
+    vkDestroyPipelineLayout(dev, pipeLayout_, nullptr);
     ctx_->destroyBuffer(morphDeltas_);
     vkDestroyDescriptorPool(dev, pool_, nullptr);
     vkDestroyDescriptorSetLayout(dev, globalLayout_, nullptr); vkDestroyDescriptorSetLayout(dev, materialLayout_, nullptr);
     vkDestroySampler(dev, shadowSampler_, nullptr); vkDestroySampler(dev, envSampler_, nullptr); ctx_->destroyImage(env_);
-    destroyTargets(); ctx_->destroyImage(shadow_); ctx_->destroyImage(pointShadow_); vkDestroyDescriptorPool(dev, postPool_, nullptr); postPool_ = VK_NULL_HANDLE;
+    destroyTargets(); postProcessing_.shutdown(); ctx_->destroyImage(shadow_); ctx_->destroyImage(pointShadow_);
     if (presenting()) {
         destroySwapchain();
 #ifndef __ANDROID__

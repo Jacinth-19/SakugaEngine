@@ -255,7 +255,7 @@ private:
     ANativeWindow* mobileWindow_ = nullptr;
     MobilePointerRouter mobilePointers_;
     std::string mobileError_;
-    bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false;
+    bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false, mobileLoggedHalation_ = false;
     bool mobileClipBrowser_ = false, mobileBrowserTargetLogged_ = false, mobileLastItemLogged_ = false; int mobileClipPage_ = 0;
     bool mobileLoadNpcs_ = false, mobileNpcsRequested_ = false, mobileNpcsPendingFrame_ = false, mobileRestored_ = false;
 #endif
@@ -1181,7 +1181,13 @@ void Sandbox::drawUI(float wallDt) {
         ImGui::Text("sun elevation %.1f deg", todSun_);
     }
     if (ImGui::CollapsingHeader("Post-processing (HDR)")) {
+        ImGui::TextDisabled("Creative profiles (preserve exposure and LUT)");
+        if (ImGui::Button("Celestial##post")) post_ = applyPostProfile(PostProfile::Celestial, post_); ImGui::SameLine();
+        if (ImGui::Button("Cinematic##post")) post_ = applyPostProfile(PostProfile::Cinematic, post_); ImGui::SameLine();
+        if (ImGui::Button("Atmospheric##post")) post_ = applyPostProfile(PostProfile::Atmospheric, post_); ImGui::SameLine();
+        if (ImGui::Button("Painterly##post")) post_ = applyPostProfile(PostProfile::Painterly, post_);
         ImGui::Checkbox("Enabled", &post_.enabled); ImGui::SameLine(); ImGui::Checkbox("Bloom", &post_.bloom);
+        ImGui::SliderFloat("Halation (requires bloom)", &post_.halation, 0.f, .6f);
         ImGui::Combo("Tonemap", &post_.tonemap, "Clamp\0Khronos PBR Neutral\0ACES (Narkowicz)\0");
         ImGui::SliderFloat("Bloom intensity", &post_.bloomIntensity, 0.f, 1.5f); ImGui::SliderFloat("Bloom threshold", &post_.bloomThreshold, 0.2f, 3.f); ImGui::SliderFloat("Bloom knee", &post_.bloomKnee, 0.f, 1.f);
         ImGui::SliderFloat("Saturation", &post_.saturation, 0.f, 2.f); ImGui::SliderFloat("Contrast", &post_.contrast, 0.5f, 1.5f);
@@ -1470,6 +1476,16 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         mobileLoggedControls_ = true;
     }
     ImGui::SameLine();
+    bool mobileHalation = post_.halation > 0.f;
+    if (ImGui::Checkbox("Glow", &mobileHalation)) {
+        post_.halation = mobileHalation ? .22f : 0.f;
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "halation enabled=%d", (int)mobileHalation);
+    }
+    if (frame_ == 0) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "halation target x=%d y=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f));
+    }
+    ImGui::SameLine();
     if (!mobileNpcsRequested_) {
         if (ImGui::Button("NPCs")) { mobileNpcsRequested_ = true; mobileLoadNpcs_ = true; }
         if (frame_ == 0) {
@@ -1542,6 +1558,9 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     if (!rendered && benchmark_.running()) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark cancelled due to failed frame");
         benchmark_.cancel();
+    }
+    if (rendered && !mobileLoggedHalation_ && planPost(fi.post, renderer_.width(), renderer_.height()).halation) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "halation frame presented"); mobileLoggedHalation_ = true;
     }
     if (rendered && mobileRestored_) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface state frame bloom=%d editor=%d tod=%.2f clip=%d browse=%d npcs=%zu x=%.3f z=%.3f",

@@ -3,7 +3,8 @@
 layout(set = 0, binding = 0) uniform sampler2D tScene;
 layout(set = 0, binding = 1) uniform sampler2D tBloom;
 layout(set = 0, binding = 2) uniform sampler2D tLut;     // 3D colour LUT stored as a strip: x = blue slice * N + red, y = green
-layout(push_constant) uniform PC { vec4 a, b, c, d, e; } pc;   // e = LUT strength, LUT size
+layout(set = 0, binding = 3) uniform sampler2D tHalation; // quarter-resolution HDR diffusion
+layout(push_constant) uniform PC { vec4 a, b, c, d, e; } pc;   // e = LUT strength, LUT size, halation intensity
 // a = bloom intensity, exposure, tonemap mode, vignette;  b = saturation, contrast, grain, vignette softness;  c = shadow tint.rgb, time;  d = highlight tint.rgb, aspect
 layout(location = 0) in vec2 vUV;
 layout(location = 0) out vec4 outColor;
@@ -36,6 +37,7 @@ void main() {
     vec3 hdr = textureLod(tScene, vUV, 0.0).rgb;
     vec3 bloom = textureLod(tBloom, vUV, 0.0).rgb;
     hdr += bloom * pc.a.x * vec3(1.0, 0.97, 0.93);
+    if (pc.e.z > 0.0) hdr += textureLod(tHalation, vUV, 0.0).rgb * pc.e.z * vec3(1.0, 0.32, 0.12);
     hdr *= pc.a.y;
     int mode = int(pc.a.z + 0.5);
     vec3 c = mode == 1 ? neutralTonemap(hdr) : (mode == 2 ? acesFilm(hdr) : clamp(hdr, 0.0, 1.0));

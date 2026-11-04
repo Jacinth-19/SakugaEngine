@@ -91,6 +91,7 @@ set(SAKUGA_TESTS
   frame_benchmark_test
   crowd_steering_test
   sky_profiles_test
+  post_profiles_test
   fbx_info_test
   course_layout_test
   face_frame_test

@@ -1,5 +1,6 @@
 #pragma once
 #include "gfx/Context.h"
+#include "post/PostProcessing.h"
 #include "gfx/LineBatch.h"
 #include "gfx/Material.h"
 #include "gfx/Mesh.h"
@@ -46,18 +47,6 @@ struct LightingSettings {
     float envRotation = 0.f;                      // radians around +Y
 };
 
-struct PostSettings {
-    bool enabled = true;
-    float exposure = 1.0f;
-    int tonemap = 1;                               // 0 none (clamp), 1 Khronos PBR Neutral, 2 ACES (Narkowicz)
-    bool bloom = true; float bloomIntensity = 0.30f, bloomThreshold = 0.92f, bloomKnee = 0.5f, bloomRadius = 1.0f;
-    float vignette = 0.28f, vignetteSoftness = 0.65f;
-    float saturation = 1.10f, contrast = 1.05f;
-    glm::vec3 shadowTint{0.93f, 0.95f, 1.06f}, highlightTint{1.04f, 1.0f, 0.95f};   // cheap split-toning (multiplies)
-    float grain = 0.012f;
-    float lutStrength = 0.f;                       // colour grading LUT (Renderer::setPostLut), 0 = off
-};
-
 struct DrawItem {
     const GpuMesh* mesh = nullptr;
     Material* material = nullptr;
@@ -98,7 +87,6 @@ public:
     static constexpr uint32_t kMaxLineVerts = 262144;
     static constexpr uint32_t kMaxMorphVec4 = 1u << 21;      // 32 MB of morph deltas
     static constexpr uint32_t kMaxMorphWeights = 1u << 14;
-    static constexpr int kBloomLevels = 6;
 
     bool init(Context& ctx, GLFWwindow* window, uint32_t width, uint32_t height, const std::string& shaderDir);
 #ifdef __ANDROID__
@@ -190,18 +178,10 @@ private:
 
     // render targets
     Image msaaColor_, msaaDepth_, sceneColor_, finalColor_, shadow_, pointShadow_;
-    Image bloom_[kBloomLevels]; int bloomLevels_ = 0;
     VkFormat colorFormat_ = VK_FORMAT_R16G16B16A16_SFLOAT;     // HDR scene format
     VkFormat finalFormat_ = VK_FORMAT_R8G8B8A8_UNORM;          // display-referred output (tonemapped, sRGB encoded, UI on top)
-    // post-processing
-    VkDescriptorSetLayout postSetLayout_ = VK_NULL_HANDLE; VkPipelineLayout postLayout_ = VK_NULL_HANDLE;
+    PostProcessing postProcessing_;
     LutStrip pendingLut_; bool hasPendingLut_ = false; Texture* lutTex_ = nullptr; int lutSize_ = 16;
-    VkDescriptorPool postPool_ = VK_NULL_HANDLE; VkSampler postSampler_ = VK_NULL_HANDLE;
-    VkDescriptorSet postSceneSet_ = VK_NULL_HANDLE, postBloomSet_[kBloomLevels]{}, postCompSet_ = VK_NULL_HANDLE;
-    VkPipeline pipePrefilter_ = VK_NULL_HANDLE, pipeDown_ = VK_NULL_HANDLE, pipeUp_ = VK_NULL_HANDLE, pipeComposite_ = VK_NULL_HANDLE;
-    void createPostSets();
-    void recordPost(VkCommandBuffer cmd, const FrameInput& in);
-    VkPipeline makePostPipeline(VkShaderModule fs, VkShaderModule vs, VkFormat fmt, bool additive);
     Buffer morphDeltas_; uint32_t morphCursor_ = 0;
     Buffer readback_;
 
