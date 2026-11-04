@@ -380,11 +380,13 @@ public final class MainActivity extends Activity {
                 names[i] = name.endsWith(".bvh") ? name.substring(0, name.length() - 4) : name;
             }
             new android.app.AlertDialog.Builder(MainActivity.this).setTitle("Animations (77)")
-                .setItems(names, (dialog, index) -> {
-                    if (!fallbackLock.tryLock()) return;
-                    try { if (hasFallbackLocked()) nativeSelectClip(fallbackHandle, index); }
-                    finally { fallbackLock.unlock(); }
-                    invalidate();
+                .setItems(names, new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface dialog, int index) {
+                        if (!fallbackLock.tryLock()) return;
+                        try { if (hasFallbackLocked()) nativeSelectClip(fallbackHandle, index); }
+                        finally { fallbackLock.unlock(); }
+                        invalidate();
+                    }
                 }).setNegativeButton("Close", null).show();
         }
         @Override protected void onDraw(Canvas c) {
