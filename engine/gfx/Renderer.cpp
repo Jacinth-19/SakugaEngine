@@ -346,7 +346,8 @@ void Renderer::destroySwapchain() {
 }
 void Renderer::createTargets() {
     VkSampleCountFlagBits ms = ctx_->msaa;
-    msaaColor_ = ctx_->createImage(width_, height_, colorFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT, 1, ms);
+    if (ms != VK_SAMPLE_COUNT_1_BIT)
+        msaaColor_ = ctx_->createImage(width_, height_, colorFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT, 1, ms);
     const VkImageUsageFlags depthUsage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
         (sampleSceneDepth_ ? VK_IMAGE_USAGE_SAMPLED_BIT : VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT);
     msaaDepth_ = ctx_->createImage(width_, height_, kDepthFormat, depthUsage, 1, ms, VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -1003,7 +1004,8 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
 
     // main pass (MSAA -> resolve into sceneColor)
     {
-        ctx_->barrier(cmd, msaaColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        if (ctx_->msaa != VK_SAMPLE_COUNT_1_BIT)
+            ctx_->barrier(cmd, msaaColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         ctx_->barrier(cmd, msaaDepth_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
         ctx_->barrier(cmd, sceneColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         VkRenderingAttachmentInfo ca{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}, da{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};

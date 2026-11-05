@@ -1,4 +1,5 @@
 #include "platform/AutoQuality.h"
+#include "platform/AdaptiveResolution.h"
 #include "Check.h"
 #include <limits>
 int main() {
@@ -21,5 +22,25 @@ int main() {
     CHECK(cappedSampleCount(7,4)==4); CHECK(cappedSampleCount(7,2)==2);
     CHECK(cappedSampleCount(5,2)==1); CHECK(cappedSampleCount(7,1)==1);
     CHECK(cappedSampleCount(4,2)==0);
+    AdaptiveResolution controller;
+    float scale=.75f;
+    for(int i=0;i<100;++i) scale=controller.update(.1f,scale,.75f,true);
+    CHECK_NEAR(scale,.75f,1e-6); // fewer than three slow windows
+    for(int i=0;i<55;++i) scale=controller.update(.1f,scale,.75f,true);
+    CHECK_NEAR(scale,.70f,1e-5);
+    for(int i=0;i<1100;++i) scale=controller.update(.02f,scale,.75f,true);
+    CHECK_NEAR(scale,.75f,1e-5);
+    for(int i=0;i<500;++i) scale=controller.update(.1f,scale,.75f,false);
+    CHECK_NEAR(scale,.75f,1e-5);
+    for(int i=0;i<100;++i) scale=controller.update(.1f,scale,.75f,true);
+    controller.update(2.f,scale,.75f,true); // pauses discard samples
+    for(int i=0;i<100;++i) scale=controller.update(.1f,scale,.75f,true);
+    CHECK_NEAR(scale,.75f,1e-5);
+    controller.reset(); scale=.5f;
+    for(int i=0;i<200;++i) scale=controller.update(.1f,scale,.75f,true);
+    CHECK_NEAR(scale,.5f,1e-5);
+    controller.reset(); scale=.75f;
+    for(int i=0;i<1200;++i) scale=controller.update(.02f,scale,.75f,true);
+    CHECK_NEAR(scale,.75f,1e-5); // never exceeds the configured ceiling
     return t_.finish();
 }

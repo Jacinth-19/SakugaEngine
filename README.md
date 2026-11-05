@@ -37,7 +37,15 @@ Download `sakuga-android-animation-preview-debug` from the latest successful **[
 | **F11 / F12** | Open the ImGui demo / open the theme editor |
 | **Esc** | Quit |
 
-For a lighter Windows starting point, launch **Sakuga Engine - Performance** from the Start menu, or run `Sakuga-Performance.bat` from the portable folder. It starts at 1280 × 720, without NPCs, spring bones, point-light shadows or bloom; the normal launcher is unchanged. This is not a guarantee of 60 FPS and still requires Vulkan 1.3.
+For a lighter Windows starting point, launch **Sakuga Engine - Performance** from the Start menu, or run `Sakuga-Performance.bat` from the portable folder. It starts at 1280 × 720, without NPCs, spring bones, point-light shadows or bloom; the normal launcher uses the automatic settings described below. This is not a guarantee of 60 FPS and still requires Vulkan 1.3.
+
+### Automatic performance settings
+
+The Vulkan renderer selects a startup quality tier from the device type. Android and integrated GPUs (including an Intel UHD when reported as integrated) start at **75% internal resolution**, 1× MSAA, with bloom, point shadows and integrated sky scattering off. Discrete desktop GPUs start at full resolution; unknown desktop GPUs start at 85%. The result is upscaled to the display, so lower scales also soften UI and screenshots. All 77 animation clips remain available.
+
+**Adaptive resolution** then adjusts scale in small steps when sustained frame-loop timing is slow or fast. It pauses during the frame benchmark and command-line captures. It does not measure GPU load or guarantee an FPS, and CPU-bound scenes may not improve when resolution drops. On Windows open **Device and performance**; on Android Vulkan open **POST → Performance / resolution**. You can disable adaptation and set 50–100% manually; moving the slider disables adaptation. Windows launch options include `--quality auto|performance|balanced|high`, `--render-scale 0.5..1`, and `--no-adaptive-resolution`. Scaling and adaptation settings are not saved across app restarts. See [performance details](docs/ANDROID_AND_DIAGNOSTICS.md#automatic-starting-quality-and-resolution).
+
+These settings are starting heuristics, not results measured on the HP Intel UHD laptop or TECNO phone. The Android Vulkan renderer still requires Vulkan 1.3, dynamic rendering and synchronization2; unsupported devices use the synthetic-rig Canvas fallback rather than the full 3D scene.
 
 Open **Motion matching** to browse every loaded animation on Windows. On Android, tap **CLIPS** in the Vulkan panel (or the Canvas fallback) to choose an animation by name. Moving resumes motion matching. The Vulkan mobile panel also exposes **Hair physics** and an **Upright** adjustment; neither is available in the synthetic Canvas fallback. Open **Motion matching** to see the current animation and loaded clip count. Open **Device and performance** for CPU, RAM, storage space, GPU and frame statistics. Some values may be unavailable; HDD versus SSD is not currently detected. Press **F12** to explore the live theme editor. Saving a theme beside an installed app may require a writable location; the portable build is convenient for experiments.
 

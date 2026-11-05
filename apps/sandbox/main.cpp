@@ -14,6 +14,7 @@
 #include "platform/Input.h"
 #include "platform/SysInfo.h"
 #include "platform/AutoQuality.h"
+#include "platform/AdaptiveResolution.h"
 #include "platform/Window.h"
 #include "platform/TouchControls.h"
 #include "platform/FrameTiming.h"
@@ -64,7 +65,9 @@ struct Options {
     float timeOfDay = 15.f, todSpeed = 0.5f; bool todAuto = false, npr = false, navDebug = false, agentDebug = false, mmDebug = false, npcs = true, hands = true, lookAt = true, springs = true, postOff = false;
     bool fitCascade = true, bodyMask = true, pointShadows = true, performance = false, explicitPointShadows = false;
     int quality = -1; // -1 auto, 0 performance, 1 balanced, 2 high
-    float renderScale = 0.f; // 0 auto; otherwise a manual render scale
+    float renderScale = 0.f; // 0 selects the startup default
+    float adaptiveCeiling = 0.f;
+    bool adaptiveResolution = true;
     float cloud = 0.66f, exposure = 1.f;
     float wet = 0.f, cameraYaw = glm::pi<float>(), cameraPitch = 0.16f, cameraDist = 3.6f, lightAz = 40.f, lightEl = 38.f;
     float fixedDt = 1.f / 60.f;
@@ -110,7 +113,9 @@ static Options parseArgs(int argc, char** argv) {
             else if (v == "balanced") o.quality = 1; else if (v == "high") o.quality = 2;
             else { std::fprintf(stderr, "Unknown quality preset: %s\n", v.c_str()); std::exit(1); }
         }
-        else if (a == "--render-scale") { o.renderScale = safeRenderScale(std::strtof(next(), nullptr)); }
+        else if (a == "--render-scale") { o.renderScale = safeRenderScale(std::strtof(next(), nullptr)); o.adaptiveResolution = false; }
+        else if (a == "--adaptive-resolution") o.adaptiveResolution = true;
+        else if (a == "--no-adaptive-resolution") o.adaptiveResolution = false;
         else if (a == "--no-ui") o.ui = false;
         else if (a == "--no-outline") o.outlines = false;
         else if (a == "--no-mm") o.mm = false;
@@ -174,7 +179,7 @@ static Options parseArgs(int argc, char** argv) {
         else if (a == "--play-clip") o.playClip = next();
         else if (a == "--help") {
             std::printf("sandbox [--headless] [--screenshot out.png] [--frames N] [--width W --height H] [--showcase 0..4 (default 4 = Motion lab)]\n"
-                        "        [--performance] [--quality auto|performance|balanced|high] [--render-scale 0.5..1] [--debug-mode 0..13] [--wet 0..1] [--camera yawDeg,pitchDeg,dist] [--light azDeg,elDeg]\n"
+                        "        [--performance] [--quality auto|performance|balanced|high] [--render-scale 0.5..1] [--adaptive-resolution|--no-adaptive-resolution] [--debug-mode 0..13] [--wet 0..1] [--camera yawDeg,pitchDeg,dist] [--light azDeg,elDeg]\n"
                         "        [--script \"t:x,y[,sprint];...\"] [--record dir --record-every N] [--no-ui] [--no-outline] [--no-mm]\n"
                         "        [--skeleton] [--trajectory] [--split pxOffset] [--tonemap] [--validation]\n"
                         "        [--motion-dir DIR]... [--mm-clips N] [--mm-categories all|bitmask] [--no-mm-context] [--no-mm-cache] [--play-clip clipName]\n"
@@ -234,7 +239,7 @@ public:
     bool initMobile(ANativeWindow* window, std::string& error);
     int frameMobile(float dt, float wallDt, float x, float y, int clip);
     void touchMobile(bool imgui, int action, int id, float x, float y);
-    void cancelBenchmark() { if (benchmark_.running()) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark cancelled on pause"); benchmark_.cancel(); }
+    void cancelBenchmark() { adaptiveResolution_.reset(); if (benchmark_.running()) __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark cancelled on pause"); benchmark_.cancel(); }
     MobileSnapshot captureMobile() const;
     void restoreMobile(const MobileSnapshot& state);
 #endif
@@ -266,6 +271,8 @@ private:
     Options opt_; std::string root_, shaderDir_;
     Context ctx_; Renderer renderer_; Window window_; InputSystem input_; StyleTextures style_;
     QualityTier startupQuality_ = QualityTier::High;
+    AdaptiveResolution adaptiveResolution_;
+    void updateAdaptiveResolution(float wallDt);
     void configureQuality();
     void drawQualityControls();
 #ifdef __ANDROID__
@@ -342,6 +349,7 @@ void Sandbox::configureQuality() {
     // Headless screenshot/test dimensions remain exactly as requested.
     if (!opt_.headless) {
         if (opt_.renderScale <= 0.f) opt_.renderScale = settings.renderScale;
+        if (opt_.adaptiveCeiling <= 0.f) opt_.adaptiveCeiling = opt_.renderScale;
         renderer_.setRenderScale(opt_.renderScale);
         const uint32_t supported = ctx_.props.limits.framebufferColorSampleCounts & ctx_.props.limits.framebufferDepthSampleCounts;
         const uint32_t samples = cappedSampleCount(supported, settings.maxSamples);
@@ -353,14 +361,31 @@ void Sandbox::configureQuality() {
     __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "quality %s scale=%.2f msaa=%u GPU=%s", qualityName(startupQuality_), opt_.renderScale, (unsigned)ctx_.msaa, ctx_.props.deviceName);
 #endif
 }
+void Sandbox::updateAdaptiveResolution(float wallDt) {
+    const bool enabled = opt_.adaptiveResolution && !opt_.headless && !benchmark_.running() &&
+        opt_.screenshot.empty() && opt_.recordDir.empty();
+    const float next = adaptiveResolution_.update(wallDt, renderer_.renderScale(), opt_.adaptiveCeiling, enabled);
+    if (std::abs(next - renderer_.renderScale()) > .0001f) {
+        opt_.renderScale = next;
+        renderer_.setRenderScale(next);
+        SK_LOG("adaptive resolution: %.2f (frame-loop estimate)", next);
+#ifdef __ANDROID__
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "adaptive render scale %.2f", next);
+#endif
+    }
+}
 void Sandbox::drawQualityControls() {
     ImGui::Text("Startup: %s (%s), MSAA x%u", qualityName(startupQuality_), opt_.quality < 0 ? "auto" : "manual", (unsigned)ctx_.msaa);
     ImGui::Text("Render: %u x %u / display: %u x %u", renderer_.width(), renderer_.height(), renderer_.displayWidth(), renderer_.displayHeight());
+    if (ImGui::Checkbox("Adaptive resolution", &opt_.adaptiveResolution)) {
+        opt_.adaptiveCeiling = renderer_.renderScale(); adaptiveResolution_.reset();
+    }
     float scale = renderer_.renderScale();
     if (ImGui::SliderFloat("Render scale", &scale, .5f, 1.f, "%.2f")) {
-        opt_.renderScale = scale; renderer_.setRenderScale(scale);
+        opt_.adaptiveResolution = false; opt_.adaptiveCeiling = scale;
+        opt_.renderScale = scale; adaptiveResolution_.reset(); renderer_.setRenderScale(scale);
     }
-    ImGui::TextDisabled("Hardware-based starting point, not a benchmark. Scale changes rebuild targets; UI is also scaled.");
+    ImGui::TextDisabled("Frame-loop estimate, not GPU time. Scaling also softens UI and rebuilds targets.");
 }
 
 bool Sandbox::init() {
@@ -1150,6 +1175,7 @@ void Sandbox::drawUiThemeWindow() {
 }
 
 void Sandbox::startBenchmark() {
+    adaptiveResolution_.reset();
     benchmarkWidth_ = renderer_.width(); benchmarkHeight_ = renderer_.height();
     SysInfo sys = collectSysInfo(root_);
     std::ostringstream out;
@@ -1513,7 +1539,7 @@ void Sandbox::run() {
             window_.poll();
             auto now = std::chrono::steady_clock::now();
             wallDt = std::chrono::duration<float>(now - last).count(); last = now;
-            if (frame_ > 0) benchmarkFrame(wallDt);
+            if (frame_ > 0) { benchmarkFrame(wallDt); updateAdaptiveResolution(wallDt); }
             dt = std::min(0.05f, wallDt);
             if (frame_ > 0) fps_ = frameTiming_.update(wallDt);
             dev = window_.device();
@@ -1647,7 +1673,7 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox movement reached the avatar"); mobileLoggedMove_ = true;
     }
     FrameInput fi = buildFrame(dt);
-    if (frame_ > 0) { fps_ = frameTiming_.update(wallDt); benchmarkFrame(wallDt); }
+    if (frame_ > 0) { fps_ = frameTiming_.update(wallDt); benchmarkFrame(wallDt); updateAdaptiveResolution(wallDt); }
     drawUI(wallDt);
     const float density = opt_.uiFontSize / 14.f;
     ImGui::SetNextWindowPos(ImVec2(renderer_.displayWidth() * .65f, 10.f * density), ImGuiCond_Always);
