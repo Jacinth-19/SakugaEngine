@@ -33,9 +33,13 @@ int main() {
     for(int i=0;i<500;++i) scale=controller.update(.1f,scale,.75f,false);
     CHECK_NEAR(scale,.75f,1e-5);
     for(int i=0;i<100;++i) scale=controller.update(.1f,scale,.75f,true);
-    controller.update(2.f,scale,.75f,true); // pauses discard samples
+    controller.update(3.f,scale,.75f,true); // long pauses discard samples
     for(int i=0;i<100;++i) scale=controller.update(.1f,scale,.75f,true);
     CHECK_NEAR(scale,.75f,1e-5);
+    controller.reset(); scale=.75f;
+    // Sustained 1 FPS is poor performance, not a pause: it must be able to downscale.
+    for(int i=0;i<15;++i) scale=controller.update(1.f,scale,.75f,true);
+    CHECK_NEAR(scale,.70f,1e-5);
     controller.reset(); scale=.5f;
     for(int i=0;i<200;++i) scale=controller.update(.1f,scale,.75f,true);
     CHECK_NEAR(scale,.5f,1e-5);

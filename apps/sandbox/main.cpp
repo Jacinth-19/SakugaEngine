@@ -282,6 +282,7 @@ private:
     bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false, mobileLoggedHalation_ = false, mobileLoggedAtmosphere_ = false, mobileLoggedFinish_ = false, mobileLoggedPostTiming_ = false, mobileLoggedSkyTiming_ = false, mobileLoggedMaterialBloom_ = false;
     bool mobileSkyPanel_ = false, mobileSkyTargetLogged_ = false, mobileLoggedIntegratedSky_ = false, mobileLoggedVolumeSky_ = false;
     bool mobilePostPanel_ = false, mobilePostTargetLogged_ = false, mobileDetailedTimingLogged_ = false, mobileAerialFrameLogged_ = false, mobileSunFlareLogged_ = false;
+    bool mobileQualityTreeLogged_ = false, mobileScaleTargetLogged_ = false, mobileScaleFramePending_ = false;
     bool mobileClipBrowser_ = false, mobileBrowserTargetLogged_ = false, mobileLastItemLogged_ = false; int mobileClipPage_ = 0;
     bool mobileLoadNpcs_ = false, mobileNpcsRequested_ = false, mobileNpcsPendingFrame_ = false, mobileRestored_ = false;
 #endif
@@ -362,7 +363,7 @@ void Sandbox::configureQuality() {
 #endif
 }
 void Sandbox::updateAdaptiveResolution(float wallDt) {
-    const bool enabled = opt_.adaptiveResolution && !opt_.headless && !benchmark_.running() &&
+    const bool enabled = opt_.adaptiveResolution && !opt_.headless && !showBenchmark_ && !benchmark_.running() &&
         opt_.screenshot.empty() && opt_.recordDir.empty();
     const float next = adaptiveResolution_.update(wallDt, renderer_.renderScale(), opt_.adaptiveCeiling, enabled);
     if (std::abs(next - renderer_.renderScale()) > .0001f) {
@@ -376,16 +377,32 @@ void Sandbox::updateAdaptiveResolution(float wallDt) {
 }
 void Sandbox::drawQualityControls() {
     ImGui::Text("Startup: %s (%s), MSAA x%u", qualityName(startupQuality_), opt_.quality < 0 ? "auto" : "manual", (unsigned)ctx_.msaa);
-    ImGui::Text("Render: %u x %u / display: %u x %u", renderer_.width(), renderer_.height(), renderer_.displayWidth(), renderer_.displayHeight());
+    ImGui::Text("Render: %u x %u", renderer_.width(), renderer_.height());
+    ImGui::Text("Display: %u x %u", renderer_.displayWidth(), renderer_.displayHeight());
     if (ImGui::Checkbox("Adaptive resolution", &opt_.adaptiveResolution)) {
         opt_.adaptiveCeiling = renderer_.renderScale(); adaptiveResolution_.reset();
     }
     float scale = renderer_.renderScale();
+    const float sliderWidth = std::max(80.f, ImGui::GetContentRegionAvail().x * .45f);
+    ImGui::SetNextItemWidth(sliderWidth);
     if (ImGui::SliderFloat("Render scale", &scale, .5f, 1.f, "%.2f")) {
         opt_.adaptiveResolution = false; opt_.adaptiveCeiling = scale;
         opt_.renderScale = scale; adaptiveResolution_.reset(); renderer_.setRenderScale(scale);
+#ifdef __ANDROID__
+        mobileScaleFramePending_ = true;
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "manual render scale %.2f adaptive=%d", scale, (int)opt_.adaptiveResolution);
+#endif
     }
+#ifdef __ANDROID__
+    if (!mobileScaleTargetLogged_) {
+        ImVec2 a=ImGui::GetItemRectMin(), b=ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "render scale target x=%d y=%d visible=%d", (int)(a.x + sliderWidth * .88f), (int)((a.y+b.y)*.5f), (int)ImGui::IsItemVisible());
+        mobileScaleTargetLogged_ = true;
+    }
+#endif
+    ImGui::PushTextWrapPos(0.f);
     ImGui::TextDisabled("Frame-loop estimate, not GPU time. Scaling also softens UI and rebuilds targets.");
+    ImGui::PopTextWrapPos();
 }
 
 bool Sandbox::init() {
@@ -1544,7 +1561,8 @@ void Sandbox::run() {
             if (frame_ > 0) fps_ = frameTiming_.update(wallDt);
             dev = window_.device();
             {   // touch controls: the mouse acts as touch id 0 (desktop GLFW has no multi-touch); real touch front ends call touch_.injectTouch()
-                int fw, fh; window_.framebufferSize(fw, fh); touch_.setScreen((float)fw, (float)fh);
+                // GLFW cursor positions and ImGui use window coordinates, not framebuffer pixels.
+                int ww, wh; glfwGetWindowSize(window_.handle(), &ww, &wh); touch_.setScreen((float)ww, (float)wh);
                 if (touch_.enabled && touchMouse_) touch_.injectTouch(0, dev.mousePos.x, dev.mousePos.y, dev.mouseButton[0] && !(renderer_.uiEnabled() && ImGui::GetIO().WantCaptureMouse && !touch_.anyActive()));
                 touch_.apply(dev);
                 if (touch_.enabled && touchMouse_ && touch_.anyActive()) dev.mouseButton[0] = false;
@@ -1574,12 +1592,14 @@ void Sandbox::run() {
         std::vector<uint8_t>* cap = (lastFrame && !opt_.screenshot.empty()) || record || screenshotRequested_ ? &pixels : nullptr;
         if (opt_.headless && !cap) { ++frame_; continue; }          // simulate only: nothing needs to be drawn
         bool ok = renderer_.renderFrame(fi, cap);
-        if (!ok) benchmark_.cancel();
+        if (!ok) { benchmark_.cancel(); adaptiveResolution_.reset(); }
         if (ok && cap) {
             if (record) { char name[512]; std::snprintf(name, sizeof name, "%s/frame_%05d.png", opt_.recordDir.c_str(), recorded++); Renderer::savePNG(name, pixels, renderer_.width(), renderer_.height()); }
             if (screenshotRequested_) { screenshotRequested_ = false; std::string p = "screenshot_" + std::to_string(frame_) + ".png"; Renderer::savePNG(p, pixels, renderer_.width(), renderer_.height()); SK_LOG("saved %s", p.c_str()); }
             if (lastFrame && !opt_.screenshot.empty()) { Renderer::savePNG(opt_.screenshot, pixels, renderer_.width(), renderer_.height()); SK_LOG("saved %s", opt_.screenshot.c_str()); }
         }
+        // A swapchain resize/out-of-date frame cannot produce a capture; retry it.
+        if (lastFrame && cap && !ok) continue;
         ++frame_;
         if (lastFrame) break;
     }
@@ -1823,7 +1843,13 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         }
         if (post_.gpuDetailedProfiling) for (uint32_t i = 0; i < kPostTimingStages; ++i) if (renderer_.stats.gpuPostStages[i] >= 0.f)
             ImGui::TextDisabled("%s %.2f ms", kPostTimingNames[i], renderer_.stats.gpuPostStages[i]);
-        if (ImGui::TreeNode("Performance / resolution")) { drawQualityControls(); ImGui::TreePop(); }
+        bool qualityOpen = ImGui::TreeNode("Performance / resolution");
+        if (!mobileQualityTreeLogged_) {
+            ImVec2 a=ImGui::GetItemRectMin(), b=ImGui::GetItemRectMax();
+            __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "performance controls target x=%d y=%d visible=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f), (int)ImGui::IsItemVisible());
+            mobileQualityTreeLogged_ = true;
+        }
+        if (qualityOpen) { drawQualityControls(); ImGui::TreePop(); }
         ImGui::Checkbox("Post enabled", &post_.enabled);
         ImGui::Checkbox("Bloom##mobilepost", &post_.bloom);
         ImGui::SliderFloat("Bloom intensity##mobilepost", &post_.bloomIntensity, 0.f, 1.5f);
@@ -1924,6 +1950,11 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     if (rendered && !mobileLoggedPostTiming_ && renderer_.stats.gpuPostMs >= 0.f) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "post timing sample available"); mobileLoggedPostTiming_ = true;
     }
+    if (rendered && mobileScaleFramePending_) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "manual resolution frame presented scale=%.2f render=%ux%u", renderer_.renderScale(), renderer_.width(), renderer_.height());
+        mobileScaleFramePending_ = false;
+    }
+    if (!rendered) adaptiveResolution_.reset();
     if (!rendered && benchmark_.running()) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark cancelled due to failed frame");
         benchmark_.cancel();

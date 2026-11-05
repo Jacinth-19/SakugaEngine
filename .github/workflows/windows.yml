@@ -103,7 +103,15 @@ jobs:
         shell: pwsh
         run: |
           # --help and --dump-ui-theme exit before any Vulkan device is created, so they run on a GPU-less runner.
-          .\build\bin\sandbox.exe --help | Select-Object -First 5
+          $helpText = .\build\bin\sandbox.exe --help
+          if ($LASTEXITCODE -ne 0) { throw "Windows executable --help failed" }
+          foreach ($flag in @('--quality', '--render-scale', '--no-adaptive-resolution')) {
+            if (-not ($helpText | Select-String -SimpleMatch $flag)) { throw "Missing Windows graphics option: $flag" }
+          }
+          $helpText | Select-Object -First 5
+          .\build\bin\sandbox.exe --touch-selftest
+          if ($LASTEXITCODE -ne 0) { throw "Windows touch input smoke test failed" }
+          Write-Host "::notice::Windows executable options and touch self-test passed (no graphics device used)."
           .\build\bin\sandbox.exe --dump-ui-theme theme_check.json
           if (-not (Test-Path theme_check.json)) { throw "the executable did not write theme_check.json" }
           Get-Content theme_check.json -TotalCount 3

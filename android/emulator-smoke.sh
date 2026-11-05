@@ -159,6 +159,30 @@ if [[ $renderer_result == presented ]]; then
     sleep 1
   done
   if [[ $post_open != 1 ]]; then echo '::error::Mobile post panel did not open.'; exit 1; fi
+  # Exercise the actual performance controls and confirm the new target is presented.
+  quality_target=$(grep -F 'performance controls target x=' /tmp/sakuga-android-log.txt | tail -1 || true)
+  read -r quality_x quality_y quality_visible < <(echo "$quality_target" | sed -n 's/.*target x=\([0-9]*\) y=\([0-9]*\) visible=\([01]\).*/\1 \2 \3/p')
+  if [[ ${quality_visible:-0} != 1 ]]; then echo '::error::Performance controls are not visible.'; exit 1; fi
+  adb shell input tap "$quality_x" "$quality_y"
+  scale_target=''
+  for i in $(seq 1 30); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    scale_target=$(grep -F 'render scale target x=' /tmp/sakuga-android-log.txt | tail -1 || true)
+    [[ -n $scale_target ]] && break
+    sleep 1
+  done
+  read -r scale_x scale_y scale_visible < <(echo "$scale_target" | sed -n 's/.*target x=\([0-9]*\) y=\([0-9]*\) visible=\([01]\).*/\1 \2 \3/p')
+  if [[ ${scale_visible:-0} != 1 ]]; then echo '::error::Render scale control is not visible.'; exit 1; fi
+  adb shell input tap "$scale_x" "$scale_y"
+  scaled=0
+  for i in $(seq 1 40); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'manual render scale .* adaptive=0' /tmp/sakuga-android-log.txt && grep -q 'manual resolution frame presented scale=' /tmp/sakuga-android-log.txt; then scaled=1; break; fi
+    sleep 1
+  done
+  if [[ $scaled != 1 ]]; then echo '::error::Manual render scale did not present a frame.'; exit 1; fi
+  adb shell input tap "$quality_x" "$quality_y"
+  echo '::notice::Manual mobile resolution override disabled adaptation and presented a frame.'
   ui_target=$(grep -F 'post detail target x=' /tmp/sakuga-android-log.txt | tail -1)
   read -r detail_x detail_y timing_supported < <(echo "$ui_target" | sed -n 's/.*post detail target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) supported=\([01]\).*/\1 \2 \3/p')
   if [[ ${timing_supported:-0} == 1 ]]; then

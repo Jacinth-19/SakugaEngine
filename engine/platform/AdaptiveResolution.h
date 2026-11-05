@@ -6,14 +6,14 @@
 namespace sk {
 class AdaptiveResolution {
 public:
-    // Pause/suspension, manual changes and benchmark starts discard old samples.
+    // Pause/suspension, failed frames, manual changes and benchmark starts discard old samples.
     void reset() { elapsed_ = 0; frames_ = 0; slowWindows_ = fastWindows_ = 0; }
     // Evaluate non-overlapping 5-second windows. Downscale after three slow
     // windows (<25 FPS); upscale after four fast windows (>40 FPS). These are
     // frame-loop rates, not GPU measurements and cannot diagnose a CPU bound app.
     float update(float dt, float current, float ceiling, bool enabled) {
         current = safeRenderScale(current); ceiling = safeRenderScale(ceiling);
-        if (!enabled || !std::isfinite(dt) || dt <= 0.f || dt > .5f) { reset(); return current; }
+        if (!enabled || !std::isfinite(dt) || dt <= 0.f || dt > 2.f) { reset(); return current; }
         elapsed_ += dt; ++frames_;
         if (elapsed_ < 5.f) return current;
         const float mean = elapsed_ / frames_;
