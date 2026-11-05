@@ -28,4 +28,14 @@ inline float bloomSelection(glm::vec3 c, int mode) {
     if (mode == 3) return smooth(.1f, .45f, (peak-low)/std::max(peak, .001f));
     return 1.f;
 }
+// Mirrors one prefilter tap; mask and threshold are evaluated before neighbour averaging.
+inline glm::vec3 bloomPrefilterTap(glm::vec3 c, float threshold, float knee, int mode, float mask) {
+    float br = std::max(c.r, std::max(c.g, c.b));
+    knee = std::max(knee, 1e-4f);
+    float soft = std::clamp(br - threshold + knee, 0.f, 2.f*knee);
+    soft = soft * soft / (4.f*knee);
+    float contribution = std::max(soft, br-threshold) / std::max(br, 1e-4f);
+    return glm::max(c, glm::vec3(0.f)) * contribution * bloomSelection(c, mode) * std::clamp(mask, 0.f, 1.f);
+}
+
 }

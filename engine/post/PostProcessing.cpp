@@ -1,7 +1,7 @@
 #include "post/PostProcessing.h"
 #include <algorithm>
 namespace sk {
-namespace { struct PostPC { glm::vec4 a, b, c, d, e; }; static_assert(sizeof(PostPC) == 80); }
+namespace { struct PostPC { glm::vec4 a, b, c, d, e, f, g, h; }; static_assert(sizeof(PostPC) == 128); }
 void PostProcessing::init(Context& ctx) {
     ctx_ = &ctx; VkDevice dev = ctx.device;
     {
@@ -108,9 +108,16 @@ void PostProcessing::rebuildSets(const Image& scene, const Image& depth, bool de
         dofCompNoHalationSet_ = make(dof_.view, bloom_[0].view, bloom_[0].view);
     }
 }
+void PostProcessing::setSkyTransmittance(const Texture& texture) {
+    if (!atmosphereSet_) return;
+    VkDescriptorImageInfo image{texture.sampler, texture.image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet wr{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, atmosphereSet_, 2, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &image, nullptr, nullptr};
+    vkUpdateDescriptorSets(ctx_->device, 1, &wr, 0, nullptr);
+}
 void PostProcessing::destroyTargets() {
     if (!ctx_) return;
     if (pool_) vkResetDescriptorPool(ctx_->device, pool_, 0);
+    atmosphereSet_ = VK_NULL_HANDLE;
     for (auto& image : bloom_) ctx_->destroyImage(image);
     ctx_->destroyImage(halation_); ctx_->destroyImage(atmosphere_); ctx_->destroyImage(dof_); ctx_->destroyImage(display_); bloomLevels_ = 0;
 }
@@ -122,8 +129,14 @@ void PostProcessing::shutdown() {
     vkDestroySampler(dev, sampler_, nullptr); vkDestroySampler(dev, depthSampler_, nullptr); vkDestroyDescriptorPool(dev, pool_, nullptr);
     ctx_ = nullptr;
 }
-void PostProcessing::record(VkCommandBuffer cmd, const Image& scene, const Image& depth, const Image& mask, bool maskSupported, Image& final, const PostSettings& P,
-                            bool atmosphereOn, bool dofOn, const glm::mat4& proj, const glm::vec3& fogColor, float fogDensity, float time, int lutSize) {
+PostTimingActive PostProcessing::record(VkCommandBuffer cmd, const Image& scene, const Image& depth, const Image& mask, bool maskSupported, Image& final, const PostSettings& P,
+                            bool atmosphereOn, bool dofOn, const glm::mat4& proj, const glm::vec3& fogColor, float fogDensity, float time, int lutSize, const AerialInputs& aerial, VkQueryPool detailPool, uint32_t detailQueryBase) {
+    const auto plan = planPost(P, width_, height_);
+    PostTimingActive active = postTimingPlan(atmosphereOn, dofOn, plan, bloomLevels_);
+    auto stamp = [&](PostTimingStage stage, bool end) {
+        if (detailPool) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, detailPool,
+                                             detailQueryBase + 2u * static_cast<uint32_t>(stage) + (end ? 1u : 0u));
+    };
     const VkImageAspectFlags col = VK_IMAGE_ASPECT_COLOR_BIT;
     ctx_->barrier(cmd, scene.image, col, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     if (maskSupported) ctx_->barrier(cmd, mask.image, col, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -147,40 +160,56 @@ void PostProcessing::record(VkCommandBuffer cmd, const Image& scene, const Image
     if (atmosphereOn || dofOn) {
         ctx_->barrier(cmd, depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
     }
+    stamp(PostTimingStage::Atmosphere, false);
     if (atmosphereOn) {
         PostPC ap{};
         ap.a = glm::vec4(proj[0][0], proj[1][1], proj[2][2], proj[3][2]);
         ap.b = glm::vec4(fogColor, fogDensity);
-        ap.c = glm::vec4((float)depth.samples, 0.f, 0.f, 0.f);
+        ap.c = glm::vec4((float)depth.samples, P.physicalAerial ? 1.f : 0.f, aerial.altitudeKm, 0.f);
+        ap.d = aerial.viewRotation; ap.e = aerial.sunDirection;
+        ap.f = aerial.model; ap.g = aerial.optical; ap.h = aerial.sunColorStrength;
         pass(atmosphere_, VK_IMAGE_LAYOUT_UNDEFINED, atmospherePipe_, atmosphereSet_, ap, false, true);
     }
+    stamp(PostTimingStage::Atmosphere, true);
+    stamp(PostTimingStage::DepthOfField, false);
     if (dofOn) {
         PostPC dp{};
         dp.a = glm::vec4(proj[2][2], proj[3][2], P.focusDistance, std::max(P.focusRange, .01f));
         dp.b = glm::vec4(P.depthOfField, 1.f / width_, 1.f / height_, (float)depth.samples);
         pass(dof_, VK_IMAGE_LAYOUT_UNDEFINED, dofPipe_, atmosphereOn ? fogDofSet_ : dofSet_, dp, false, true);
     }
-    const auto plan = planPost(P, width_, height_);
+    stamp(PostTimingStage::DepthOfField, true);
     bool bloomOn = plan.bloom;
-    // prefilter (soft threshold) into level 0; when bloom is off the threshold is infinite so level 0 is black
+    // Skip the half-resolution prefilter entirely when bloom is disabled.
     PostPC pf{glm::vec4(bloomOn ? P.bloomThreshold : 1e9f, P.bloomKnee, 1.f / width_, 1.f / height_), glm::vec4((float)P.bloomSelection, (P.enabled && P.materialBloomMask && maskSupported) ? 1.f : 0.f, 0, 0), glm::vec4(0), glm::vec4(0)};
-    pass(bloom_[0], VK_IMAGE_LAYOUT_UNDEFINED, prefilter_, dofOn ? dofSceneSet_ : (atmosphereOn ? foggedSceneSet_ : sceneSet_), pf, false, true);
+    stamp(PostTimingStage::Prefilter, false);
+    if (bloomOn) pass(bloom_[0], VK_IMAGE_LAYOUT_UNDEFINED, prefilter_, dofOn ? dofSceneSet_ : (atmosphereOn ? foggedSceneSet_ : sceneSet_), pf, false, true);
+    else ctx_->barrier(cmd, bloom_[0].image, col, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    stamp(PostTimingStage::Prefilter, true);
+    stamp(PostTimingStage::Downsample, false);
     if (bloomOn) {
         for (int i = 1; i < bloomLevels_; ++i) {
             PostPC pc{glm::vec4(1.f / bloom_[i - 1].width, 1.f / bloom_[i - 1].height, 0, 0), glm::vec4(0), glm::vec4(0), glm::vec4(0)};
             pass(bloom_[i], VK_IMAGE_LAYOUT_UNDEFINED, down_, bloomSet_[i - 1], pc, false, true);
         }
+    }
+    stamp(PostTimingStage::Downsample, true);
+    stamp(PostTimingStage::Upsample, false);
+    if (bloomOn) {
         for (int i = bloomLevels_ - 2; i >= 0; --i) {
             PostPC pc{glm::vec4(1.f / bloom_[i + 1].width, 1.f / bloom_[i + 1].height, P.bloomRadius, 0), glm::vec4(0), glm::vec4(0), glm::vec4(0)};
             pass(bloom_[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, up_, bloomSet_[i + 1], pc, true, true);
         }
     }
+    stamp(PostTimingStage::Upsample, true);
     bool halationOn = plan.halation;
+    stamp(PostTimingStage::Halation, false);
     if (halationOn) {
         PostPC hp{};
         hp.a = glm::vec4(1.f / bloom_[0].width, 1.f / bloom_[0].height, 2.f, 0.f);
         pass(halation_, VK_IMAGE_LAYOUT_UNDEFINED, halationPipe_, bloomSet_[0], hp, false, true);
     }
+    stamp(PostTimingStage::Halation, true);
     PostPC pc;
     bool en = P.enabled;
     pc.a = glm::vec4(bloomOn ? P.bloomIntensity : 0.f, P.exposure, en ? (float)P.tonemap : 0.f, en ? P.vignette : 0.f);
@@ -191,11 +220,18 @@ void PostProcessing::record(VkCommandBuffer cmd, const Image& scene, const Image
     VkDescriptorSet comp = dofOn ? (halationOn ? dofCompSet_ : dofCompNoHalationSet_)
         : atmosphereOn ? (halationOn ? foggedCompSet_ : foggedCompNoHalationSet_)
         : (halationOn ? compSet_ : compNoHalationSet_);
+    stamp(PostTimingStage::Composite, false);
     if (plan.finish) {
         pass(display_, VK_IMAGE_LAYOUT_UNDEFINED, composite_, comp, pc, false, true);
+    } else pass(final, VK_IMAGE_LAYOUT_UNDEFINED, composite_, comp, pc, false, false);
+    stamp(PostTimingStage::Composite, true);
+    stamp(PostTimingStage::Finish, false);
+    if (plan.finish) {
         PostPC fp{}; fp.a = glm::vec4(P.chromatic, P.ink, (float)P.colourLevels, P.painterly);
         pass(final, VK_IMAGE_LAYOUT_UNDEFINED, finishPipe_, finishSet_, fp, false, false);
-    } else pass(final, VK_IMAGE_LAYOUT_UNDEFINED, composite_, comp, pc, false, false);
+    }
+    stamp(PostTimingStage::Finish, true);
+    return active;
 }
 
 }

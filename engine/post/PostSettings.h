@@ -5,6 +5,7 @@
 namespace sk {
 struct PostSettings {
     bool enabled = true;
+    bool gpuDetailedProfiling = false; // opt-in: per-stage timestamps can perturb GPU scheduling
     float exposure = 1.0f;
     int tonemap = 1;                               // 0 none (clamp), 1 Khronos PBR Neutral, 2 ACES (Narkowicz)
     bool bloom = true; float bloomIntensity = 0.30f, bloomThreshold = 0.92f, bloomKnee = 0.5f, bloomRadius = 1.0f;
@@ -16,6 +17,7 @@ struct PostSettings {
     glm::vec3 shadowTint{0.93f, 0.95f, 1.06f}, highlightTint{1.04f, 1.0f, 0.95f};   // cheap split-toning (multiplies)
     float grain = 0.012f;
     bool atmosphere = false;                      // opt-in screen-space depth fog when supported
+    bool physicalAerial = false;                  // bounded single-scattering mode instead of artistic fog
     float halation = 0.f;                          // HDR red-biased bloom diffusion, 0 = off
     float lensFlare = 0.f;                         // stylised HDR ghost reflections from bloom
     float chromatic = 0.f;                        // pixel displacement at screen edges

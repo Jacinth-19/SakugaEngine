@@ -27,6 +27,12 @@ int main() {
     CHECK(thick[2] < ozone[2]);
     model.planetRadiusKm = -100; model.mieHeightKm = NAN;
     model = sk::sanitizeAtmosphere(model); CHECK(model.planetRadiusKm == 1000); CHECK_NEAR(model.mieHeightKm, 1.2, 1e-6);
+    for (double altitude : {0., 10., 75.}) for (double u : {0., .01, .1, .5, 1.}) {
+        CHECK_NEAR(sk::atmosphereLutCoordinate(sk::atmosphereLutMu(u, altitude), altitude), u, 1e-9);
+    }
+    CHECK(sk::atmosphereLutMu(.1, 0) < .02); // more resolution at horizon
+    CHECK(sk::encodeAtmosphereTransmittance(.001) > 1);
+    CHECK_NEAR(sk::decodeAtmosphereTransmittance(sk::encodeAtmosphereTransmittance(.001)), .001, .0002);
     auto lut = sk::buildAtmosphereLut();
     CHECK(lut.size() == sk::kAtmosphereLutWidth * sk::kAtmosphereLutHeight * 4u);
     CHECK(lut[0] > 0); CHECK(lut[0] < lut[(sk::kAtmosphereLutWidth - 1) * 4]); CHECK(lut[(sk::kAtmosphereLutWidth - 1) * 4] > 200);

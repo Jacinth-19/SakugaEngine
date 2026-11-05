@@ -35,8 +35,7 @@ float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx
 
 void main() {
     vec3 hdr = textureLod(tScene, vUV, 0.0).rgb;
-    vec3 bloom = textureLod(tBloom, vUV, 0.0).rgb;
-    hdr += bloom * pc.a.x * vec3(1.0, 0.97, 0.93);
+    if (pc.a.x > 0.0) hdr += textureLod(tBloom, vUV, 0.0).rgb * pc.a.x * vec3(1.0, 0.97, 0.93);
     if (pc.e.z > 0.0) hdr += textureLod(tHalation, vUV, 0.0).rgb * pc.e.z * vec3(1.0, 0.32, 0.12);
     // Stylised ghost reflections from the already filtered HDR highlight buffer, not an occluded lens simulation.
     if (pc.e.w > 0.0) {

@@ -15,6 +15,7 @@
 #endif
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <imgui.h>
 #ifndef __ANDROID__
 #include <backends/imgui_impl_glfw.h>
@@ -110,6 +111,7 @@ bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, co
     ctx_ = &ctx; window_ = window; width_ = w; height_ = h;
     for (auto& recorded : timestampRecorded_) recorded = false;
     stats.gpuPostMs = stats.gpuSkyMs = -1.f;
+    stats.gpuPostStages.fill(-1.f);
     VkDevice dev = ctx.device;
 
     if (presenting()) createSwapchain();
@@ -223,7 +225,7 @@ bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, co
         timestampValidBits_ = families[ctx.queueFamily].timestampValidBits;
         if (timestampValidBits_ > 0 && timestampValidBits_ <= 64) {
             VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
-            qi.queryType = VK_QUERY_TYPE_TIMESTAMP; qi.queryCount = kFramesInFlight * 4;
+            qi.queryType = VK_QUERY_TYPE_TIMESTAMP; qi.queryCount = kFramesInFlight * kFrameTimingQueries;
             if (vkCreateQueryPool(dev, &qi, nullptr, &postTimingPool_) != VK_SUCCESS) postTimingPool_ = VK_NULL_HANDLE;
         }
     }
@@ -241,6 +243,7 @@ bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, co
     skyMaterial_ = createMaterial("sky_transmittance");
     skyMaterial_->tex[TEX_BASE] = skyTransmittance_;
     flushMaterial(skyMaterial_);
+    postProcessing_.setSkyTransmittance(*skyTransmittance_);
     updateProceduralEnvironment(LightingSettings{});
     return true;
 }
@@ -260,6 +263,7 @@ void Renderer::updateSkyAtmosphere(AtmosphereParameters model) {
     skyTransmittance_ = createTexture("sky_transmittance", pixels.data(), kAtmosphereLutWidth, kAtmosphereLutHeight, false, false, false);
     skyMaterial_->tex[TEX_BASE] = skyTransmittance_;
     flushMaterial(skyMaterial_);
+    postProcessing_.setSkyTransmittance(*skyTransmittance_);
     auto it = std::find_if(textures_.begin(), textures_.end(), [old](const auto& t) { return t.get() == old; });
     if (it != textures_.end()) {
         vkDestroySampler(ctx_->device, (*it)->sampler, nullptr);
@@ -332,6 +336,7 @@ void Renderer::createTargets() {
     readback_ = ctx_->createBuffer((VkDeviceSize)width_ * height_ * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
     if (!lutTex_) { LutStrip id = identityLut(16); lutSize_ = id.size; lutTex_ = createTexture("lut_identity", id.rgba.data(), id.size * id.size, id.size, false, false, false); }
     postProcessing_.createTargets(width_, height_, colorFormat_, finalFormat_, sceneColor_, msaaDepth_, sampleSceneDepth_, bloomMask_, materialBloomSupported_, *lutTex_);
+    if (skyTransmittance_) postProcessing_.setSkyTransmittance(*skyTransmittance_);
 }
 void Renderer::destroyTargets() {
     postProcessing_.destroyTargets();
@@ -776,11 +781,21 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     updateSkyAtmosphere(in.light.skyModel);
     if (postTimingPool_ && timestampRecorded_[frameIndex_]) {
         uint64_t ts[4]{};
-        VkResult result = vkGetQueryPoolResults(dev, postTimingPool_, frameIndex_ * 4, 4, sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+        VkResult result = vkGetQueryPoolResults(dev, postTimingPool_, frameIndex_ * kFrameTimingQueries, 4, sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
         if (result == VK_SUCCESS) {
             stats.gpuPostMs = (float)timestampMilliseconds(ts[0], ts[1], timestampValidBits_, ctx_->props.limits.timestampPeriod);
             stats.gpuSkyMs = (float)timestampMilliseconds(ts[2], ts[3], timestampValidBits_, ctx_->props.limits.timestampPeriod);
         } else stats.gpuPostMs = stats.gpuSkyMs = -1.f;
+        stats.gpuPostStages.fill(-1.f);
+        if (f.detailedTimingRecorded) {
+            uint64_t detail[kPostTimingStages * 2]{};
+            VkResult detailResult = vkGetQueryPoolResults(dev, postTimingPool_, frameIndex_ * kFrameTimingQueries + 4,
+                kPostTimingStages * 2, sizeof(detail), detail, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+            if (detailResult == VK_SUCCESS) for (uint32_t i = 0; i < kPostTimingStages; ++i) {
+                if (f.detailedTimingActive[i]) stats.gpuPostStages[i] = (float)timestampMilliseconds(detail[2*i], detail[2*i+1], timestampValidBits_, ctx_->props.limits.timestampPeriod);
+            }
+        }
+        f.detailedTimingRecorded = false;
         timestampRecorded_[frameIndex_] = false;
     }
     if (hasPendingLut_) {                       // swap the grading LUT: all post descriptor sets are rebuilt
@@ -789,6 +804,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         lutTex_ = createTexture("lut", pendingLut_.rgba.data(), pendingLut_.size * pendingLut_.size, pendingLut_.size, false, false, false);
         lutSize_ = pendingLut_.size;
         postProcessing_.rebuildSets(sceneColor_, msaaDepth_, sampleSceneDepth_, bloomMask_, materialBloomSupported_, *lutTex_);
+        if (skyTransmittance_) postProcessing_.setSkyTransmittance(*skyTransmittance_);
     }
 
     uint32_t imgIdx = 0;
@@ -850,7 +866,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     g.lightColor = glm::vec4(L.color, L.shadowBias);
     g.skyColor = glm::vec4(L.sky, L.ambient);
     g.groundColor = glm::vec4(L.ground, 0);
-    const bool screenFog = usePostAtmosphere(in.post.atmosphere, in.post.enabled, sampleSceneDepth_, L.fogDensity) && supportsAtmosphereProjection(in.proj);
+    const bool screenFog = usePostAtmosphere(in.post.atmosphere, in.post.enabled, sampleSceneDepth_, in.post.physicalAerial ? 1.f : L.fogDensity) && supportsAtmosphereProjection(in.proj);
     const bool dofOn = useDepthOfField(in.post.enabled, in.post.depthOfField, sampleSceneDepth_, supportsAtmosphereProjection(in.proj));
     // Avoid double fog: the post pass replaces the legacy per-surface fog when active.
     g.fogColor = glm::vec4(L.fogColor, screenFog ? 0.f : L.fogDensity);
@@ -879,7 +895,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     vkResetCommandBuffer(cmd, 0);
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO}; bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_OK(vkBeginCommandBuffer(cmd, &bi));
-    if (postTimingPool_) vkCmdResetQueryPool(cmd, postTimingPool_, frameIndex_ * 4, 4);
+    if (postTimingPool_) vkCmdResetQueryPool(cmd, postTimingPool_, frameIndex_ * kFrameTimingQueries, kFrameTimingQueries);
     stats.drawCalls = 0; stats.triangles = 0;
 
     // shadow pass
@@ -969,11 +985,11 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         vkCmdSetViewport(cmd, 0, 1, &vp); vkCmdSetScissor(cmd, 0, 1, &sc);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout_, 0, 1, &f.globalSet, 0, nullptr);
 
-        if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 4 + 2);
+        if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * kFrameTimingQueries + 2);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeSky_);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout_, 1, 1, &skyMaterial_->set, 0, nullptr);
         vkCmdDraw(cmd, 3, 1, 0, 0);
-        if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 4 + 3);
+        if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * kFrameTimingQueries + 3);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeToon_);
         drawList(cmd, in, DrawFilter::Opaque);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeOutline_);
@@ -990,9 +1006,21 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     }
 
     // post-processing: bloom chain + composite (tonemap, grade, vignette, sRGB) into finalColor_
-    if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 4);
-    postProcessing_.record(cmd, sceneColor_, msaaDepth_, bloomMask_, materialBloomSupported_, finalColor_, in.post, screenFog, dofOn, in.proj, L.fogColor, L.fogDensity, in.time, lutSize_);
-    if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * 4 + 1);
+    if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * kFrameTimingQueries);
+    AerialInputs aerial{};
+    glm::quat inverseView = glm::normalize(glm::quat_cast(glm::transpose(glm::mat3(in.view))));
+    aerial.viewRotation = glm::vec4(inverseView.x, inverseView.y, inverseView.z, inverseView.w);
+    aerial.sunDirection = glm::vec4(ld, 0.f);
+    aerial.model = glm::vec4(skyModel_.planetRadiusKm, skyModel_.atmosphereHeightKm, skyModel_.rayleighHeightKm, skyModel_.mieHeightKm);
+    aerial.optical = glm::vec4(skyModel_.ozone, L.skyRayleigh, L.skyMie, 0.f);
+    aerial.sunColorStrength = glm::vec4(L.color, glm::clamp(L.skyAtmosphere, 0.f, 2.f) * (1.f - glm::clamp(L.starVisibility, 0.f, 1.f)));
+    aerial.altitudeKm = glm::clamp(in.cameraPos.y * .001f, 0.f, skyModel_.atmosphereHeightKm);
+    const bool detailTiming = postTimingPool_ && in.post.gpuDetailedProfiling;
+    f.detailedTimingActive = postProcessing_.record(cmd, sceneColor_, msaaDepth_, bloomMask_, materialBloomSupported_, finalColor_, in.post,
+        screenFog, dofOn, in.proj, L.fogColor, L.fogDensity, in.time, lutSize_, aerial, detailTiming ? postTimingPool_ : VK_NULL_HANDLE,
+        frameIndex_ * kFrameTimingQueries + 4);
+    f.detailedTimingRecorded = detailTiming;
+    if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * kFrameTimingQueries + 1);
 
     // UI overlay (drawn on the final image so it also shows in captures)
     if (uiFrameOpen_) {

@@ -17,12 +17,17 @@ float selection(vec3 c) {
     if (mode == 3) return smoothstep(.1, .45, (peak-low)/max(peak,.001));
     return 1.0;
 }
+vec3 highlight(vec3 c) {
+    float thr = pc.a.x, knee = max(pc.a.y, 1e-4);
+    float br = max(c.r, max(c.g, c.b));
+    float soft = clamp(br - thr + knee, 0.0, 2.0 * knee); soft = soft * soft / (4.0 * knee);
+    return max(c, vec3(0.0)) * (max(soft, br - thr) / max(br, 1e-4));
+}
 void main() {
     vec2 t = pc.a.zw;
     vec3 s0 = textureLod(tSrc, vUV + t * vec2(-1.0, -1.0), 0.0).rgb, s1 = textureLod(tSrc, vUV + t * vec2(1.0, -1.0), 0.0).rgb;
     vec3 s2 = textureLod(tSrc, vUV + t * vec2(-1.0, 1.0), 0.0).rgb,  s3 = textureLod(tSrc, vUV + t * vec2(1.0, 1.0), 0.0).rgb;
     float w0 = 1.0 / (1.0 + luma(s0)), w1 = 1.0 / (1.0 + luma(s1)), w2 = 1.0 / (1.0 + luma(s2)), w3 = 1.0 / (1.0 + luma(s3));
-    vec3 c = (s0 * w0 + s1 * w1 + s2 * w2 + s3 * w3) / (w0 + w1 + w2 + w3);
     vec4 m = vec4(1.0);
     if (pc.b.y > 0.5) {
         m = vec4(textureLod(tMaterialMask, vUV + t * vec2(-1.0,-1.0), 0.0).r,
@@ -30,10 +35,11 @@ void main() {
                  textureLod(tMaterialMask, vUV + t * vec2(-1.0, 1.0), 0.0).r,
                  textureLod(tMaterialMask, vUV + t * vec2( 1.0, 1.0), 0.0).r);
     }
-    float mask = (selection(s0)*w0*m.x + selection(s1)*w1*m.y + selection(s2)*w2*m.z + selection(s3)*w3*m.w) / (w0+w1+w2+w3);
-    float thr = pc.a.x, knee = max(pc.a.y, 1e-4);
-    float br = max(c.r, max(c.g, c.b));
-    float soft = clamp(br - thr + knee, 0.0, 2.0 * knee); soft = soft * soft / (4.0 * knee);
-    float contrib = max(soft, br - thr) / max(br, 1e-4);
-    outColor = vec4(min(c * contrib * mask, vec3(64.0)), 1.0);
+    // Apply the threshold and selection to each source tap before filtering. Otherwise
+    // an excluded bright neighbour can leak into a selected dark pixel's bloom.
+    vec3 c = (highlight(s0) * selection(s0) * m.x * w0 +
+              highlight(s1) * selection(s1) * m.y * w1 +
+              highlight(s2) * selection(s2) * m.z * w2 +
+              highlight(s3) * selection(s3) * m.w * w3) / (w0+w1+w2+w3);
+    outColor = vec4(min(c, vec3(64.0)), 1.0);
 }

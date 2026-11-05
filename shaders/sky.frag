@@ -46,9 +46,10 @@ vec4 atmosphereT(float mu, float altitudeKm) {
     float alt = clamp(altitudeKm, 0.0, atmosphereHeightKm);
     float horizon = horizonMu(alt);
     if (mu < horizon) return vec4(0.0);
-    vec2 ij = vec2(clamp((mu - horizon) / (1.0 - horizon), 0.0, 1.0) * 255.0,
+    vec2 ij = vec2(sqrt(clamp((mu - horizon) / (1.0 - horizon), 0.0, 1.0)) * 255.0,
                    (alt / atmosphereHeightKm) * 63.0);
-    return textureLod(uSkyTransmittance, (ij + 0.5) / vec2(256.0, 64.0), 0.0);
+    vec4 encoded = textureLod(uSkyTransmittance, (ij + 0.5) / vec2(256.0, 64.0), 0.0);
+    return encoded * encoded; // LUT stores sqrt(T) to preserve dark values
 }
 float ozoneDensity(float h) { return max(0.0, 1.0 - abs(h - 25.0) / 15.0); }
 // Single scattering quadrature: attenuate each view segment and sample solar

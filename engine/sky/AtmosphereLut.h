@@ -69,17 +69,29 @@ inline double atmosphereHorizonMu(double altitudeKm, AtmosphereParameters params
     const double r = p.planetRadiusKm + std::clamp(altitudeKm, 0.0, double(p.atmosphereHeightKm));
     return -std::sqrt(std::max(0.0, 1.0 - (p.planetRadiusKm / r) * (p.planetRadiusKm / r)));
 }
+// Non-linear angular coordinates concentrate samples near the horizon; sqrt encoding
+// gives dim transmittance values more precision in the existing portable RGBA8 texture.
+inline double atmosphereLutMu(double u, double h, AtmosphereParameters p = {}) {
+    const double horizon = atmosphereHorizonMu(h, p); u = std::clamp(u, 0.0, 1.0);
+    return horizon + (1.0 - horizon) * u * u;
+}
+inline double atmosphereLutCoordinate(double mu, double h, AtmosphereParameters p = {}) {
+    const double horizon = atmosphereHorizonMu(h, p);
+    return std::sqrt(std::clamp((mu - horizon) / (1.0 - horizon), 0.0, 1.0));
+}
+inline uint8_t encodeAtmosphereTransmittance(double t) {
+    return static_cast<uint8_t>(std::lround(std::sqrt(std::clamp(t, 0.0, 1.0)) * 255.0));
+}
+inline double decodeAtmosphereTransmittance(uint8_t v) { const double t = v / 255.0; return t * t; }
 inline std::vector<uint8_t> buildAtmosphereLut(AtmosphereParameters params = {}) {
     const auto p = sanitizeAtmosphere(params);
     std::vector<uint8_t> pixels(kAtmosphereLutWidth * kAtmosphereLutHeight * 4);
     for (int y = 0; y < kAtmosphereLutHeight; ++y) for (int x = 0; x < kAtmosphereLutWidth; ++x) {
         const double h = double(p.atmosphereHeightKm) * y / (kAtmosphereLutHeight - 1);
-        // Direction cosine runs from the altitude-dependent geometric horizon to zenith.
-        const double horizon = atmosphereHorizonMu(h, p);
-        const double mu = horizon + (1.0 - horizon) * double(x) / (kAtmosphereLutWidth - 1);
+        const double mu = atmosphereLutMu(double(x) / (kAtmosphereLutWidth - 1), h, p);
         const auto t = atmosphereTransmittance(h, mu, 48, p);
         for (int c = 0; c < 4; ++c) pixels[(y * kAtmosphereLutWidth + x) * 4 + c] =
-            static_cast<uint8_t>(std::lround(std::clamp(t[c], 0.0, 1.0) * 255.0));
+            encodeAtmosphereTransmittance(t[c]);
     }
     return pixels;
 }

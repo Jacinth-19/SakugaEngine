@@ -134,6 +134,51 @@ if [[ $renderer_result == presented ]]; then
   if [[ $saved != 1 ]]; then echo '::error::Mobile sky profiles could not be saved.'; exit 1; fi
   adb shell input tap "$sky_x" "$sky_y"
   echo '::notice::Mobile sky slider, saved profiles, integrated scattering and 3D cloud frames exercised.'
+  ui_target=$(grep -F 'post controls target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r post_x post_y post_visible < <(echo "$ui_target" | sed -n 's/.*post controls target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) visible=\([01]\).*/\1 \2 \3/p')
+  if [[ ${post_visible:-0} != 1 ]]; then echo '::error::Mobile post controls target not visible.'; exit 1; fi
+  adb shell input tap "$post_x" "$post_y"
+  post_open=0
+  for i in $(seq 1 30); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'post detail target x=' /tmp/sakuga-android-log.txt; then post_open=1; break; fi
+    sleep 1
+  done
+  if [[ $post_open != 1 ]]; then echo '::error::Mobile post panel did not open.'; exit 1; fi
+  ui_target=$(grep -F 'post detail target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r detail_x detail_y timing_supported < <(echo "$ui_target" | sed -n 's/.*post detail target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) supported=\([01]\).*/\1 \2 \3/p')
+  if [[ ${timing_supported:-0} == 1 ]]; then
+    adb shell input tap "$detail_x" "$detail_y"
+    detail=0
+    for i in $(seq 1 40); do
+      adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+      if grep -q 'detailed post timing sample available' /tmp/sakuga-android-log.txt; then detail=1; break; fi
+      sleep 1
+    done
+    if [[ $detail != 1 ]]; then echo '::error::Detailed post timing sample missing.'; exit 1; fi
+    adb shell input tap "$detail_x" "$detail_y"
+  fi
+  ui_target=$(grep -F 'aerial mode target x=' /tmp/sakuga-android-log.txt | tail -1)
+  read -r aerial_x aerial_y aerial_supported < <(echo "$ui_target" | sed -n 's/.*aerial mode target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) supported=\([01]\).*/\1 \2 \3/p')
+  if [[ ${aerial_supported:-0} == 1 ]]; then
+    sleep 2
+    adb shell input tap "$aerial_x" "$aerial_y"
+    ui_target=$(grep -F 'atmosphere target x=' /tmp/sakuga-android-log.txt | tail -1)
+    read -r atmo_x atmo_y < <(echo "$ui_target" | sed -n 's/.*atmosphere target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
+    adb shell input tap "$atmo_x" "$atmo_y"
+    aerial=0
+    for i in $(seq 1 60); do
+      adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+      if grep -q 'aerial perspective frame presented' /tmp/sakuga-android-log.txt; then aerial=1; break; fi
+      sleep 1
+    done
+    if [[ $aerial != 1 ]]; then echo '::error::Single-scattering aerial frame missing.'; exit 1; fi
+    adb shell input tap "$atmo_x" "$atmo_y"
+    adb shell input tap "$aerial_x" "$aerial_y"
+    sleep 2
+  fi
+  adb shell input tap "$post_x" "$post_y"
+  echo '::notice::Mobile post panel, optional detailed timings and aerial perspective tested where supported.'
   ui_target=$(grep -F 'imgui bloom target x=' /tmp/sakuga-android-log.txt | tail -1)
   read -r ui_x ui_y < <(echo "$ui_target" | sed -n 's/.*imgui bloom target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\).*/\1 \2/p')
   if [[ -z ${ui_x:-} || -z ${ui_y:-} ]]; then echo '::error::ImGui target was not reported.'; exit 1; fi

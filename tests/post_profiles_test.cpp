@@ -20,6 +20,11 @@ int main() {
     CHECK_NEAR(sk::materialBloomWeight(.8f, 1.f, .5f), .4f, 1e-6);
     CHECK_NEAR(sk::blendBloomWeight(1.f, 0.f, .25f), .75f, 1e-6);
     CHECK_NEAR(sk::blendBloomWeight(0.f, 1.f, .25f), .25f, 1e-6);
+    auto excludedBright = sk::bloomPrefilterTap({20,20,20}, 1.f, .5f, 0, 0.f);
+    auto selectedDark = sk::bloomPrefilterTap({.1f,.1f,.1f}, 1.f, .5f, 0, 1.f);
+    CHECK_NEAR(glm::length(excludedBright + selectedDark), 0, 1e-6);
+    CHECK(glm::length(sk::bloomPrefilterTap({4,2,1}, 1.f, .5f, 1, 1.f)) > 1.f);
+    CHECK_NEAR(glm::length(sk::bloomPrefilterTap({1,2,4}, 1.f, .5f, 1, 1.f)), 0, 1e-6);
     sk::PostSettings base;
     base.exposure = 1.42f; base.lutStrength = .35f; base.enabled = false;
     for (auto style : {sk::PostProfile::Celestial, sk::PostProfile::Cinematic,

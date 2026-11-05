@@ -202,7 +202,7 @@ struct MobileSnapshot {
     float tod = 0, todSpeed = 0, userExposure = 1, userEnv = 1, cloud = 0, cameraShoulder = 0;
     float lutStrength = 0, lightAz = 0, lightEl = 0, time = 0, rain = 0, splitOffset = 0, touchScale = 1;
     float skyWindSpeed = 1, cloudClock = 0;
-    EditableSkyProfiles skyProfiles{}; bool skyPanel = false;
+    EditableSkyProfiles skyProfiles{}; bool skyPanel = false, postPanel = false;
     bool todAuto = false, todEnabled = false, hdriMode = false, nprFull = false, lampsOn = false;
     bool pointLightsOn = false, navDebug = false, agentDebug = false, mmDebug = false, showFps = false;
     bool hdriSun = false, lightAuto = false, rainOn = false, skeleton = false, trajectory = false;
@@ -260,6 +260,7 @@ private:
     std::string mobileError_;
     bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false, mobileLoggedHalation_ = false, mobileLoggedAtmosphere_ = false, mobileLoggedFinish_ = false, mobileLoggedPostTiming_ = false, mobileLoggedSkyTiming_ = false, mobileLoggedMaterialBloom_ = false;
     bool mobileSkyPanel_ = false, mobileSkyTargetLogged_ = false, mobileLoggedIntegratedSky_ = false, mobileLoggedVolumeSky_ = false;
+    bool mobilePostPanel_ = false, mobilePostTargetLogged_ = false, mobileDetailedTimingLogged_ = false, mobileAerialFrameLogged_ = false;
     bool mobileClipBrowser_ = false, mobileBrowserTargetLogged_ = false, mobileLastItemLogged_ = false; int mobileClipPage_ = 0;
     bool mobileLoadNpcs_ = false, mobileNpcsRequested_ = false, mobileNpcsPendingFrame_ = false, mobileRestored_ = false;
 #endif
@@ -1269,7 +1270,7 @@ void Sandbox::drawUI(float wallDt) {
 #endif
         ImGui::Text("Framebuffer: %d x %d | FPS: %.1f | frame: %.2f ms", fw, fh, ImGui::GetIO().Framerate, ImGui::GetIO().Framerate > 0 ? 1000.f / ImGui::GetIO().Framerate : 0.f);
         ImGui::Text("Renderer CPU: %.2f ms | Draws: %u | Triangles: %u", renderer_.stats.cpuMs, renderer_.stats.drawCalls, renderer_.stats.triangles);
-        ImGui::TextDisabled("No GPU timing or storage-medium detection is available yet.");
+        ImGui::TextDisabled("GPU sky and post timings are available in their panels when supported; storage medium is not detected.");
     }
     if (ImGui::CollapsingHeader("Showcase", ImGuiTreeNodeFlags_DefaultOpen)) {
         for (int i = 0; i < (int)showcases_.size(); ++i) if (ImGui::RadioButton(showcases_[i].name.c_str(), showcase_ == i)) setShowcase(i);
@@ -1317,8 +1318,18 @@ void Sandbox::drawUI(float wallDt) {
         ImGui::EndDisabled();
         if (renderer_.stats.gpuPostMs >= 0.f) ImGui::TextDisabled("GPU post passes: %.2f ms (delayed)", renderer_.stats.gpuPostMs);
         else ImGui::TextDisabled("GPU post timing unavailable / pending");
+        ImGui::BeginDisabled(!renderer_.supportsPostTiming());
+        ImGui::Checkbox("Detailed GPU pass timings", &post_.gpuDetailedProfiling);
+        ImGui::EndDisabled();
+        if (post_.gpuDetailedProfiling) {
+            ImGui::TextDisabled("Delayed, approximate; grouped bloom levels, queries may affect performance.");
+            for (uint32_t i = 0; i < kPostTimingStages; ++i) if (renderer_.stats.gpuPostStages[i] >= 0.f)
+                ImGui::TextDisabled("%s: %.2f ms", kPostTimingNames[i], renderer_.stats.gpuPostStages[i]);
+        }
         ImGui::BeginDisabled(!renderer_.supportsPostAtmosphere());
         ImGui::Checkbox("Depth atmosphere (replaces surface fog)", &post_.atmosphere);
+        ImGui::Checkbox("Single-scattering aerial perspective", &post_.physicalAerial);
+        ImGui::TextDisabled("Aerial mode requires depth atmosphere; expensive on MSAA/mobile.");
         ImGui::EndDisabled();
         if (!renderer_.supportsPostAtmosphere()) ImGui::TextDisabled("Sampled scene depth unsupported: surface fog remains active.");
         ImGui::Combo("Tonemap", &post_.tonemap, "Clamp\0Khronos PBR Neutral\0ACES (Narkowicz)\0");
@@ -1593,7 +1604,7 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         mobileBenchmarkTargetLogged_ = true;
     }
     ImGui::SameLine();
-    if (ImGui::Button("SKY")) { mobileSkyPanel_ = !mobileSkyPanel_; mobileSkyTargetLogged_ = false; __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sky controls open=%d", (int)mobileSkyPanel_); }
+    if (ImGui::Button("SKY")) { mobileSkyPanel_ = !mobileSkyPanel_; mobilePostPanel_ = false; mobileSkyTargetLogged_ = false; __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sky controls open=%d", (int)mobileSkyPanel_); }
     if (frame_ == 0) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sky controls target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
@@ -1671,6 +1682,12 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "finish target x=%d y=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f));
     }
+    ImGui::SameLine();
+    if (ImGui::Button("POST")) { mobilePostPanel_ = !mobilePostPanel_; mobileSkyPanel_ = false; mobilePostTargetLogged_ = false; }
+    if (frame_ == 0) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "post controls target x=%d y=%d visible=%d", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f), (int)ImGui::IsItemVisible());
+    }
     if (vrm_) {
         if (ImGui::Checkbox("Hair physics", &vrm_->spring.enabled)) {
             vrm_->springState.reset();
@@ -1689,6 +1706,58 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .56f, renderer_.height() * .80f), ImGuiCond_Always);
         ImGui::Begin("Sky controls", &mobileSkyPanel_, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
         drawSkyProfileControls(true);
+        ImGui::End();
+    }
+    if (mobilePostPanel_) {
+        ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .03f, renderer_.height() * .08f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .56f, renderer_.height() * .80f), ImGuiCond_Always);
+        ImGui::Begin("Post controls", &mobilePostPanel_, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::BeginDisabled(!renderer_.supportsPostTiming());
+        ImGui::Checkbox("Detailed GPU timings", &post_.gpuDetailedProfiling);
+        ImGui::EndDisabled();
+        if (!mobilePostTargetLogged_) {
+            ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "post detail target x=%d y=%d supported=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f), (int)renderer_.supportsPostTiming());
+        }
+        ImGui::BeginDisabled(!renderer_.supportsPostAtmosphere());
+        ImGui::Checkbox("Aerial single scattering", &post_.physicalAerial);
+        ImGui::EndDisabled();
+        if (!mobilePostTargetLogged_) {
+            ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "aerial mode target x=%d y=%d supported=%d", (int)(a.x + (b.y-a.y)*.5f), (int)((a.y+b.y)*.5f), (int)renderer_.supportsPostAtmosphere());
+            mobilePostTargetLogged_ = true;
+        }
+        if (post_.gpuDetailedProfiling) for (uint32_t i = 0; i < kPostTimingStages; ++i) if (renderer_.stats.gpuPostStages[i] >= 0.f)
+            ImGui::TextDisabled("%s %.2f ms", kPostTimingNames[i], renderer_.stats.gpuPostStages[i]);
+        ImGui::Checkbox("Post enabled", &post_.enabled);
+        ImGui::Checkbox("Bloom##mobilepost", &post_.bloom);
+        ImGui::SliderFloat("Bloom intensity##mobilepost", &post_.bloomIntensity, 0.f, 1.5f);
+        ImGui::SliderFloat("Bloom threshold##mobilepost", &post_.bloomThreshold, .2f, 3.f);
+        ImGui::SliderFloat("Bloom knee##mobilepost", &post_.bloomKnee, 0.f, 1.f);
+        ImGui::SliderFloat("Bloom radius##mobilepost", &post_.bloomRadius, 0.f, 3.f);
+        ImGui::BeginDisabled(!renderer_.supportsMaterialBloomMask());
+        ImGui::Checkbox("Material bloom mask##mobilepost", &post_.materialBloomMask);
+        ImGui::SliderFloat("Sky bloom weight##mobilepost", &post_.skyBloomWeight, 0.f, 1.f);
+        ImGui::EndDisabled();
+        ImGui::Combo("Bloom colour key##mobilepost", &post_.bloomSelection, "All bright\0Warm\0Cool\0Saturated\0");
+        ImGui::SliderFloat("Halation##mobilepost", &post_.halation, 0.f, 1.f);
+        ImGui::SliderFloat("Lens ghosts##mobilepost", &post_.lensFlare, 0.f, 1.f);
+        ImGui::BeginDisabled(!renderer_.supportsPostAtmosphere());
+        ImGui::Checkbox("Depth fog##mobilepost", &post_.atmosphere);
+        ImGui::SliderFloat("DoF radius##mobilepost", &post_.depthOfField, 0.f, 8.f);
+        ImGui::SliderFloat("Focus distance##mobilepost", &post_.focusDistance, .1f, 100.f);
+        ImGui::SliderFloat("Focus range##mobilepost", &post_.focusRange, .1f, 50.f);
+        ImGui::EndDisabled();
+        ImGui::SliderFloat("Chromatic##mobilepost", &post_.chromatic, 0.f, 3.f);
+        ImGui::SliderFloat("Ink##mobilepost", &post_.ink, 0.f, 1.f);
+        ImGui::SliderFloat("Painterly##mobilepost", &post_.painterly, 0.f, 1.f);
+        ImGui::SliderInt("Colour levels##mobilepost", &post_.colourLevels, 0, 32);
+        ImGui::Combo("Tonemap##mobilepost", &post_.tonemap, "Clamp\0Neutral\0ACES\0");
+        ImGui::SliderFloat("Saturation##mobilepost", &post_.saturation, 0.f, 2.f);
+        ImGui::SliderFloat("Contrast##mobilepost", &post_.contrast, .5f, 1.5f);
+        ImGui::SliderFloat("Vignette##mobilepost", &post_.vignette, 0.f, 1.f);
+        ImGui::SliderFloat("Grain##mobilepost", &post_.grain, 0.f, .1f);
+        ImGui::SliderFloat("LUT strength##mobilepost", &lutStrength_, 0.f, 1.f);
         ImGui::End();
     }
     if (mobileClipBrowser_ && vrm_ && vrm_->mm && vrm_->mmDb) {
@@ -1744,6 +1813,9 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     if (rendered && !mobileLoggedSkyTiming_ && renderer_.stats.gpuSkyMs >= 0.f) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sky timing sample available"); mobileLoggedSkyTiming_ = true;
     }
+    if (rendered && !mobileDetailedTimingLogged_ && post_.gpuDetailedProfiling && renderer_.stats.gpuPostStages[static_cast<uint32_t>(PostTimingStage::Composite)] >= 0.f) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "detailed post timing sample available"); mobileDetailedTimingLogged_ = true;
+    }
     if (rendered && !mobileLoggedPostTiming_ && renderer_.stats.gpuPostMs >= 0.f) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "post timing sample available"); mobileLoggedPostTiming_ = true;
     }
@@ -1754,7 +1826,10 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     if (rendered && !mobileLoggedHalation_ && planPost(fi.post, renderer_.width(), renderer_.height()).halation) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "halation frame presented"); mobileLoggedHalation_ = true;
     }
-    if (rendered && !mobileLoggedAtmosphere_ && usePostAtmosphere(fi.post.atmosphere, fi.post.enabled, renderer_.supportsPostAtmosphere(), fi.light.fogDensity) && supportsAtmosphereProjection(fi.proj)) {
+    if (rendered && !mobileAerialFrameLogged_ && fi.post.physicalAerial && fi.post.atmosphere && fi.post.enabled && renderer_.supportsPostAtmosphere() && supportsAtmosphereProjection(fi.proj)) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "aerial perspective frame presented"); mobileAerialFrameLogged_ = true;
+    }
+    if (rendered && !mobileLoggedAtmosphere_ && !fi.post.physicalAerial && usePostAtmosphere(fi.post.atmosphere, fi.post.enabled, renderer_.supportsPostAtmosphere(), fi.post.physicalAerial ? 1.f : fi.light.fogDensity) && supportsAtmosphereProjection(fi.proj)) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "depth atmosphere frame presented"); mobileLoggedAtmosphere_ = true;
     }
     if (rendered && !mobileLoggedFinish_ && planPost(fi.post, renderer_.width(), renderer_.height()).finish &&
@@ -1818,7 +1893,7 @@ MobileSnapshot Sandbox::captureMobile() const {
     s.lightAz = lightAz_;
     s.lightEl = lightEl_;
     s.time = time_; s.skyStyle = skyStyle_; s.skyWindSpeed = skyWindSpeed_; s.cloudClock = cloudClock_;
-    s.skyProfiles = skyProfiles_; s.skyPanel = mobileSkyPanel_;
+    s.skyProfiles = skyProfiles_; s.skyPanel = mobileSkyPanel_; s.postPanel = mobilePostPanel_;
     s.rain = rain_;
     s.splitOffset = splitOffset_;
     s.todAuto = todAuto_;
@@ -1885,7 +1960,7 @@ void Sandbox::restoreMobile(const MobileSnapshot& s) {
     lightAz_ = s.lightAz;
     lightEl_ = s.lightEl;
     time_ = s.time; skyStyle_ = std::clamp(s.skyStyle, 0, 3); skyWindSpeed_ = s.skyWindSpeed; cloudClock_ = s.cloudClock;
-    skyProfiles_ = s.skyProfiles; mobileSkyPanel_ = s.skyPanel;
+    skyProfiles_ = s.skyProfiles; mobileSkyPanel_ = s.skyPanel; mobilePostPanel_ = s.postPanel;
     rain_ = s.rain;
     splitOffset_ = s.splitOffset;
     todAuto_ = s.todAuto;

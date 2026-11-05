@@ -1,5 +1,7 @@
 #include "Check.h"
 #include "post/AtmosphereMath.h"
+#include "post/DofMath.h"
+#include "post/AerialMath.h"
 #include "post/PostSettings.h"
 #include <glm/gtc/matrix_transform.hpp>
 int main() {
@@ -37,6 +39,20 @@ int main() {
     CHECK_NEAR(sk::fogForSceneDepth(1.f, {.5f,.5f}, p, .02f), 0.f, 1e-6);
     CHECK_NEAR(sk::atmosphereFogAmount(10.f, 0.f), 0.f, 1e-6);
     CHECK(sk::atmosphereFogAmount(100.f, .02f) > sk::atmosphereFogAmount(10.f, .02f));
+    CHECK_NEAR(sk::dofDepthWeight(1.f, .5f, p[2][2], p[3][2], 4.f), 0, 1e-7);
+    CHECK_NEAR(sk::dofDepthWeight(1.f, 1.f, p[2][2], p[3][2], 4.f), 1, 1e-7);
+    CHECK_NEAR(sk::dofDepthWeight(.9f, .9f, p[2][2], p[3][2], 4.f), 1, 1e-7);
+    CHECK(sk::dofDepthWeight(.8f, .99f, p[2][2], p[3][2], 4.f) < .01f);
+    const auto zeroAerial = sk::integrateAerialSegment(0, {1,0,0}, {0,1,0}, 0);
+    const auto nearAerial = sk::integrateAerialSegment(0, {1,0,0}, {0,1,0}, 1);
+    const auto farAerial = sk::integrateAerialSegment(0, {1,0,0}, {0,1,0}, 20);
+    for (int i=0; i<3; ++i) {
+        CHECK_NEAR(zeroAerial.transmittance[i], 1, 1e-12);
+        CHECK_NEAR(zeroAerial.inscattering[i], 0, 1e-12);
+        CHECK(farAerial.transmittance[i] < nearAerial.transmittance[i]);
+        CHECK(farAerial.inscattering[i] > nearAerial.inscattering[i]);
+        CHECK_FINITE(farAerial.inscattering[i]);
+    }
     sk::PostSettings settings;
     CHECK(!settings.atmosphere);
     CHECK(sk::applyPostProfile(sk::PostProfile::Atmospheric, settings).atmosphere);
