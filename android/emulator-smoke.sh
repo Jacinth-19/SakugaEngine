@@ -261,6 +261,11 @@ if [[ $renderer_result == presented ]]; then
   done
   if [[ $finish != 1 ]]; then echo '::error::Finishing effects frame was not presented.'; exit 1; fi
   echo '::notice::Presented a frame with finishing effects and depth of field where supported.'
+  if grep -q 'depth-masked sun flare frame presented' /tmp/sakuga-android-log.txt; then
+    echo '::notice::Presented a depth-masked sun flare frame.'
+  else
+    echo '::notice::Sun flare pass not observed (the sun may be off-screen or depth unavailable).'
+  fi
   if grep -q 'material bloom mask supported=1' /tmp/sakuga-android-log.txt; then
     masked=0
     for i in $(seq 1 20); do
@@ -447,7 +452,8 @@ for i in $(seq 1 30); do
   sleep 2
 done
 if [[ $reprobed != 1 ]]; then
-  adb logcat -d -s SakugaPreview:V AndroidRuntime:E '*:S' | tail -80
+  adb logcat -d -s SakugaPreview:V AndroidRuntime:E ActivityManager:I '*:S' | tail -80 > /tmp/sakuga-resume-log.txt
+  while IFS= read -r line; do echo "::notice::$line"; done < /tmp/sakuga-resume-log.txt
   echo '::error::Surface probe did not complete after resume.'; exit 1
 fi
 adb shell pidof com.sakuga.preview

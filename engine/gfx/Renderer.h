@@ -147,7 +147,7 @@ public:
     static glm::mat4 perspective(float fovYRadians, float aspect, float zNear, float zFar);
     static bool savePNG(const std::string& path, const std::vector<uint8_t>& rgba, uint32_t w, uint32_t h);
 
-    struct Stats { uint32_t pointShadowLights = 0, pointShadowFaces = 0; uint32_t drawCalls = 0, triangles = 0; float cpuMs = 0; float gpuPostMs = -1.f, gpuSkyMs = -1.f; PostTimingValues gpuPostStages = [] { PostTimingValues v{}; v.fill(-1.f); return v; }(); } stats;
+    struct Stats { bool sunFlareActive = false; uint32_t pointShadowLights = 0, pointShadowFaces = 0; uint32_t drawCalls = 0, triangles = 0; float cpuMs = 0; float gpuPostMs = -1.f, gpuSkyMs = -1.f; PostTimingValues gpuPostStages = [] { PostTimingValues v{}; v.fill(-1.f); return v; }(); } stats;
 
 private:
     struct FrameData;

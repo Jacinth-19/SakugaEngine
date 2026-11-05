@@ -903,6 +903,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     const auto sunProjection = projectSunFlare(in.view, in.proj, ld, L.sunSize);
     const bool sunFlareOn = in.post.enabled && in.post.sunFlare > 0.f && sampleSceneDepth_ &&
         supportsAtmosphereProjection(in.proj) && !envHDR_ && L.sunDisc > 0.f && L.starVisibility < .999f && ld.y >= -.03f && sunProjection.visible;
+    stats.sunFlareActive = sunFlareOn;
     // Avoid double fog: the post pass replaces the legacy per-surface fog when active.
     g.fogColor = glm::vec4(L.fogColor, screenFog ? 0.f : L.fogDensity);
     g.misc = glm::vec4(1.f, 0.f, L.wetPreviewTime, 1.f / (float)kShadowRes);

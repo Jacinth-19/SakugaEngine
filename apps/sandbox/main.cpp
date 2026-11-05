@@ -260,7 +260,7 @@ private:
     std::string mobileError_;
     bool mobileLoggedControls_ = false, mobileLoggedMove_ = false, mobileLoggedPointShadows_ = false, mobileLoggedHalation_ = false, mobileLoggedAtmosphere_ = false, mobileLoggedFinish_ = false, mobileLoggedPostTiming_ = false, mobileLoggedSkyTiming_ = false, mobileLoggedMaterialBloom_ = false;
     bool mobileSkyPanel_ = false, mobileSkyTargetLogged_ = false, mobileLoggedIntegratedSky_ = false, mobileLoggedVolumeSky_ = false;
-    bool mobilePostPanel_ = false, mobilePostTargetLogged_ = false, mobileDetailedTimingLogged_ = false, mobileAerialFrameLogged_ = false;
+    bool mobilePostPanel_ = false, mobilePostTargetLogged_ = false, mobileDetailedTimingLogged_ = false, mobileAerialFrameLogged_ = false, mobileSunFlareLogged_ = false;
     bool mobileClipBrowser_ = false, mobileBrowserTargetLogged_ = false, mobileLastItemLogged_ = false; int mobileClipPage_ = 0;
     bool mobileLoadNpcs_ = false, mobileNpcsRequested_ = false, mobileNpcsPendingFrame_ = false, mobileRestored_ = false;
 #endif
@@ -1817,6 +1817,9 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     if (frame_ == 1) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "post timing supported=%d", (int)renderer_.supportsPostTiming());
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "material bloom mask supported=%d", (int)renderer_.supportsMaterialBloomMask());
+    }
+    if (rendered && !mobileSunFlareLogged_ && renderer_.stats.sunFlareActive) {
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "depth-masked sun flare frame presented"); mobileSunFlareLogged_ = true;
     }
     if (rendered && !mobileLoggedMaterialBloom_ && fi.post.enabled && fi.post.bloom && fi.post.materialBloomMask && renderer_.supportsMaterialBloomMask()) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "material bloom mask frame presented"); mobileLoggedMaterialBloom_ = true;
