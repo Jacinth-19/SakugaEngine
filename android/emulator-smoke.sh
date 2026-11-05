@@ -148,7 +148,19 @@ if [[ $renderer_result == presented ]]; then
   ui_target=$(grep -F 'post detail target x=' /tmp/sakuga-android-log.txt | tail -1)
   read -r detail_x detail_y timing_supported < <(echo "$ui_target" | sed -n 's/.*post detail target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) supported=\([01]\).*/\1 \2 \3/p')
   if [[ ${timing_supported:-0} == 1 ]]; then
-    adb shell input tap "$detail_x" "$detail_y"
+    # Software rendering can drop a touch while a frame is busy; retry only
+    # until the logged state change, so we never blindly toggle it back off.
+    enabled=0
+    for attempt in $(seq 1 3); do
+      adb shell input tap "$detail_x" "$detail_y"
+      for i in $(seq 1 6); do
+        adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+        if grep -q 'detailed post timing enabled=1' /tmp/sakuga-android-log.txt; then enabled=1; break; fi
+        sleep 1
+      done
+      if [[ $enabled == 1 ]]; then break; fi
+    done
+    if [[ $enabled != 1 ]]; then echo '::error::Detailed post timing control did not respond.'; exit 1; fi
     detail=0
     for i in $(seq 1 40); do
       adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
@@ -162,6 +174,13 @@ if [[ $renderer_result == presented ]]; then
       echo '::error::Detailed post timing sample missing.'; exit 1
     fi
     adb shell input tap "$detail_x" "$detail_y"
+    disabled=0
+    for i in $(seq 1 15); do
+      adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+      if grep -q 'detailed post timing enabled=0' /tmp/sakuga-android-log.txt; then disabled=1; break; fi
+      sleep 1
+    done
+    if [[ $disabled != 1 ]]; then echo '::error::Detailed post timing control could not be turned off.'; exit 1; fi
   fi
   ui_target=$(grep -F 'aerial mode target x=' /tmp/sakuga-android-log.txt | tail -1)
   read -r aerial_x aerial_y aerial_supported < <(echo "$ui_target" | sed -n 's/.*aerial mode target x=\([0-9][0-9]*\) y=\([0-9][0-9]*\) supported=\([01]\).*/\1 \2 \3/p')
