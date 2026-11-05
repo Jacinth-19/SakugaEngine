@@ -791,6 +791,11 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
             uint64_t detail[kPostTimingStages * 2]{};
             VkResult detailResult = vkGetQueryPoolResults(dev, postTimingPool_, frameIndex_ * kFrameTimingQueries + 4,
                 kPostTimingStages * 2, sizeof(detail), detail, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+#ifdef __ANDROID__
+            static int detailFailures = 0;
+            if (detailResult != VK_SUCCESS && detailFailures++ < 3)
+                __android_log_print(ANDROID_LOG_WARN, "SakugaPreview", "detailed post query result=%d", (int)detailResult);
+#endif
             if (detailResult == VK_SUCCESS) for (uint32_t i = 0; i < kPostTimingStages; ++i) {
                 if (f.detailedTimingActive[i]) stats.gpuPostStages[i] = (float)timestampMilliseconds(detail[2*i], detail[2*i+1], timestampValidBits_, ctx_->props.limits.timestampPeriod);
             }

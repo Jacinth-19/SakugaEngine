@@ -1713,7 +1713,8 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .56f, renderer_.height() * .80f), ImGuiCond_Always);
         ImGui::Begin("Post controls", &mobilePostPanel_, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
         ImGui::BeginDisabled(!renderer_.supportsPostTiming());
-        ImGui::Checkbox("Detailed GPU timings", &post_.gpuDetailedProfiling);
+        if (ImGui::Checkbox("Detailed GPU timings", &post_.gpuDetailedProfiling))
+            __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "detailed post timing enabled=%d", (int)post_.gpuDetailedProfiling);
         ImGui::EndDisabled();
         if (!mobilePostTargetLogged_) {
             ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();

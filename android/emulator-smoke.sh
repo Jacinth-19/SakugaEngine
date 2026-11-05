@@ -155,7 +155,12 @@ if [[ $renderer_result == presented ]]; then
       if grep -q 'detailed post timing sample available' /tmp/sakuga-android-log.txt; then detail=1; break; fi
       sleep 1
     done
-    if [[ $detail != 1 ]]; then echo '::error::Detailed post timing sample missing.'; exit 1; fi
+    if [[ $detail != 1 ]]; then
+      adb logcat -d -s SakugaPreview:V '*:S' > /tmp/sakuga-android-log.txt
+      while IFS= read -r line; do echo "::notice::$line"; done < <(grep -E 'post (detail|controls)|detailed post|timing supported' /tmp/sakuga-android-log.txt | tail -30)
+      adb exec-out screencap -p > apk/android-fail.png
+      echo '::error::Detailed post timing sample missing.'; exit 1
+    fi
     adb shell input tap "$detail_x" "$detail_y"
   fi
   ui_target=$(grep -F 'aerial mode target x=' /tmp/sakuga-android-log.txt | tail -1)
