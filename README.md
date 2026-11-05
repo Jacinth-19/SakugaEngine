@@ -18,9 +18,9 @@
 
 ### Windows x64
 
-1. Open the latest successful **[full-library Windows build](https://github.com/Jacinth-19/SakugaEngine/actions/workflows/windows.yml?query=branch%3Aarena%2Fa13c5e34-sakugaengine)** and download the `sakuga-windows-x64` artifact (GitHub sign-in may be required). It contains an installer and a portable ZIP.
+1. Download the **[updated Windows preview installer](https://github.com/Jacinth-19/SakugaEngine/releases/download/v0.1.0-preview/Sakuga-Engine-0.1.0-win64-23ced19-setup.exe)** or [portable ZIP](https://github.com/Jacinth-19/SakugaEngine/releases/download/v0.1.0-preview/Sakuga-Engine-0.1.0-win64-23ced19-portable.zip). Both include all 77 clips. The [release page](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview) also retains the original two-clip downloads; choose files containing `23ced19` for the updated build. Newer CI builds may be available from the [Windows workflow](https://github.com/Jacinth-19/SakugaEngine/actions/workflows/windows.yml?query=branch%3Aarena%2Fa13c5e34-sakugaengine).
 2. Run the installer, or extract the **whole** portable archive to a folder you can write to. The installer shows earlier in-engine captures of the sample VRM avatar in two poses; your settings and device may produce a different appearance. Launch **Sakuga Engine** or `sandbox.exe`.
-3. You need a **Vulkan 1.3-capable GPU and a current graphics driver**. The installer does not include the Vulkan runtime or driver. The older [Windows release](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview) has only two clips.
+3. You need a **Vulkan 1.3-capable GPU and a current graphics driver**. The installer does not include the Vulkan runtime or driver.
 
 > **Preview:** the Windows executable is built and command-line smoke-tested in GitHub Actions, but gameplay, rendering and the installer UI still need validation on a real Windows GPU. The release is **unsigned** and Windows may warn about an unknown publisher. [Signing and hardware test details](docs/WINDOWS_SIGNING_AND_TESTING.md).
 
@@ -76,7 +76,7 @@ Captured from the x86_64 Android emulator using SwiftShader on 2 November 2026. 
 
 ### About the 77 animations
 
-Current Windows CI installer/portable builds and the Android debug APK are built with **all 77 LAFAN1 BVH clips**, verified byte-for-byte before packaging. The older [Windows release](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview) still contains only two clips; use the latest successful [Windows workflow artifact](https://github.com/Jacinth-19/SakugaEngine/actions/workflows/windows.yml?query=branch%3Aarena%2Fa13c5e34-sakugaengine) for the full library. The Android Vulkan sandbox and its separate synthetic-rig Canvas fallback both load all 77 clips.
+The updated [Windows preview release](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview) files containing `23ced19`, current Windows CI builds, and the Android debug APK include **all 77 LAFAN1 BVH clips**, verified byte-for-byte before packaging. The original release files without `23ced19` contain only two clips. The Android Vulkan sandbox and its separate synthetic-rig Canvas fallback both load all 77 clips.
 
 LAFAN1 is by Ubisoft La Forge and is **CC BY-NC-ND 4.0: non-commercial use only; no sharing adapted material**. See [attribution and license](assets/licenses/LAFAN1-NOTICE.txt). First launch builds a large motion cache; allow substantial disk space and memory. The app's Motion matching panel reports its actual loaded count.
 

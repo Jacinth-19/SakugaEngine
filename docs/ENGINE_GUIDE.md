@@ -72,7 +72,7 @@ light and dark sets, a background image blended in on Inno 6.7, `WizardStyle=mod
 light/dark setting, a custom icon and on-brand text. `docs/INSTALLER.md` lists exactly how far Inno can be pushed and
 where the hard limits are. The staged tree is relocatable -
 `sandbox.exe` finds `assets/`, `config/` and `shaders/` next to itself (`findRoot()`), so the portable zip works from
-any folder. The full-library CI installer includes the 77 verified LAFAN1 clips; the older `v0.1.0-preview` release contains two. The Vulkan loader and GPU driver are not included and must be installed with the graphics driver.
+any folder. The full-library CI installer and updated `23ced19` files on the `v0.1.0-preview` release include 77 verified LAFAN1 clips; the original release files without that suffix contain two. The Vulkan loader and GPU driver are not included and must be installed with the graphics driver.
 
 Still needed from the machine (nothing this repo can carry):
 
