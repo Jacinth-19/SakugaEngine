@@ -1,6 +1,6 @@
-# Sakuga Engine — Windows preview
+# Sakuga Engine — Windows and Android preview
 
-An early, unsigned Windows x64 animation and rendering sandbox. This is a **pre-release**, not a finished or stable product.
+Early Windows x64 and Android builds of the animation and rendering sandbox. This is a **pre-release**, not a finished or stable product.
 
 ## Updated Windows preview (5 November 2026)
 
@@ -10,15 +10,24 @@ An early, unsigned Windows x64 animation and rendering sandbox. This is a **pre-
 
 The installer includes a preview page and sidebar featuring two poses from earlier in-engine VRM screenshots. Their original capture environment is unknown; appearance varies by device and settings. Both updated downloads include all **77 LAFAN1 clips**. Expect substantial storage and memory use and a longer first launch while the motion cache is built.
 
-**License:** LAFAN1 is by Ubisoft La Forge and is CC BY-NC-ND 4.0: non-commercial only, with no permission to share adapted material. Review the dataset and motion-derived media terms before redistribution. See the included `assets/licenses/LAFAN1-NOTICE.txt`.
-
 The updated binaries were built from branch commit [`23ced193d1cb794cf6cd89e6da59a564cce79234`](https://github.com/Jacinth-19/SakugaEngine/commit/23ced193d1cb794cf6cd89e6da59a564cce79234) in [Windows workflow run 42056888085](https://github.com/Jacinth-19/SakugaEngine/actions/runs/42056888085). The build, GPU-free executable checks, and silent installer smoke test passed. The installer interface, rendering and gameplay have **not** been visually validated on a real Windows GPU.
 
-## Requirements and platform status
+## Android preview
 
-Windows x64 requires a Vulkan 1.3-capable GPU and current graphics driver. The Vulkan loader/driver is not bundled. The installer and executable are not code-signed; Windows may display an unknown-publisher warning.
+- **Debug APK:** `Sakuga-Android-0.1.0-23ced19-debug.apk`
+- **Checksum:** `SHA256SUMS-android-23ced19.txt`
 
-**No Android APK is included in this release.** An experimental Android debug APK is available separately from successful Android workflow artifacts; it has been tested on an emulator, not a physical phone. Linux and macOS release packages are not provided.
+This experimental build contains the shared Vulkan sandbox, VRM models and all 77 motion clips. It supports Android 8 (API 26) or newer on arm64-v8a and x86_64. The full 3D sandbox additionally requires Vulkan 1.3, dynamic rendering and synchronization2. If Vulkan initialization or rendering fails, the app uses a separate Canvas synthetic-rig preview, **not** the full 3D sandbox. Plenty of storage and memory are needed; the first start builds motion caches.
+
+The APK was built from branch commit [`23ced193d1cb794cf6cd89e6da59a564cce79234`](https://github.com/Jacinth-19/SakugaEngine/commit/23ced193d1cb794cf6cd89e6da59a564cce79234) in [Android workflow run 42056888330](https://github.com/Jacinth-19/SakugaEngine/actions/runs/42056888330). Its build and Vulkan/Canvas interaction and render smoke tests passed on an x86_64 emulator. **No physical Android phone has been tested**, and device compatibility and performance are not guaranteed.
+
+The APK is signed with an ephemeral debug key, not a production or Play Store identity. Builds signed with different keys cannot upgrade one another; uninstalling the previous app may be required and will remove its app data. Install APKs only if you trust the source.
+
+## Requirements, license and other platforms
+
+Windows x64 requires a Vulkan 1.3-capable GPU and current graphics driver. The Vulkan loader/driver is not bundled. The Windows installer and executable are not code-signed; Windows may display an unknown-publisher warning.
+
+**License:** LAFAN1 is by Ubisoft La Forge and is CC BY-NC-ND 4.0: non-commercial only, with no permission to share adapted material. Review the dataset and motion-derived media terms before redistribution. See the packaged `assets/licenses/LAFAN1-NOTICE.txt`. Linux and macOS release packages are not provided.
 
 ## Original November 1 release files
 

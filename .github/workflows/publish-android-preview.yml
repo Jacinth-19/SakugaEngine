@@ -1,0 +1,85 @@
+name: Publish Android preview
+
+# One-time, explicitly scoped publication of the already-tested Android build.
+# Ordinary pushes do not publish; pre-existing release assets are never replaced.
+on:
+  push:
+    branches: [arena/a13c5e34-sakugaengine]
+    paths: [.github/workflows/publish-android-preview.yml]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BUILD_RUN: '42056888330'
+      BUILD_SHA: 23ced193d1cb794cf6cd89e6da59a564cce79234
+      RELEASE_TAG: v0.1.0-preview
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify the source build and emulator run
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN" > run.json
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN/jobs?per_page=100" > jobs.json
+          python3 - <<'PY'
+          import json, os
+          with open('run.json', encoding='utf-8') as f:
+              run = json.load(f)
+          assert run['head_sha'] == os.environ['BUILD_SHA'], 'unexpected build commit'
+          assert run['head_branch'] == 'arena/a13c5e34-sakugaengine', 'unexpected source branch'
+          assert run['status'] == 'completed' and run['conclusion'] == 'success', 'source build did not pass'
+          assert run['path'] == '.github/workflows/android.yml', 'unexpected workflow'
+          with open('jobs.json', encoding='utf-8') as f:
+              jobs = {job['name']: job for job in json.load(f)['jobs']}
+          for name in ('build-preview', 'emulator-smoke'):
+              assert name in jobs and jobs[name]['conclusion'] == 'success', f'{name} did not pass'
+          PY
+          gh release view "$RELEASE_TAG" --json isPrerelease --jq '.isPrerelease' | grep -Fx true
+
+      - name: Download the verified Android build
+        uses: actions/download-artifact@v4
+        with:
+          name: sakuga-android-animation-preview-debug
+          path: release-files
+          github-token: ${{ github.token }}
+          run-id: '42056888330'
+
+      - name: Verify APK and prepare checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-files
+          sha256sum -c SHA256SUMS.txt
+          apk=Sakuga-Android-0.1.0-23ced19-debug.apk
+          cp Sakuga-Android-animation-preview-debug.apk "$apk"
+          unzip -tq "$apk"
+          python3 ../tools/verify_lafan1_archive.py "$apk"
+          unzip -Z1 "$apk" > /tmp/sakuga-apk-files.txt
+          for path in lib/arm64-v8a/libsakuga_mobile.so lib/x86_64/libsakuga_mobile.so assets/models/AvatarSample.vrm assets/licenses/LAFAN1-NOTICE.txt classes.dex; do
+            grep -Fxq "$path" /tmp/sakuga-apk-files.txt || { echo "::error::APK missing $path"; exit 1; }
+          done
+          sha256sum "$apk" > SHA256SUMS-android-23ced19.txt
+
+      - name: Add APK and update release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > existing-assets.txt
+          for file in Sakuga-Android-0.1.0-23ced19-debug.apk SHA256SUMS-android-23ced19.txt; do
+            if grep -Fxq "$file" existing-assets.txt; then
+              echo "::error::Release asset $file already exists; refusing to replace it."; exit 1
+            fi
+          done
+          gh release upload "$RELEASE_TAG" \
+            release-files/Sakuga-Android-0.1.0-23ced19-debug.apk \
+            release-files/SHA256SUMS-android-23ced19.txt
+          gh release edit "$RELEASE_TAG" --title 'Sakuga Engine 0.1.0 — Windows and Android preview' \
+            --notes-file .github/release-notes/windows-preview.md
