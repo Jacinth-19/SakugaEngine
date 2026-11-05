@@ -264,10 +264,12 @@ if [[ $renderer_result == presented ]]; then
   # Point the orbit camera toward the afternoon sun using the real look control.
   # The flare pass is only expected when sampled depth is supported.
   if [[ $supported == 1 ]]; then
-    for attempt in 1 2; do
+    for attempt in 1 2 3; do
       adb shell input swipe "$((width * 60 / 100))" "$((height * 65 / 100))" "$((width * 45 / 100))" "$((height * 65 / 100))" 1800
     done
-    adb shell input swipe "$((width * 60 / 100))" "$((height * 70 / 100))" "$((width * 60 / 100))" "$((height * 12 / 100))" 2200
+    for attempt in 1 2; do
+      adb shell input swipe "$((width * 60 / 100))" "$((height * 70 / 100))" "$((width * 60 / 100))" "$((height * 12 / 100))" 2200
+    done
     sun_frame=0
     for i in $(seq 1 30); do
       adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
