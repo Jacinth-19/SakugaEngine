@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+<title id="title">Emission-only bloom: technical reference</title><desc id="desc">A bright white reflective panel and a small red emitter appear in the scene. In the selected source only the red emitter remains.</desc>
+<defs><filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="21"/></filter></defs>
+<rect width="1200" height="680" fill="#111824"/><g font-family="sans-serif" fill="#eef3fa"><text x="54" y="64" font-size="31" font-weight="bold">01 / EMISSION-ONLY SELECTION</text><text x="54" y="99" font-size="17" fill="#a8b7ca">Technical schematic · display RGB, not HDR ground truth</text>
+<rect x="54" y="140" width="520" height="390" rx="16" fill="#212b3c"/><rect x="626" y="140" width="520" height="390" rx="16" fill="#212b3c"/>
+<text x="82" y="183" font-size="21">Scene radiance</text><text x="654" y="183" font-size="21">Selected emission source</text>
+<rect x="102" y="236" width="180" height="210" rx="10" fill="#edf4fb"/><circle cx="420" cy="338" r="56" fill="#f04d49" opacity=".55" filter="url(#glow)"/><circle cx="420" cy="338" r="27" fill="#ff4b47"/>
+<rect x="674" y="236" width="180" height="210" rx="10" fill="#0f1723" stroke="#637187" stroke-dasharray="6 6"/><circle cx="992" cy="338" r="27" fill="#ff4b47"/>
+<text x="90" y="488" font-size="17" fill="#bcc9d8">Bright reflection</text><text x="364" y="488" font-size="17" fill="#bcc9d8">Red emitter</text><text x="663" y="488" font-size="17" fill="#bcc9d8">Excluded</text><text x="927" y="488" font-size="17" fill="#bcc9d8">Preserved</text>
+<text x="54" y="593" font-size="20">A bright non-emissive surface must not become a source in emission-only mode.</text><text x="54" y="631" font-size="16" fill="#a8b7ca">Threshold, material weight, transparency and DoF change the final glow.</text></g></svg>
