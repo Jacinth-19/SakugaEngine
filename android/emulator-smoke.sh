@@ -274,7 +274,10 @@ if [[ $renderer_result == presented ]]; then
       if grep -q 'depth-masked sun flare frame presented' /tmp/sakuga-android-log.txt; then sun_frame=1; break; fi
       sleep 1
     done
-    if [[ $sun_frame != 1 ]]; then echo '::error::Depth-masked sun flare frame was not presented.'; exit 1; fi
+    if [[ $sun_frame != 1 ]]; then
+      while IFS= read -r line; do echo "::notice::$line"; done < <(grep -F 'sun flare camera' /tmp/sakuga-android-log.txt | tail -20 || true)
+      echo '::error::Depth-masked sun flare frame was not presented.'; exit 1
+    fi
     echo '::notice::Presented a depth-masked sun flare frame.'
   fi
   if grep -q 'material bloom mask supported=1' /tmp/sakuga-android-log.txt; then

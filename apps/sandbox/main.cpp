@@ -1818,6 +1818,8 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "post timing supported=%d", (int)renderer_.supportsPostTiming());
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "material bloom mask supported=%d", (int)renderer_.supportsMaterialBloomMask());
     }
+    if (fi.post.sunFlare > 0.f && !mobileSunFlareLogged_ && frame_ % 30 == 0)
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sun flare camera yaw=%.1f pitch=%.1f az=%.1f el=%.1f night=%.2f", glm::degrees(camera_.yaw), glm::degrees(camera_.pitch), lightAz_, lightEl_, light_.starVisibility);
     if (rendered && !mobileSunFlareLogged_ && renderer_.stats.sunFlareActive) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "depth-masked sun flare frame presented"); mobileSunFlareLogged_ = true;
     }
