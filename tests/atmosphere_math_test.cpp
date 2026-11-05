@@ -53,6 +53,19 @@ int main() {
         CHECK(farAerial.inscattering[i] > nearAerial.inscattering[i]);
         CHECK_FINITE(farAerial.inscattering[i]);
     }
+    // Atmosphere segments terminate at the physical ground or top boundary.
+    const auto spaceUp = sk::integrateAerialSegment(100, {0,1,0}, {0,1,0}, 100);
+    const auto groundDown = sk::integrateAerialSegment(0, {0,-1,0}, {0,1,0}, 100);
+    for (int i=0;i<3;++i) {
+        CHECK_NEAR(spaceUp.transmittance[i], 1, 1e-12); CHECK_NEAR(spaceUp.inscattering[i], 0, 1e-12);
+        CHECK_NEAR(groundDown.transmittance[i], 1, 1e-12); CHECK_NEAR(groundDown.inscattering[i], 0, 1e-12);
+    }
+    const auto msLut = sk::buildMultipleScatteringLut();
+    const auto multipleAerial = sk::integrateAerialSegment(0, {1,0,0}, {0,1,0}, 20, {}, 8, 24, &msLut);
+    for (int i=0;i<3;++i) {
+        CHECK_NEAR(multipleAerial.transmittance[i], farAerial.transmittance[i], 1e-12);
+        CHECK(multipleAerial.inscattering[i] > farAerial.inscattering[i]);
+    }
     sk::PostSettings settings;
     CHECK(!settings.atmosphere);
     CHECK(sk::applyPostProfile(sk::PostProfile::Atmospheric, settings).atmosphere);

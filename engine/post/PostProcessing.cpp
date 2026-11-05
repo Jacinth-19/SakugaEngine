@@ -114,6 +114,12 @@ void PostProcessing::setSkyTransmittance(const Texture& texture) {
     VkWriteDescriptorSet wr{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, atmosphereSet_, 2, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &image, nullptr, nullptr};
     vkUpdateDescriptorSets(ctx_->device, 1, &wr, 0, nullptr);
 }
+void PostProcessing::setSkyMultiple(const Texture& texture) {
+    if (!atmosphereSet_) return;
+    VkDescriptorImageInfo image{texture.sampler, texture.image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet wr{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, atmosphereSet_, 3, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &image, nullptr, nullptr};
+    vkUpdateDescriptorSets(ctx_->device, 1, &wr, 0, nullptr);
+}
 void PostProcessing::destroyTargets() {
     if (!ctx_) return;
     if (pool_) vkResetDescriptorPool(ctx_->device, pool_, 0);

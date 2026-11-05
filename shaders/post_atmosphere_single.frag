@@ -4,6 +4,7 @@
 layout(set = 0, binding = 0) uniform sampler2D tScene;
 layout(set = 0, binding = 1) uniform sampler2D tDepth;
 layout(set = 0, binding = 2) uniform sampler2D tTransmittance;
+layout(set = 0, binding = 3) uniform sampler2D tMultipleScattering;
 layout(push_constant) uniform PC { vec4 a, b, c, d, e, f, g, h; } pc;
 layout(location = 0) in vec2 vUV;
 layout(location = 0) out vec4 outColor;

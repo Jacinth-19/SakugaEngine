@@ -1,5 +1,6 @@
 #include "Check.h"
 #include "sky/SkyScatteringMath.h"
+#include "sky/SkyViewLut.h"
 int main() {
     SK_TEST("sky_scattering_test");
     const glm::dvec3 zenith(0,1,0), horizon(1,0,0);
@@ -23,5 +24,31 @@ int main() {
         }
     CHECK_NEAR(sk::atmosphereHorizonMu(0), 0, 1e-12);
     CHECK(sk::atmosphereHorizonMu(50) < 0);
+    // Sky-view LUT shares the same encoded/filtering convention with the GPU sky and IBL.
+    const auto lut = sk::buildSkyViewLut(0, .5, 1, 1);
+    CHECK(lut.size() == sk::kSkyViewWidth * sk::kSkyViewHeight * 4u);
+    for (int y = 0; y < sk::kSkyViewHeight; ++y) for (int c = 0; c < 3; ++c)
+        CHECK(lut[(y * sk::kSkyViewWidth) * 4 + c] == lut[(y * sk::kSkyViewWidth + sk::kSkyViewWidth-1) * 4 + c]);
+    glm::vec3 sun(std::sqrt(.75f), .5f, 0.f);
+    for (auto view : {glm::vec3(0,1,0), glm::vec3(1,0,0), glm::normalize(glm::vec3(.2f,.6f,.7f))}) {
+        auto sampled = sk::sampleSkyViewLut(lut, view, sun);
+        auto reference = sk::integrateSkySingleScattering(0, glm::dvec3(view), glm::dvec3(sun));
+        for (int c = 0; c < 3; ++c) { CHECK_FINITE(sampled[c]); CHECK_NEAR(sampled[c], reference[c], .08); }
+    }
+    for (double mu : {-1., -.2, 0., .2, 1.}) CHECK_NEAR(sk::multipleMu(sk::multipleU(mu)), mu, 1e-12);
+    const auto msLut = sk::buildMultipleScatteringLut();
+    CHECK(msLut.size() == sk::kMultipleWidth * sk::kMultipleHeight * 4u);
+    auto msDay = sk::sampleMultipleScatteringLut(msLut, 0, 1);
+    auto msNight = sk::sampleMultipleScatteringLut(msLut, 0, -1);
+    for (int c=0;c<3;++c) { CHECK_FINITE(msDay[c]); CHECK(msDay[c] > msNight[c]); CHECK(msNight[c] >= 0); }
+    const auto withMs = sk::buildSkyViewLut(0, .5, 1, 1, {}, &msLut);
+    auto msSky = sk::sampleSkyViewLut(withMs, glm::vec3(0,1,0), sun);
+    auto singleSky = sk::sampleSkyViewLut(lut, glm::vec3(0,1,0), sun);
+    for (int c=0;c<3;++c) CHECK(msSky[c] >= singleSky[c]);
+    CHECK(glm::length(msSky) > glm::length(singleSky));
+    auto rotated = sk::sampleSkyViewLut(lut, glm::vec3(0,0,1), glm::vec3(0,.5f,std::sqrt(.75f)));
+    auto original = sk::sampleSkyViewLut(lut, glm::vec3(1,0,0), sun);
+    CHECK(glm::length(rotated-original) < 1e-5f);
+    CHECK(glm::length(sk::sampleSkyViewLut(lut, glm::vec3(0,-1,0), sun)) == 0);
     return t_.finish();
 }

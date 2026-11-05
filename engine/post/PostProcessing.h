@@ -24,6 +24,7 @@ public:
     void rebuildSets(const Image& scene, const Image& depth, bool depthSupported, const Image& mask, bool maskSupported, const Texture& lut);
     // Update after targets or the transmittance LUT are recreated, with all frames idle.
     void setSkyTransmittance(const Texture& texture);
+    void setSkyMultiple(const Texture& texture);
     void destroyTargets();
     void shutdown();
     // scene must be COLOR_ATTACHMENT_OPTIMAL; final is overwritten and left COLOR_ATTACHMENT_OPTIMAL.

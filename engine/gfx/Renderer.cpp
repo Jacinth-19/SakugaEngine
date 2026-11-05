@@ -1,5 +1,6 @@
 #include "sky/AtmosphereLut.h"
 #include "sky/SkyScatteringMath.h"
+#include "sky/SkyViewLut.h"
 #include "gfx/Renderer.h"
 #include "gfx/ShadowFit.h"
 #include "gfx/SurfaceChoices.h"
@@ -109,6 +110,8 @@ bool Renderer::initAndroid(Context& ctx, ANativeWindow* window, uint32_t w, uint
 // ===================================================================================== init
 bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, const std::string& shaderDir) {
     ctx_ = &ctx; window_ = window; width_ = w; height_ = h;
+    skyView_ = nullptr; skyViewHash_ = 0; skyViewPixels_.clear();
+    skyModel_ = {}; multipleScattering_ = nullptr; multiplePixels_.clear();
     for (auto& recorded : timestampRecorded_) recorded = false;
     stats.gpuPostMs = stats.gpuSkyMs = -1.f;
     stats.gpuPostStages.fill(-1.f);
@@ -242,8 +245,13 @@ bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, co
         kAtmosphereLutWidth, kAtmosphereLutHeight, false, false, false);
     skyMaterial_ = createMaterial("sky_transmittance");
     skyMaterial_->tex[TEX_BASE] = skyTransmittance_;
+    static const auto defaultMultiplePixels = buildMultipleScatteringLut();
+    multiplePixels_ = defaultMultiplePixels;
+    multipleScattering_ = createTexture("sky_multiple", multiplePixels_.data(), kMultipleWidth, kMultipleHeight, false, false, false);
+    skyMaterial_->tex[TEX_PARAM] = multipleScattering_;
     flushMaterial(skyMaterial_);
     postProcessing_.setSkyTransmittance(*skyTransmittance_);
+    postProcessing_.setSkyMultiple(*multipleScattering_);
     updateProceduralEnvironment(LightingSettings{});
     return true;
 }
@@ -258,17 +266,25 @@ void Renderer::updateSkyAtmosphere(AtmosphereParameters model) {
     skyModel_ = model;
     if (!opticalChanged) return;
     auto pixels = buildAtmosphereLut(model);
+    auto multi = buildMultipleScatteringLut(model);
     VK_OK(vkDeviceWaitIdle(ctx_->device));
     Texture* old = skyTransmittance_;
+    Texture* oldMultiple = multipleScattering_;
+    multiplePixels_ = std::move(multi);
+    multipleScattering_ = createTexture("sky_multiple", multiplePixels_.data(), kMultipleWidth, kMultipleHeight, false, false, false);
+    skyMaterial_->tex[TEX_PARAM] = multipleScattering_;
     skyTransmittance_ = createTexture("sky_transmittance", pixels.data(), kAtmosphereLutWidth, kAtmosphereLutHeight, false, false, false);
     skyMaterial_->tex[TEX_BASE] = skyTransmittance_;
     flushMaterial(skyMaterial_);
     postProcessing_.setSkyTransmittance(*skyTransmittance_);
-    auto it = std::find_if(textures_.begin(), textures_.end(), [old](const auto& t) { return t.get() == old; });
-    if (it != textures_.end()) {
-        vkDestroySampler(ctx_->device, (*it)->sampler, nullptr);
-        ctx_->destroyImage((*it)->image);
-        textures_.erase(it);
+    postProcessing_.setSkyMultiple(*multipleScattering_);
+    for (Texture* previous : {old, oldMultiple}) {
+        auto it = std::find_if(textures_.begin(), textures_.end(), [previous](const auto& t) { return t.get() == previous; });
+        if (it != textures_.end()) {
+            vkDestroySampler(ctx_->device, (*it)->sampler, nullptr);
+            ctx_->destroyImage((*it)->image);
+            textures_.erase(it);
+        }
     }
 }
 
@@ -337,6 +353,7 @@ void Renderer::createTargets() {
     if (!lutTex_) { LutStrip id = identityLut(16); lutSize_ = id.size; lutTex_ = createTexture("lut_identity", id.rgba.data(), id.size * id.size, id.size, false, false, false); }
     postProcessing_.createTargets(width_, height_, colorFormat_, finalFormat_, sceneColor_, msaaDepth_, sampleSceneDepth_, bloomMask_, materialBloomSupported_, *lutTex_);
     if (skyTransmittance_) postProcessing_.setSkyTransmittance(*skyTransmittance_);
+    if (multipleScattering_) postProcessing_.setSkyMultiple(*multipleScattering_);
 }
 void Renderer::destroyTargets() {
     postProcessing_.destroyTargets();
@@ -683,29 +700,34 @@ void Renderer::updateProceduralEnvironment(const LightingSettings& L, float alti
     const int w = 256, h = 128;
     std::vector<float> px((size_t)w * h * 4);
     glm::vec3 zenith = L.zenith, horizon = L.horizon;
-    // Low-resolution CPU reference bake keeps procedural IBL broadly in step with
-    // the integrated sky without performing a costly path integration per env texel.
-    constexpr int sw = 32, sh = 16;
-    std::array<glm::vec3, sw * sh> scatter{};
-    if (integrate) for (int y = 0; y < sh; ++y) for (int x = 0; x < sw; ++x) {
-        glm::vec3 d = equirectDir((x + .5f) / sw, (y + .5f) / sh);
-        auto v = integrateSkySingleScattering(altitude, glm::dvec3(d), glm::dvec3(sun), rayleigh, mie, 8, 24, model);
-        scatter[y * sw + x] = glm::vec3(v) * sunColor * atmosphereStrength * (1.f - night);
+    // The sky and IBL use the same quantised single-scattering table. Upload only
+    // when its model/sun/altitude parameters change; synchronize descriptor users.
+    uint64_t viewHash = 1469598103934665603ull;
+    auto mixView = [&](float v) { uint32_t bits; std::memcpy(&bits, &v, 4); viewHash = (viewHash ^ bits) * 1099511628211ull; };
+    mixView(altitude); mixView(sun.y); mixView(rayleigh); mixView(mie);
+    mixView(model.planetRadiusKm); mixView(model.atmosphereHeightKm); mixView(model.rayleighHeightKm);
+    mixView(model.mieHeightKm); mixView(model.ozone); mixView(model.groundAlbedo);
+    if (integrate && (skyViewHash_ != viewHash || !skyView_)) {
+        skyViewPixels_ = buildSkyViewLut(altitude, sun.y, rayleigh, mie, model, &multiplePixels_);
+        skyViewHash_ = viewHash;
+        VK_OK(vkDeviceWaitIdle(ctx_->device));
+        Texture* old = skyView_;
+        skyView_ = createTexture("sky_view", skyViewPixels_.data(), kSkyViewWidth, kSkyViewHeight, false, false, false);
+        skyMaterial_->tex[TEX_NORMAL] = skyView_;
+        flushMaterial(skyMaterial_);
+        auto it = std::find_if(textures_.begin(), textures_.end(), [old](const auto& t) { return old && t.get() == old; });
+        if (it != textures_.end()) {
+            vkDestroySampler(ctx_->device, (*it)->sampler, nullptr);
+            ctx_->destroyImage((*it)->image);
+            textures_.erase(it);
+        }
     }
-    auto scatterSample = [&](float u, float v) {
-        float fx = u * sw - .5f, fy = glm::clamp(v * sh - .5f, 0.f, float(sh - 1));
-        int x0 = (int)std::floor(fx), y0 = (int)std::floor(fy), y1 = std::min(y0 + 1, sh - 1);
-        float tx = fx - x0, ty = fy - y0;
-        int a = (x0 % sw + sw) % sw, b = (a + 1) % sw;
-        return glm::mix(glm::mix(scatter[y0*sw+a], scatter[y0*sw+b], tx),
-                        glm::mix(scatter[y1*sw+a], scatter[y1*sw+b], tx), ty);
-    };
     for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
         float d = equirectDir((x + .5f) / w, (y + .5f) / h).y;
         auto ss = [](float a, float b, float v) { float t = glm::clamp((v - a) / (b - a), 0.f, 1.f); return t * t * (3 - 2 * t); };
         glm::vec3 c = glm::mix(horizon, zenith, ss(0.f, 0.65f, d));
         c = glm::mix(c, L.ground, ss(0.f, -0.25f, d));
-        if (integrate && d >= 0.f) c += scatterSample((x + .5f) / w, (y + .5f) / h);
+        if (integrate && d >= 0.f) c += sampleSkyViewLut(skyViewPixels_, equirectDir((x + .5f) / w, (y + .5f) / h), sun) * sunColor * atmosphereStrength * (1.f - night);
         float* o = &px[((size_t)y * w + x) * 4]; o[0] = c.x; o[1] = c.y; o[2] = c.z; o[3] = 1.f;
     }
     envSun_ = glm::vec3(0.f);
@@ -810,6 +832,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         lutSize_ = pendingLut_.size;
         postProcessing_.rebuildSets(sceneColor_, msaaDepth_, sampleSceneDepth_, bloomMask_, materialBloomSupported_, *lutTex_);
         if (skyTransmittance_) postProcessing_.setSkyTransmittance(*skyTransmittance_);
+        if (multipleScattering_) postProcessing_.setSkyMultiple(*multipleScattering_);
     }
 
     uint32_t imgIdx = 0;

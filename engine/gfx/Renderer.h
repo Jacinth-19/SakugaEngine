@@ -228,6 +228,11 @@ private:
     Texture *white_ = nullptr, *black_ = nullptr, *bump_ = nullptr;
     Material* skyMaterial_ = nullptr; // owns the sky LUT descriptor through materials_
     Texture* skyTransmittance_ = nullptr;
+    Texture* skyView_ = nullptr;
+    Texture* multipleScattering_ = nullptr;
+    std::vector<uint8_t> multiplePixels_;
+    uint64_t skyViewHash_ = 0;
+    std::vector<uint8_t> skyViewPixels_;
     AtmosphereParameters skyModel_{};
     void updateSkyAtmosphere(AtmosphereParameters model);
 };
