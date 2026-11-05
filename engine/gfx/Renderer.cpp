@@ -1126,10 +1126,13 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
         pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &renderDone_[imgIdx]; pi.swapchainCount = 1; pi.pSwapchains = &swapchain_; pi.pImageIndices = &imgIdx;
         VkResult r = vkQueuePresentKHR(ctx_->queue, &pi);
-        if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
+        if (r == VK_ERROR_OUT_OF_DATE_KHR) {
             needResize_ = true;
-            if (r == VK_ERROR_OUT_OF_DATE_KHR) presented = false;
-        } else if (r != VK_SUCCESS) VK_OK(r);
+            presented = false;
+        } else if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) VK_OK(r);
+        // SUBOPTIMAL still presents successfully. Some Android surfaces report it
+        // indefinitely (e.g. due to compositor transforms); rebuilding every
+        // frame stalls rendering. Actual size changes are detected separately.
     }
     if (capture || !presenting()) {
         VK_OK(vkWaitForFences(dev, 1, &f.fence, VK_TRUE, UINT64_MAX));
