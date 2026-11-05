@@ -1,7 +1,8 @@
 name: Publish Windows preview
 
-# One-time publication of the already successful Windows CI build. Restrict triggering to a change to this workflow on
-# this session branch: normal pushes must not publish or overwrite releases. The fixed run and commit are checked below.
+# Explicitly scoped, one-time update of the existing preview release. Ordinary
+# pushes cannot publish; changing this workflow on the session branch can.
+# Do not overwrite the original tag's assets: the newer build has a distinct SHA.
 on:
   push:
     branches: [arena/a13c5e34-sakugaengine]
@@ -17,8 +18,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      BUILD_RUN: '41299861039'
-      BUILD_SHA: fc40181bc6ae66d5c0e852ccf20740dfe2023203
+      BUILD_RUN: '42056888085'
+      BUILD_SHA: 23ced193d1cb794cf6cd89e6da59a564cce79234
       RELEASE_TAG: v0.1.0-preview
     steps:
       - uses: actions/checkout@v4
@@ -34,9 +35,10 @@ jobs:
               run = json.load(f)
           assert run['head_sha'] == os.environ['BUILD_SHA'], 'unexpected build commit'
           assert run['head_branch'] == 'arena/a13c5e34-sakugaengine', 'unexpected source branch'
-          assert run['conclusion'] == 'success', 'source build did not pass'
+          assert run['status'] == 'completed' and run['conclusion'] == 'success', 'source build did not pass'
           assert run['path'] == '.github/workflows/windows.yml', 'unexpected workflow'
           PY
+          gh release view "$RELEASE_TAG" --json isPrerelease --jq '.isPrerelease' | grep -Fx true
 
       - name: Download the verified Windows build
         uses: actions/download-artifact@v4
@@ -44,43 +46,39 @@ jobs:
           name: sakuga-windows-x64
           path: release-files
           github-token: ${{ github.token }}
-          run-id: '41299861039'
+          run-id: '42056888085'
 
       - name: Validate files and create checksums
         shell: bash
         run: |
           set -euo pipefail
-          installer=Sakuga-Engine-0.1.0-win64.exe
-          portable=Sakuga-Engine-0.1.0-win64-portable.zip
-          # upload-artifact preserves the dist/ directory for the installer; locate each file by name and normalize it.
-          find release-files -type f -printf '::notice::Downloaded %p (%s bytes)\n'
-          installer_path=$(find release-files -type f -name "$installer" -print -quit)
-          portable_path=$(find release-files -type f -name "$portable" -print -quit)
-          if [ -z "$installer_path" ] || [ -z "$portable_path" ]; then
-            echo '::error::Expected Windows installer and portable archive were not in the artifact.'; exit 1
-          fi
-          if [ "$installer_path" != "release-files/$installer" ]; then cp "$installer_path" "release-files/$installer"; fi
-          if [ "$portable_path" != "release-files/$portable" ]; then cp "$portable_path" "release-files/$portable"; fi
-          cd release-files
-          test -s "$installer" && test -s "$portable" || { echo '::error::A release file is empty.'; exit 1; }
-          unzip -tq "$portable" || { echo '::error::The portable archive is corrupt.'; exit 1; }
-          unzip -Z1 "$portable" > /tmp/sakuga-portable-files.txt
-          grep -Fqx 'sandbox.exe' /tmp/sakuga-portable-files.txt || { echo '::error::sandbox.exe is missing from the archive root.'; exit 1; }
-          grep -Eq '^shaders/.+\.spv$' /tmp/sakuga-portable-files.txt || { echo '::error::Compiled shaders missing from portable archive.'; exit 1; }
-          sha256sum "$installer" "$portable" > SHA256SUMS.txt
+          installer_path=$(find release-files -type f -name 'Sakuga-Engine-0.1.0-win64.exe' -print -quit)
+          portable_path=$(find release-files -type f -name 'Sakuga-Engine-0.1.0-win64-portable.zip' -print -quit)
+          test -s "$installer_path" && test -s "$portable_path" || { echo '::error::Expected Windows build files are missing.'; exit 1; }
+          installer=Sakuga-Engine-0.1.0-win64-23ced19-setup.exe
+          portable=Sakuga-Engine-0.1.0-win64-23ced19-portable.zip
+          cp "$installer_path" "release-files/$installer"
+          cp "$portable_path" "release-files/$portable"
+          unzip -tq "release-files/$portable"
+          python3 tools/verify_lafan1_archive.py "release-files/$portable"
+          unzip -Z1 "release-files/$portable" > /tmp/sakuga-portable-files.txt
+          grep -Fqx 'sandbox.exe' /tmp/sakuga-portable-files.txt
+          grep -Eq '^shaders/.+\.spv$' /tmp/sakuga-portable-files.txt
+          (cd release-files && sha256sum "$installer" "$portable" > SHA256SUMS-23ced19.txt)
 
-      - name: Publish preview release
+      - name: Add new files and update release notes
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Release $RELEASE_TAG already exists; refusing to replace its files." >&2
-            exit 1
-          fi
-          gh release create "$RELEASE_TAG" \
-            release-files/Sakuga-Engine-0.1.0-win64.exe \
-            release-files/Sakuga-Engine-0.1.0-win64-portable.zip \
-            release-files/SHA256SUMS.txt \
-            --target "$BUILD_SHA" --prerelease \
-            --title 'Sakuga Engine 0.1.0 — Windows preview' \
-            --notes-file .github/release-notes/windows-preview.md
+          # Never clobber pre-existing files (including a previous partial attempt).
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > existing-assets.txt
+          for file in Sakuga-Engine-0.1.0-win64-23ced19-setup.exe Sakuga-Engine-0.1.0-win64-23ced19-portable.zip SHA256SUMS-23ced19.txt; do
+            if grep -Fxq "$file" existing-assets.txt; then
+              echo "::error::Release asset $file already exists; refusing to replace it."; exit 1
+            fi
+          done
+          gh release upload "$RELEASE_TAG" \
+            release-files/Sakuga-Engine-0.1.0-win64-23ced19-setup.exe \
+            release-files/Sakuga-Engine-0.1.0-win64-23ced19-portable.zip \
+            release-files/SHA256SUMS-23ced19.txt
+          gh release edit "$RELEASE_TAG" --notes-file .github/release-notes/windows-preview.md

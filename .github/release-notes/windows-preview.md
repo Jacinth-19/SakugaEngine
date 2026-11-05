@@ -1,21 +1,25 @@
 # Sakuga Engine — Windows preview
 
-An early Windows x64 build of the animation and rendering sandbox.
+An early, unsigned Windows x64 animation and rendering sandbox. This is a **pre-release**, not a finished or stable product.
 
-## Downloads
+## Updated Windows preview (5 November 2026)
 
-- **Installer:** `Sakuga-Engine-0.1.0-win64.exe`
-- **Portable:** `Sakuga-Engine-0.1.0-win64-portable.zip` — extract the whole archive and run `sandbox.exe`.
-- **SHA256SUMS.txt:** SHA-256 checksums of both downloads.
+- **Installer:** `Sakuga-Engine-0.1.0-win64-23ced19-setup.exe`
+- **Portable:** `Sakuga-Engine-0.1.0-win64-23ced19-portable.zip` — extract the entire archive and run `sandbox.exe`.
+- **Checksums:** `SHA256SUMS-23ced19.txt`
 
-Requires a Vulkan 1.3-capable GPU and graphics driver. The Vulkan loader/driver is not bundled. The installer and executable are not code-signed; Windows may display an unknown-publisher warning.
+The installer includes a preview page and sidebar featuring two poses from earlier in-engine VRM screenshots. Their original capture environment is unknown; appearance varies by device and settings. Both updated downloads include all **77 LAFAN1 clips**. Expect substantial storage and memory use and a longer first launch while the motion cache is built.
 
-## Preview limitations
+**License:** LAFAN1 is by Ubisoft La Forge and is CC BY-NC-ND 4.0: non-commercial only, with no permission to share adapted material. Review the dataset and motion-derived media terms before redistribution. See the included `assets/licenses/LAFAN1-NOTICE.txt`.
 
-The Windows build and its GPU-free command-line smoke tests passed in GitHub Actions. The rendering and installer UI have **not** been validated on a real Windows GPU. This is not a finished or stable release.
+The updated binaries were built from branch commit [`23ced193d1cb794cf6cd89e6da59a564cce79234`](https://github.com/Jacinth-19/SakugaEngine/commit/23ced193d1cb794cf6cd89e6da59a564cce79234) in [Windows workflow run 42056888085](https://github.com/Jacinth-19/SakugaEngine/actions/runs/42056888085). The build, GPU-free executable checks, and silent installer smoke test passed. The installer interface, rendering and gameplay have **not** been visually validated on a real Windows GPU.
 
-**Android is not yet available.** There is no APK or working Android port in this release; the touch PNGs are design assets only. Linux and macOS packages are not available.
+## Requirements and platform status
 
-Two preview motion clips are included. The full 77-clip LAFAN1 library is a separate download, subject to its CC BY-NC-ND 4.0 non-commercial licence. From a source checkout, use `tools/fetch_assets.sh --motion-only` in a Bash shell. The fetch script is not included in the installed tree.
+Windows x64 requires a Vulkan 1.3-capable GPU and current graphics driver. The Vulkan loader/driver is not bundled. The installer and executable are not code-signed; Windows may display an unknown-publisher warning.
 
-Built from commit `fc40181bc6ae66d5c0e852ccf20740dfe2023203` by Windows workflow run `41299861039`. See the repository README for controls and current platform status.
+**No Android APK is included in this release.** An experimental Android debug APK is available separately from successful Android workflow artifacts; it has been tested on an emulator, not a physical phone. Linux and macOS release packages are not provided.
+
+## Original November 1 release files
+
+The existing `Sakuga-Engine-0.1.0-win64.exe`, `Sakuga-Engine-0.1.0-win64-portable.zip`, and `SHA256SUMS.txt` remain unchanged. They contain only two preview clips and were built from commit `fc40181bc6ae66d5c0e852ccf20740dfe2023203` in [Windows workflow run 41299861039](https://github.com/Jacinth-19/SakugaEngine/actions/runs/41299861039). The `v0.1.0-preview` tag remains at the original commit; the updated files above come from the explicitly linked branch commit, not that tag.
