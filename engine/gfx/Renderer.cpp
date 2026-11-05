@@ -156,14 +156,14 @@ bool Renderer::init(Context& ctx, GLFWwindow* window, uint32_t w, uint32_t h, co
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, &depthProps);
     sampleSceneDepth_ = canSampleSceneDepth(depthResult == VK_SUCCESS, depthProps.sampleCounts,
                                             ctx.props.limits.sampledImageDepthSampleCounts, ctx.msaa);
-    // A blendable, linearly sampleable R8 attachment is used for material bloom weights.
-    VkFormatProperties maskFmt{}; vkGetPhysicalDeviceFormatProperties(ctx.phys, VK_FORMAT_R8_UNORM, &maskFmt);
+    // A blendable, filterable HDR attachment stores each material's selected bloom radiance.
+    VkFormatProperties maskFmt{}; vkGetPhysicalDeviceFormatProperties(ctx.phys, colorFormat_, &maskFmt);
     const VkFormatFeatureFlags requiredMaskFeatures = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT |
         VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
     VkImageFormatProperties maskMsaaProps{}, maskResolvedProps{};
-    VkResult maskMsaaResult = vkGetPhysicalDeviceImageFormatProperties(ctx.phys, VK_FORMAT_R8_UNORM, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+    VkResult maskMsaaResult = vkGetPhysicalDeviceImageFormatProperties(ctx.phys, colorFormat_, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT, 0, &maskMsaaProps);
-    VkResult maskResolvedResult = vkGetPhysicalDeviceImageFormatProperties(ctx.phys, VK_FORMAT_R8_UNORM, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+    VkResult maskResolvedResult = vkGetPhysicalDeviceImageFormatProperties(ctx.phys, colorFormat_, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, &maskResolvedProps);
     materialBloomSupported_ = canUseMaterialBloomMask(maskMsaaResult == VK_SUCCESS,
         (maskFmt.optimalTilingFeatures & requiredMaskFeatures) == requiredMaskFeatures, ctx.props.limits.maxColorAttachments,
@@ -344,8 +344,8 @@ void Renderer::createTargets() {
     msaaDepth_ = ctx_->createImage(width_, height_, kDepthFormat, depthUsage, 1, ms, VK_IMAGE_ASPECT_DEPTH_BIT);
     sceneColor_ = ctx_->createImage(width_, height_, colorFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     if (materialBloomSupported_) {
-        bloomMask_ = ctx_->createImage(width_, height_, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-        if (ms != VK_SAMPLE_COUNT_1_BIT) msaaBloomMask_ = ctx_->createImage(width_, height_, VK_FORMAT_R8_UNORM,
+        bloomMask_ = ctx_->createImage(width_, height_, colorFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+        if (ms != VK_SAMPLE_COUNT_1_BIT) msaaBloomMask_ = ctx_->createImage(width_, height_, colorFormat_,
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT, 1, ms);
     }
     finalColor_ = ctx_->createImage(width_, height_, finalFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
@@ -401,7 +401,7 @@ VkPipeline Renderer::makePipeline(VkShaderModule vs, VkShaderModule fs, int vert
     VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dy{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO}; dy.dynamicStateCount = 2; dy.pDynamicStates = dyn;
     VkPipelineRenderingCreateInfo ri{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    VkFormat colorFormats[2] = {colorFmt, VK_FORMAT_R8_UNORM};
+    VkFormat colorFormats[2] = {colorFmt, colorFmt};
     ri.colorAttachmentCount = hasColor ? (materialBloomSupported_ ? 2u : 1u) : 0u; ri.pColorAttachmentFormats = colorFormats; ri.depthAttachmentFormat = kDepthFormat;
     VkGraphicsPipelineCreateInfo gp{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     gp.pNext = &ri; gp.stageCount = 2; gp.pStages = st; gp.pVertexInputState = &vi; gp.pInputAssemblyState = &ia; gp.pViewportState = &vp;
@@ -428,8 +428,9 @@ void Renderer::createPipelines(const std::string& dir) {
              ph = load("post_halation.frag"), pc = load("post_composite.frag"),
              pa = load(ctx_->msaa == VK_SAMPLE_COUNT_1_BIT ? "post_atmosphere_single.frag" : "post_atmosphere_ms.frag"),
              pdof = load(ctx_->msaa == VK_SAMPLE_COUNT_1_BIT ? "post_dof_single.frag" : "post_dof_ms.frag"),
-             pfinish = load("post_finish.frag");
-        postProcessing_.createPipelines(pv, pf, pd, pu, ph, pc, pa, pdof, pfinish, colorFormat_, finalFormat_);
+             pfinish = load("post_finish.frag"),
+             pfinishDepth = load(ctx_->msaa == VK_SAMPLE_COUNT_1_BIT ? "post_finish_depth_single.frag" : "post_finish_depth_ms.frag");
+        postProcessing_.createPipelines(pv, pf, pd, pu, ph, pc, pa, pdof, pfinish, pfinishDepth, colorFormat_, finalFormat_);
     }
     pipeLine_    = makePipeline(lnV, lnF, 2, VK_CULL_MODE_NONE,  true, false, ms, true, colorFormat_, false, VK_PRIMITIVE_TOPOLOGY_LINE_LIST, true);
 }
@@ -896,6 +897,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     g.groundColor = glm::vec4(L.ground, 0);
     const bool screenFog = usePostAtmosphere(in.post.atmosphere, in.post.enabled, sampleSceneDepth_, in.post.physicalAerial ? 1.f : L.fogDensity) && supportsAtmosphereProjection(in.proj);
     const bool dofOn = useDepthOfField(in.post.enabled, in.post.depthOfField, sampleSceneDepth_, supportsAtmosphereProjection(in.proj));
+    const bool geometryInkOn = useGeometryInk(in.post, sampleSceneDepth_, supportsAtmosphereProjection(in.proj));
     // Avoid double fog: the post pass replaces the legacy per-surface fog when active.
     g.fogColor = glm::vec4(L.fogColor, screenFog ? 0.f : L.fogDensity);
     g.misc = glm::vec4(1.f, 0.f, L.wetPreviewTime, 1.f / (float)kShadowRes);
@@ -989,7 +991,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         }
         ca.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; ca.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.f}};
         da.imageView = msaaDepth_.view; da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; da.storeOp = (screenFog || dofOn) ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE; da.clearValue.depthStencil = {1.f, 0};
+        da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; da.storeOp = (screenFog || dofOn || geometryInkOn) ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE; da.clearValue.depthStencil = {1.f, 0};
         VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
         VkRenderingAttachmentInfo colorAttachments[2] = {ca, {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}};
         if (materialBloomSupported_) {
@@ -1045,7 +1047,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     aerial.altitudeKm = glm::clamp(in.cameraPos.y * .001f, 0.f, skyModel_.atmosphereHeightKm);
     const bool detailTiming = postTimingPool_ && in.post.gpuDetailedProfiling;
     f.detailedTimingActive = postProcessing_.record(cmd, sceneColor_, msaaDepth_, bloomMask_, materialBloomSupported_, finalColor_, in.post,
-        screenFog, dofOn, in.proj, L.fogColor, L.fogDensity, in.time, lutSize_, aerial, detailTiming ? postTimingPool_ : VK_NULL_HANDLE,
+        screenFog, dofOn, geometryInkOn, in.proj, L.fogColor, L.fogDensity, in.time, lutSize_, aerial, detailTiming ? postTimingPool_ : VK_NULL_HANDLE,
         frameIndex_ * kFrameTimingQueries + 4);
     f.detailedTimingRecorded = detailTiming;
     if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * kFrameTimingQueries + 1);

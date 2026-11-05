@@ -1,6 +1,7 @@
 #include "Check.h"
 #include "post/AtmosphereMath.h"
 #include "post/DofMath.h"
+#include "post/OutlineMath.h"
 #include "post/AerialMath.h"
 #include "post/PostSettings.h"
 #include <glm/gtc/matrix_transform.hpp>
@@ -21,6 +22,12 @@ int main() {
     CHECK(!sk::useDepthOfField(true, 0.f, true, true));
     CHECK(!sk::useDepthOfField(true, 2.f, false, true));
     CHECK(!sk::useDepthOfField(true, 2.f, true, false));
+    CHECK_NEAR(sk::outlineDepthDifference(1.f, 1.f, -1.001f, -.1f), 0.f, 1e-6);
+    CHECK_NEAR(sk::outlineDepthDifference(.5f, 1.f, -1.001f, -.1f), 1.f, 1e-6);
+    CHECK_NEAR(sk::outlineDepthDifference(.5f, .5f, -1.001f, -.1f), 0.f, 1e-6);
+    CHECK(sk::outlineDepthDifference(.5f, .8f, -1.001f, -.1f) > .9f);
+    auto nn = sk::outlineNormal({1,0,0}, {0,1,0});
+    CHECK_NEAR(nn.z, 1.f, 1e-6); CHECK_NEAR(glm::length(sk::outlineNormal({0,0,0}, {0,1,0})), 0.f, 1e-6);
     auto p = glm::perspective(glm::radians(55.f), 16.f/9.f, .1f, 120.f); p[1][1] *= -1.f;
     CHECK(sk::supportsAtmosphereProjection(p));
     CHECK(!sk::supportsAtmosphereProjection(glm::mat4(1.f)));
@@ -34,6 +41,8 @@ int main() {
         auto uv = glm::vec2(ndc) * .5f + .5f;
         float reconstructed = sk::perspectiveDepthDistance(ndc.z, uv, p[0][0], p[1][1], p[2][2], p[3][2]);
         CHECK_NEAR(reconstructed, glm::length(view), .02f);
+        auto position = sk::outlineReconstructPosition(uv, ndc.z, p[0][0], p[1][1], p[2][2], p[3][2]);
+        CHECK(glm::length(position - view) < .02f);
         CHECK_FINITE(sk::fogForSceneDepth(ndc.z, uv, p, .02f));
     }
     CHECK_NEAR(sk::fogForSceneDepth(1.f, {.5f,.5f}, p, .02f), 0.f, 1e-6);

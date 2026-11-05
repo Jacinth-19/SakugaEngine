@@ -21,7 +21,8 @@ struct PostSettings {
     float halation = 0.f;                          // HDR red-biased bloom diffusion, 0 = off
     float lensFlare = 0.f;                         // stylised HDR ghost reflections from bloom
     float chromatic = 0.f;                        // pixel displacement at screen edges
-    float ink = 0.f, painterly = 0.f;              // colour-edge darkening and a small smoothing filter
+    float depthInk = 0.f, normalInk = 0.f;           // sampled depth silhouettes and depth-reconstructed normal edges
+    float ink = 0.f, painterly = 0.f;              // colour-edge darkening and directional screen-space stroke approximation
     int colourLevels = 0;                         // 0 = off; otherwise 2..32 levels/channel
     float depthOfField = 0.f, focusDistance = 8.f, focusRange = 4.f; // opt-in, sampled scene depth required
     float lutStrength = 0.f;                       // colour grading LUT (Renderer::setPostLut), 0 = off
@@ -32,7 +33,10 @@ struct PostPlan { bool bloom, halation, finish; uint32_t halationWidth, halation
 inline PostPlan planPost(const PostSettings& p, uint32_t width, uint32_t height) {
     bool bloom = p.enabled && p.bloom && p.bloomIntensity > 0.f;
     return {bloom, bloom && p.halation > 0.f,
-            p.enabled && (p.chromatic > 0.f || p.ink > 0.f || p.painterly > 0.f || p.colourLevels >= 2), std::max(1u, width / 4), std::max(1u, height / 4)};
+            p.enabled && (p.chromatic > 0.f || p.ink > 0.f || p.depthInk > 0.f || p.normalInk > 0.f || p.painterly > 0.f || p.colourLevels >= 2), std::max(1u, width / 4), std::max(1u, height / 4)};
+}
+inline bool useGeometryInk(const PostSettings& p, bool depthSupported, bool projectionSupported) {
+    return p.enabled && (p.depthInk > 0.f || p.normalInk > 0.f) && depthSupported && projectionSupported;
 }
 // Applying a creative profile preserves the user's exposure, LUT selection/strength and enabled switch.
 enum class PostProfile { Celestial, Cinematic, Atmospheric, Painterly };
@@ -40,7 +44,7 @@ inline PostSettings applyPostProfile(PostProfile profile, PostSettings p) {
     p.bloom = true; p.bloomSelection = 0; p.bloomThreshold = 1.f; p.bloomKnee = .5f; p.bloomRadius = 1.f;
     p.tonemap = 1; p.vignetteSoftness = .65f;
     p.atmosphere = (profile == PostProfile::Atmospheric);
-    p.lensFlare = p.chromatic = p.ink = p.painterly = p.depthOfField = 0.f; p.colourLevels = 0;
+    p.lensFlare = p.chromatic = p.ink = p.depthInk = p.normalInk = p.painterly = p.depthOfField = 0.f; p.colourLevels = 0;
     switch (profile) {
     case PostProfile::Celestial:
         p.bloomIntensity=.20f; p.halation=0.f; p.saturation=1.08f; p.contrast=1.02f;

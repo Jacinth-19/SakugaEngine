@@ -1309,7 +1309,11 @@ void Sandbox::drawUI(float wallDt) {
         ImGui::SliderFloat("Lens flare (requires bloom)", &post_.lensFlare, 0.f, .5f);
         ImGui::SliderFloat("Chromatic aberration (px)", &post_.chromatic, 0.f, 3.f);
         ImGui::SliderFloat("Screen ink edges", &post_.ink, 0.f, 1.f);
-        ImGui::SliderFloat("Painterly smoothing", &post_.painterly, 0.f, 1.f);
+        ImGui::BeginDisabled(!renderer_.supportsPostAtmosphere());
+        ImGui::SliderFloat("Depth outline", &post_.depthInk, 0.f, 1.f);
+        ImGui::SliderFloat("Reconstructed-normal outline", &post_.normalInk, 0.f, 1.f);
+        ImGui::EndDisabled();
+        ImGui::SliderFloat("Directional brush-like smoothing", &post_.painterly, 0.f, 1.f);
         ImGui::SliderInt("Colour levels (0-1 = off)", &post_.colourLevels, 0, 32);
         ImGui::BeginDisabled(!renderer_.supportsPostAtmosphere());
         ImGui::SliderFloat("Depth of field radius (px)", &post_.depthOfField, 0.f, 8.f);
@@ -1674,9 +1678,12 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     if (ImGui::Button("FX")) {
         const bool enable = post_.ink <= 0.f;
         post_.ink = enable ? .2f : 0.f; post_.chromatic = enable ? .5f : 0.f;
+        post_.painterly = enable ? .15f : 0.f;
         post_.lensFlare = enable ? .12f : 0.f;
         post_.materialBloomMask = enable && renderer_.supportsMaterialBloomMask();
         post_.depthOfField = enable && renderer_.supportsPostAtmosphere() ? 2.f : 0.f;
+        post_.depthInk = enable && renderer_.supportsPostAtmosphere() ? .3f : 0.f;
+        post_.normalInk = enable && renderer_.supportsPostAtmosphere() ? .2f : 0.f;
     }
     if (frame_ == 0) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
@@ -1745,6 +1752,8 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         ImGui::SliderFloat("Lens ghosts##mobilepost", &post_.lensFlare, 0.f, 1.f);
         ImGui::BeginDisabled(!renderer_.supportsPostAtmosphere());
         ImGui::Checkbox("Depth fog##mobilepost", &post_.atmosphere);
+        ImGui::SliderFloat("Depth outline##mobilepost", &post_.depthInk, 0.f, 1.f);
+        ImGui::SliderFloat("Normal outline##mobilepost", &post_.normalInk, 0.f, 1.f);
         ImGui::SliderFloat("DoF radius##mobilepost", &post_.depthOfField, 0.f, 8.f);
         ImGui::SliderFloat("Focus distance##mobilepost", &post_.focusDistance, .1f, 100.f);
         ImGui::SliderFloat("Focus range##mobilepost", &post_.focusRange, .1f, 50.f);
@@ -1834,7 +1843,8 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "depth atmosphere frame presented"); mobileLoggedAtmosphere_ = true;
     }
     if (rendered && !mobileLoggedFinish_ && planPost(fi.post, renderer_.width(), renderer_.height()).finish &&
-        (!renderer_.supportsPostAtmosphere() || useDepthOfField(fi.post.enabled, fi.post.depthOfField, true, supportsAtmosphereProjection(fi.proj)))) {
+        (!renderer_.supportsPostAtmosphere() || (useDepthOfField(fi.post.enabled, fi.post.depthOfField, true, supportsAtmosphereProjection(fi.proj)) &&
+         useGeometryInk(fi.post, true, supportsAtmosphereProjection(fi.proj))))) {
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "finish effects frame presented"); mobileLoggedFinish_ = true;
     }
     if (rendered && mobileRestored_) {

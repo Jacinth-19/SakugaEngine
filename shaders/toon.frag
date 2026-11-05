@@ -333,10 +333,6 @@ void main() {
     float alpha = baseTex.a * M.m_alpha;
     alpha = saturate(min(max(gl_FrontFacing ? 1.0 : 0.0, M.m_doubleSided), alpha));
     if (alpha - M.m_alphaClip < 0.0) discard;
-    vec3 bloomEmissionRgb = emissionTex.rgb * M.m_emissionColor.rgb * M.m_emissionStrength * saturate(emissionTex.a + emissionTex.r + flowTex.r * 0.35);
-    float bloomEmission = clamp(max(bloomEmissionRgb.r, max(bloomEmissionRgb.g, bloomEmissionRgb.b)), 0.0, 1.0);
-    float bloomWeight = clamp(M.m_bloomWeight, 0.0, 1.0) * mix(1.0, bloomEmission, clamp(M.m_bloomEmissionOnly, 0.0, 1.0));
-    outBloomMask = vec4(bloomWeight, 0.0, 0.0, alpha);
 
     vec3 normalTS = texture(tNormal, vUV).xyz * 2.0 - 1.0;
     normalTS = normalize(mix(vec3(0, 0, 1), normalTS, M.m_normalStrength));
@@ -409,6 +405,7 @@ void main() {
         dbg = mix(dbg, vec3(shadowAtten),  step(11.5, dm) * (1.0 - step(12.5, dm)));
         dbg = mix(dbg, vec3(fract(vUV), 0.0), step(12.5, dm));
         outColor = vec4(encodeOutput(saturate(dbg * M.m_debugExposure)), alpha);
+        outBloomMask = vec4(0.0, 0.0, 0.0, alpha);
         return;
     }
 
@@ -449,7 +446,8 @@ void main() {
     vec3 stylizedAdd = faceHighlight * M.m_highlightStrength * mix(0.4, 1.0, NoL) * baseTex.rgb;
 
     float emissionMask = saturate(emissionTex.a + emissionTex.r + flowTex.r * 0.35);
-    stylizedAdd += emissionTex.rgb * M.m_emissionColor.rgb * emissionMask * M.m_emissionStrength;
+    vec3 emittedRadiance = emissionTex.rgb * M.m_emissionColor.rgb * emissionMask * M.m_emissionStrength;
+    stylizedAdd += emittedRadiance;
 
     float rim = pow(1.0 - NoV, M.m_rimPower) * M.m_rimIntensity;
     stylizedAdd += rim * M.m_rimColor.rgb;
@@ -491,10 +489,14 @@ void main() {
         hybridColor += sss; pureNprColor += sss;
     }
     vec3 color = mix(hybridColor, pureNprColor, max(splitNprSide(), G.style.x));
-    color *= mix(1.0, contactAO(vPosWS, normalize(vNormalWS)), M.m_selfShadow);
-    color *= mix(1.0, 0.62, saturate(G.skyParams.x));                       // night: keep white clothes from glowing in the dark
+    float surfaceAttenuation = mix(1.0, contactAO(vPosWS, normalize(vNormalWS)), M.m_selfShadow) * mix(1.0, 0.62, saturate(G.skyParams.x));
+    color *= surfaceAttenuation;                       // night: keep white clothes from glowing in the dark
     float dist = length(G.cameraPos.xyz - vPosWS);
     float fog = 1.0 - exp2(-G.fogColor.w * G.fogColor.w * dist * dist * 1.442695);
     color = mix(color, G.fogColor.rgb, clamp(fog, 0.0, 1.0));
     outColor = vec4(encodeOutput(color), alpha);
+    // Select actual emitted radiance, not a scalar gate on unrelated surface light.
+    vec3 emissionOnly = emittedRadiance * surfaceAttenuation * (1.0 - clamp(fog, 0.0, 1.0));
+    vec3 selected = mix(color, emissionOnly, clamp(M.m_bloomEmissionOnly, 0.0, 1.0));
+    outBloomMask = vec4(encodeOutput(selected) * clamp(M.m_bloomWeight, 0.0, 1.0), alpha);
 }

@@ -15,11 +15,15 @@ int main() {
     CHECK(!sk::canUseMaterialBloomMask(true, true, 1, 7, 4, true));
     CHECK(!sk::canUseMaterialBloomMask(true, true, 2, 3, 4, true));
     CHECK(!sk::canUseMaterialBloomMask(true, true, 2, 7, 4, false));
-    CHECK_NEAR(sk::materialBloomWeight(.8f, 0.f, 0.f), .8f, 1e-6);
-    CHECK_NEAR(sk::materialBloomWeight(.8f, 1.f, 0.f), 0.f, 1e-6);
-    CHECK_NEAR(sk::materialBloomWeight(.8f, 1.f, .5f), .4f, 1e-6);
-    CHECK_NEAR(sk::blendBloomWeight(1.f, 0.f, .25f), .75f, 1e-6);
-    CHECK_NEAR(sk::blendBloomWeight(0.f, 1.f, .25f), .25f, 1e-6);
+    const glm::vec3 brightSurface(8.f, 8.f, 8.f), redEmission(3.f, 0.f, 0.f);
+    auto full = sk::materialBloomRadiance(brightSurface, redEmission, 1, 0);
+    auto emissive = sk::materialBloomRadiance(brightSurface, redEmission, 1, 1);
+    CHECK_NEAR(full.g, 8, 1e-6); CHECK_NEAR(emissive.r, 3, 1e-6); CHECK_NEAR(emissive.g, 0, 1e-6);
+    CHECK_NEAR(glm::length(sk::materialBloomRadiance(brightSurface, {0,0,0}, 1, 1)), 0, 1e-6);
+    auto transparent = sk::blendBloomRadiance(glm::vec3(2), emissive, .25f);
+    CHECK_NEAR(transparent.r, 2.25f, 1e-6); CHECK_NEAR(transparent.g, 1.5f, 1e-6);
+    auto weighted = sk::materialBloomRadiance(brightSurface, redEmission, .5f, 1);
+    CHECK_NEAR(weighted.r, 1.5f, 1e-6);
     auto excludedBright = sk::bloomPrefilterTap({20,20,20}, 1.f, .5f, 0, 0.f);
     auto selectedDark = sk::bloomPrefilterTap({.1f,.1f,.1f}, 1.f, .5f, 0, 1.f);
     CHECK_NEAR(glm::length(excludedBright + selectedDark), 0, 1e-6);
@@ -43,6 +47,12 @@ int main() {
     CHECK(!sk::planPost(finish, 16, 16).finish);
     finish.ink = .2f; CHECK(sk::planPost(finish, 16, 16).finish);
     finish.enabled = false; CHECK(!sk::planPost(finish, 16, 16).finish);
+    finish = {}; finish.depthInk = .5f;
+    CHECK(sk::planPost(finish, 16, 16).finish);
+    CHECK(sk::useGeometryInk(finish, true, true));
+    CHECK(!sk::useGeometryInk(finish, false, true)); CHECK(!sk::useGeometryInk(finish, true, false));
+    finish.enabled = false; CHECK(!sk::useGeometryInk(finish, true, true));
+    finish = {}; finish.normalInk = .5f; CHECK(sk::useGeometryInk(finish, true, true));
     finish = {}; finish.colourLevels = 1; CHECK(!sk::planPost(finish, 16, 16).finish);
     finish.colourLevels = 2; CHECK(sk::planPost(finish, 16, 16).finish);
     finish = {}; finish.lensFlare = .2f; CHECK(!sk::planPost(finish, 16, 16).finish); // lens is HDR composite

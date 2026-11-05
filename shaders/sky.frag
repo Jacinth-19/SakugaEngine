@@ -118,9 +118,11 @@ vec4 volumeClouds(vec3 d, vec3 sunDir, vec3 sunCol, vec3 ambient, float altitude
 }
 
 void main() {
-    outBloomMask = vec4(clamp(G.style.y, 0.0, 1.0), 0.0, 0.0, 1.0);
     vec3 d = normalize(vDir);
-    if (G.envParams.z > 0.5) { outColor = vec4(encodeOutput(textureLod(uEnv, equirectUV(envRotate(d)), 0.0).rgb * G.envParams.x), 1.0); return; }
+    if (G.envParams.z > 0.5) {
+        vec3 env = encodeOutput(textureLod(uEnv, equirectUV(envRotate(d)), 0.0).rgb * G.envParams.x);
+        outColor = vec4(env, 1.0); outBloomMask = vec4(env * clamp(G.style.y, 0.0, 1.0), 1.0); return;
+    }
 
     vec3 L = normalize(G.lightDir.xyz), sunCol = G.lightColor.rgb;
     float h = clamp(d.y, 0.0, 1.0), night = G.skyParams.x, time = G.skyHorizon.w, cover = G.skyZenith.w;
@@ -231,4 +233,5 @@ void main() {
         c += sunCol * pow(sd, 3.0) * streak * streak * (0.04 + 0.10 * rayLowSun) * (1.0 - night) * smoothstep(-0.05, 0.2, d.y);
     }
     outColor = vec4(encodeOutput(c), 1.0);
+    outBloomMask = vec4(encodeOutput(c) * clamp(G.style.y, 0.0, 1.0), 1.0);
 }
