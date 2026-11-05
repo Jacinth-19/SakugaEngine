@@ -26,7 +26,7 @@
 
 ### Android
 
-Download `sakuga-android-animation-preview-debug` from the latest successful **[full-library Android build](https://github.com/Jacinth-19/SakugaEngine/actions/workflows/android.yml?query=branch%3Aarena%2Fa13c5e34-sakugaengine)**, extract the ZIP and install the APK on a compatible Android device. This debug-signed preview was tested on an x86_64 emulator, not a physical phone; it is not a Play Store release. Installing updates from builds signed with different debug keys may require uninstalling the previous APK. Allow substantial storage and first-run processing time.
+Download the [Android preview APK](https://github.com/Jacinth-19/SakugaEngine/releases/download/v0.1.0-preview/Sakuga-Android-0.1.0-23ced19-debug.apk) directly from the [release](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview). It supports Android 8+ on arm64-v8a and x86_64; the 3D sandbox additionally requires Vulkan 1.3, dynamic rendering and synchronization2. Unsupported Vulkan devices use a separate synthetic-rig Canvas preview, not the full 3D sandbox. This debug-signed preview was tested on an x86_64 emulator, not a physical phone; it is not a Play Store release. Installing a build signed with a different debug key may require uninstalling the previous app, which removes its app data. Allow substantial storage and first-run processing time. Newer APKs may be available from the [Android workflow](https://github.com/Jacinth-19/SakugaEngine/actions/workflows/android.yml?query=branch%3Aarena%2Fa13c5e34-sakugaengine).
 
 ### Find your way around
 
@@ -104,7 +104,7 @@ cmake --build build-tests --parallel
 ctest --test-dir build-tests --output-on-failure
 ```
 
-The Android debug APK is available as an artifact on successful **Android sandbox** workflow runs. The full-motion test skips locally if the separately downloaded clip library is absent; CI fetches and verifies it. Passing GPU-free tests does **not** replace visual testing on a real device.
+The Android debug APK is available on the [preview release](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview) and as an artifact on successful **Android sandbox** workflow runs. The full-motion test skips locally if the separately downloaded clip library is absent; CI fetches and verifies it. Passing GPU-free tests does **not** replace visual testing on a real device.
 
 ## More information
 
