@@ -14,6 +14,10 @@ What is included
   * config\  - input actions and ui_theme.json (the ImGui look; F12 in the app edits it live).
   * shaders\ - precompiled SPIR-V, loaded at start-up.
 
+The setup preview images are crops of earlier in-engine screenshots; their capture environment
+was not recorded. The sample avatar is by pixiv Inc. (VRM 1.0 license). Appearance and performance
+on your device may differ. See docs/media/README.md in the source repository for provenance.
+
 The 77 LAFAN1 BVH clips by Ubisoft La Forge are distributed under CC BY-NC-ND 4.0.
 The license permits non-commercial use and does not permit sharing adapted material.
 See assets\licenses for attribution, source, license text and warranty disclaimer.

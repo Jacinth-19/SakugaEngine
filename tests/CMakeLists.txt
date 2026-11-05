@@ -189,6 +189,7 @@ add_custom_target(quality COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
   add_test(NAME stage_lafan1_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/stage_lafan1_test.py)
+  add_test(NAME installer_art_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/installer_art_test.py)
 endif()
 
 add_executable(auto_quality_test ${CMAKE_CURRENT_SOURCE_DIR}/auto_quality_test.cpp)

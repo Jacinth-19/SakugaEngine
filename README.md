@@ -19,7 +19,7 @@
 ### Windows x64
 
 1. Open the latest successful **[full-library Windows build](https://github.com/Jacinth-19/SakugaEngine/actions/workflows/windows.yml?query=branch%3Aarena%2Fa13c5e34-sakugaengine)** and download the `sakuga-windows-x64` artifact (GitHub sign-in may be required). It contains an installer and a portable ZIP.
-2. Run the installer, or extract the **whole** portable archive to a folder you can write to. Launch **Sakuga Engine** or `sandbox.exe`.
+2. Run the installer, or extract the **whole** portable archive to a folder you can write to. The installer shows earlier in-engine captures of the sample VRM avatar in two poses; your settings and device may produce a different appearance. Launch **Sakuga Engine** or `sandbox.exe`.
 3. You need a **Vulkan 1.3-capable GPU and a current graphics driver**. The installer does not include the Vulkan runtime or driver. The older [Windows release](https://github.com/Jacinth-19/SakugaEngine/releases/tag/v0.1.0-preview) has only two clips.
 
 > **Preview:** the Windows executable is built and command-line smoke-tested in GitHub Actions, but gameplay, rendering and the installer UI still need validation on a real Windows GPU. The release is **unsigned** and Windows may warn about an unknown publisher. [Signing and hardware test details](docs/WINDOWS_SIGNING_AND_TESTING.md).

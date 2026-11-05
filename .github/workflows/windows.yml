@@ -190,6 +190,21 @@ jobs:
           }
           Get-ChildItem dist
 
+      - name: Smoke test the compiled installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist/*.exe | Select-Object -First 1
+          if (-not $installer) { throw "Compiled installer missing" }
+          $destination = Join-Path $env:RUNNER_TEMP "sakuga-installer-smoke"
+          $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ("/DIR=`"$destination`""))
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList $arguments -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer smoke failed with exit code $($process.ExitCode)" }
+          if (-not (Test-Path "$destination/sandbox.exe") -or -not (Test-Path "$destination/assets/models/AvatarSample.vrm")) { throw "Installed sandbox or avatar missing" }
+          if ((Get-ChildItem "$destination/assets/motion" -Filter *.bvh).Count -ne 77) { throw "Installed motion library is incomplete" }
+          & "$destination/sandbox.exe" --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Installed executable smoke failed" }
+          Write-Host "::notice::Installer ran silently and installed the sandbox, sample avatar and 77 clips; no UI or GPU validation."
+
       - name: Upload the installer and the portable zip
         uses: actions/upload-artifact@v4
         with:

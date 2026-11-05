@@ -5,14 +5,16 @@ Inno Setup will use these for the wizard sidebar, the small header logo, the opt
 setup icon. They are *generated*, not committed: `python3 tools/gen_installer_art.py` (which .github/workflows/windows.yml
 runs before ISCC) writes
 
-    side_light.png / side_dark.png    164x314  large wizard image (modern style; moved/hidden in 6.7 background mode)
+    side_light.png / side_dark.png    164x314  in-engine avatar screenshots in the wizard sidebar
     small_light.png / small_dark.png  55x58    small wizard image (header logo)
     back_light.png / back_dark.png    640x480  wizard background image (Inno 6.7+), used with WizardBackImageOpacity
     side_light.bmp / small_light.bmp           BMP fallbacks for Inno < 6.6 (no PNG/alpha support)
+    avatar_preview.png / avatar_preview.bmp    two in-engine VRM views for the preview page
     sakuga.ico                                multi-size icon (16..256, 32bpp)
 
 The palette is the one in config/ui_theme.json: near-black blue-grey panels, a cyan accent, one white highlight.
-The motif is a comet: a decaying motion trail, which is what the engine is about.
+The mark uses a comet; the avatar art comes from the repository's earlier in-engine screenshots.
+See docs/media/README.md for provenance and the LAFAN1 license notice.
 """
 import math
 import pathlib
@@ -131,6 +133,89 @@ class Canvas:
         return bytes(out)
 
 
+# -------------------------------------------------------------------- screenshot source
+# PNG reader for the repository's own non-interlaced, 8-bit RGBA screenshots.
+# No optional image library or external download is needed to rebuild the artwork.
+def read_screenshot(path):
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError(f"not a PNG: {path}")
+    pos, chunks, header = 8, [], None
+    while pos < len(data):
+        n = struct.unpack_from(">I", data, pos)[0]; tag = data[pos + 4:pos + 8]
+        payload = data[pos + 8:pos + 8 + n]
+        crc = struct.unpack_from(">I", data, pos + 8 + n)[0]
+        if zlib.crc32(tag + payload) & 0xffffffff != crc:
+            raise ValueError(f"invalid PNG checksum: {path}")
+        pos += n + 12
+        if tag == b"IHDR": header = struct.unpack(">IIBBBBB", payload)
+        elif tag == b"IDAT": chunks.append(payload)
+        elif tag == b"IEND": break
+    if not header or header[2:] != (8, 6, 0, 0, 0):
+        raise ValueError(f"expected non-interlaced 8-bit RGBA screenshot: {path}")
+    w, h = header[:2]; stride = w * 4
+    raw = zlib.decompress(b"".join(chunks))
+    if len(raw) != (stride + 1) * h:
+        raise ValueError(f"unexpected screenshot dimensions: {path}")
+    result = bytearray(stride * h); previous = bytearray(stride)
+    for y in range(h):
+        start = y * (stride + 1); filt = raw[start]; scan = bytearray(raw[start + 1:start + 1 + stride])
+        if filt > 4: raise ValueError(f"unsupported PNG filter: {filt}")
+        for x in range(stride):
+            a = scan[x - 4] if x >= 4 else 0; b = previous[x]; c = previous[x - 4] if x >= 4 else 0
+            if filt == 1: predictor = a
+            elif filt == 2: predictor = b
+            elif filt == 3: predictor = (a + b) // 2
+            elif filt == 4:
+                p = a + b - c; pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                predictor = a if pa <= pb and pa <= pc else b if pb <= pc else c
+            else: predictor = 0
+            scan[x] = (scan[x] + predictor) & 255
+        result[y * stride:(y + 1) * stride] = scan; previous = scan
+    if min(result[3::4]) != 255:
+        raise ValueError(f"screenshot must be opaque: {path}")
+    return w, h, result
+
+
+def place_crop(dst, dw, dh, image, crop, rect):
+    """Bilinearly resize an opaque screenshot crop into a destination RGB rectangle."""
+    sw, sh, src = image; x0, y0, x1, y1 = crop; dx, dy, w, h = rect
+    if not (0 <= x0 < x1 <= sw and 0 <= y0 < y1 <= sh and 0 <= dx and 0 <= dy and dx+w <= dw and dy+h <= dh):
+        raise ValueError("screenshot crop/rectangle outside image")
+    for y in range(h):
+        fy = max(y0, min(y1 - 1, y0 + (y + .5) * (y1 - y0) / h - .5))
+        iy = int(fy); jy = min(iy + 1, y1 - 1); ty = fy - iy
+        for x in range(w):
+            fx = max(x0, min(x1 - 1, x0 + (x + .5) * (x1 - x0) / w - .5))
+            ix = int(fx); jx = min(ix + 1, x1 - 1); tx = fx - ix
+            indices = ((iy * sw + ix)*4, (iy * sw + jx)*4, (jy * sw + ix)*4, (jy * sw + jx)*4)
+            out = ((dy + y) * dw + dx + x) * 3
+            for k in range(3):
+                a = src[indices[0]+k]*(1-tx) + src[indices[1]+k]*tx
+                b = src[indices[2]+k]*(1-tx) + src[indices[3]+k]*tx
+                dst[out+k] = int(round(a*(1-ty)+b*ty))
+
+
+def avatar_sidebar(image, crop):
+    w, h = 164, 314
+    rgb = bytearray(w*h*3)
+    place_crop(rgb, w, h, image, crop, (0, 0, w, h))
+    return w, h, bytes(rgb)
+
+
+def avatar_preview(standing, posed):
+    # Two deliberately separate, unaltered screenshot crops, framed in the app palette.
+    w, h = 560, 286
+    rgb = bytearray((12, 19, 30) * (w*h))
+    for x in (6, 284):
+        for y in range(5, 281):
+            for xx in range(x, x+270):
+                i=(y*w+xx)*3; rgb[i:i+3]=bytes((67, 145, 166))
+    place_crop(rgb, w, h, standing, (0, 0, 900, 900), (10, 12, 262, 262))
+    place_crop(rgb, w, h, posed, (55, 260, 695, 900), (288, 12, 262, 262))
+    return w, h, bytes(rgb)
+
+
 # -------------------------------------------------------------------- writers
 def write_png(path, w, h, rgb):
     raw = b"".join(b"\x00" + rgb[y * w * 3:(y + 1) * w * 3] for y in range(h))
@@ -181,30 +266,6 @@ def write_ico(path, sizes_rgb):
 
 
 # -------------------------------------------------------------------- the art
-def sidebar(dark):
-    w, h = 164, 314
-    c = Canvas(w, h)
-    c.vgrad(BG_TOP if dark else LIGHT_TOP, BG_BOTTOM if dark else LIGHT_BOTTOM)
-    accent = ACCENT if dark else LIGHT_ACCENT
-    # a vertical accent hairline on the left edge, fading out
-    for y in range(c.H):
-        t = y / c.H
-        a = (1.0 - abs(t - 0.5) * 1.6) * 0.55
-        for x in range(0, 2 * c.ss):
-            c.blend(x, y, accent, max(0.0, a))
-    # the mark
-    c.comet(w * 0.5 * c.ss, h * 0.33 * c.ss, 47 * c.ss, turns=1.8, tilt=-0.15,
-            colour=accent, highlight=WHITE if dark else (0.05, 0.26, 0.36), glow=0.45)
-    # caption-ish tick marks (no fonts available, so: a small sequence of fading bars)
-    for i in range(5):
-        y = (222 + i * 9) * c.ss
-        length = (26 - i * 4) * c.ss
-        for x in range(int(119 * c.ss - length), int(119 * c.ss)):
-            for dy in range(2 * c.ss):
-                c.blend(x, y + dy, accent, 0.55 - i * 0.09)
-    return w, h, c.downsample()
-
-
 def small_logo(dark):
     w, h = 55, 58
     c = Canvas(w, h)
@@ -246,8 +307,15 @@ def icon(size):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
+    root = OUT.parent.parent
+    standing = read_screenshot(root / "docs/screenshots/vrm_standing.png")
+    posed = read_screenshot(root / "docs/screenshots/lab_npr.png")
+    w, h, rgb = avatar_preview(standing, posed)
+    write_png(OUT / "avatar_preview.png", w, h, rgb)
+    write_bmp24(OUT / "avatar_preview.bmp", w, h, rgb)
     for dark, tag in ((False, "light"), (True, "dark")):
-        w, h, rgb = sidebar(dark)
+        # Different actual captures for light/dark; the preview page shows both.
+        w, h, rgb = avatar_sidebar(posed, (202, 338, 496, 900)) if not dark else avatar_sidebar(standing, (220, 145, 614, 900))
         write_png(OUT / f"side_{tag}.png", w, h, rgb)
         if not dark:
             write_bmp24(OUT / f"side_{tag}.bmp", w, h, rgb)          # fallback for Inno < 6.6

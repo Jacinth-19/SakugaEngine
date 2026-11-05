@@ -14,10 +14,11 @@
 ; which is what .github/workflows/windows.yml does; the result is uploaded as a workflow artifact.
 ;
 ; HOW FAR THE LOOK IS CUSTOMISED
-;   * custom wizard images (large side panel + small header logo), in light and dark versions, as PNG with alpha
+;   * custom wizard images (large side panel + small header logo), in light and dark versions, as PNG
 ;     (Inno 6.6+); BMP copies are used when compiling with an older ISPP that has no PNG support,
 ;   * custom wizard background image + colours with opacity blending (Inno 6.7+),
 ;   * dark mode that follows the Windows setting (6.6+), 6.7's hidebevels,
+;   * a preview page with two earlier in-engine avatar screenshots and honest image provenance,
 ;   * custom application icon (SetupIconFile), version-info strings, on-brand welcome/finished text,
 ;   * "before installing" / "after installing" info pages, Start Menu + desktop shortcuts, uninstaller,
 ;   * a Vulkan check before anything is installed.
@@ -126,6 +127,8 @@ FinishedLabelNoIcons=Setup has finished installing [name] on your computer.%n%nT
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
+; Used only by the wizard preview page; extracted to {tmp}, not installed into {app}.
+Source: "{#ArtDir}\avatar_preview.bmp"; Flags: dontcopy
 ; The whole staged tree: sandbox.exe, assets\ (models, LUTs, HDRIs and 77 verified BVH clips), config\, shaders\ (SPIR-V).
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -153,4 +156,43 @@ begin
            '(NVIDIA / AMD / Intel), then start the app again. The installer will continue either way.';
     MsgBox(Msg, mbInformation, MB_OK);
   end;
+end;
+
+// Show the avatar itself, not a concept-art substitute. Both images are earlier
+// in-engine captures; the app can look different with other settings/hardware.
+procedure InitializeWizard();
+var
+  PreviewPage: TWizardPage;
+  PreviewImage: TBitmapImage;
+  Description: TNewStaticText;
+  ImageWidth, ImageHeight: Integer;
+begin
+  PreviewPage := CreateCustomPage(wpWelcome, 'Meet the sample avatar',
+    'A preview of the 3D character and motion sandbox');
+  ExtractTemporaryFile('avatar_preview.bmp');
+  PreviewImage := TBitmapImage.Create(PreviewPage);
+  PreviewImage.Parent := PreviewPage.Surface;
+  PreviewImage.Bitmap.LoadFromFile(ExpandConstant('{tmp}\avatar_preview.bmp'));
+  PreviewImage.Stretch := True;
+  ImageWidth := PreviewPage.SurfaceWidth;
+  ImageHeight := ImageWidth * 286 div 560;
+  if ImageHeight > PreviewPage.SurfaceHeight - ScaleY(56) then
+  begin
+    ImageHeight := PreviewPage.SurfaceHeight - ScaleY(56);
+    ImageWidth := ImageHeight * 560 div 286;
+  end;
+  PreviewImage.Width := ImageWidth;
+  PreviewImage.Height := ImageHeight;
+  PreviewImage.Left := (PreviewPage.SurfaceWidth - ImageWidth) div 2;
+  PreviewImage.Top := 0;
+  Description := TNewStaticText.Create(PreviewPage);
+  Description.Parent := PreviewPage.Surface;
+  Description.Left := 0;
+  Description.Top := ImageHeight + ScaleY(8);
+  Description.Width := PreviewPage.SurfaceWidth;
+  Description.Height := ScaleY(48);
+  Description.AutoSize := False;
+  Description.WordWrap := True;
+  Description.Caption := 'Earlier in-engine captures: a sample avatar in two different poses. ' +
+    'Appearance varies with settings and hardware; these images are not a test of your computer.';
 end;

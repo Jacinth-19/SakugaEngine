@@ -23,7 +23,7 @@ compiles on older Inno releases.
 | Tasks/components/registry/shortcuts/postinstall actions | `[Tasks]`, `[Components]`, `[Registry]`, `[Icons]`, `[Run]` | always |
 | Languages | `[Languages]` - one setup, N languages | always |
 
-Our script uses: a generated spiral/comet mark in the app's theme palette (light **and** dark), a blended background for
+Our script uses: sidebar crops of earlier in-engine VRM screenshots (different views in light and dark mode), a dedicated avatar-preview page with two poses, a generated spiral/comet mark in the app's theme palette (light **and** dark), a blended background for
 6.7, `WizardStyle=modern dynamic hidebevels`, a custom `.ico`, on-brand welcome/finished text, "before/after installing"
 info pages, an options page with the desktop shortcut unticked by default, a Vulkan runtime check, and a `[Code]` dialog
 instead of the stock one.
@@ -55,8 +55,8 @@ iscc /DAppVersion=dev /DSourceDir=stage /DOutputDir=dist installer\sakuga.iss
 dist\Sakuga-Engine-dev-win64.exe                        :: run it and look at the wizard
 ```
 
-* Edit `tools/gen_installer_art.py` for artwork (it is analytic drawing - no fonts, no dependencies - see the palette at
-  the top), `installer/sakuga.iss` for text/structure.
+* Edit `tools/gen_installer_art.py` for artwork (the avatar images are deterministic crops of checked-in screenshots; the other graphics are analytic drawings, with no external image library or fonts), `installer/sakuga.iss` for text/structure.
+* The preview uses `docs/screenshots/vrm_standing.png` and `lab_npr.png`. They are earlier engine captures with unknown original capture environment, not proof that the current build or any particular device has been visually tested. See [media provenance](media/README.md) and `assets/licenses/LAFAN1-NOTICE.txt`; review LAFAN1's non-commercial/no-adaptation terms when redistributing motion-derived media.
 * Inno's Compiler IDE has a *Wizard Style* page in its New Script wizard with screenshots of every built-in style - the
   quickest way to pick one.
 * The committed `installer/art/*` are the generated files; the `tests` workflow re-runs the generator and fails if they
