@@ -687,7 +687,8 @@ done
 if [[ $completed != 1 ]]; then
   adb exec-out screencap -p > apk/android-fail.png
   while IFS= read -r line; do echo "::notice::$line"; done < <(grep -E 'benchmark|touch down' /tmp/sakuga-android-log.txt | tail -30 || true)
-  echo '::error::Benchmark did not complete'; exit 1
+  details=$(grep -E 'benchmark|touch down|surface dimensions|renderer unavailable' /tmp/sakuga-android-log.txt | tail -12 | tr '\n' '|' || true)
+  echo "::error::Benchmark did not complete; recent events: ${details:-no matching logs}"; exit 1
 fi
 grep -F 'benchmark completed frames=' /tmp/sakuga-android-log.txt | tail -1
 share_target=''
