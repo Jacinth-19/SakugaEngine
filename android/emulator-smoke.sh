@@ -261,10 +261,21 @@ if [[ $renderer_result == presented ]]; then
   done
   if [[ $finish != 1 ]]; then echo '::error::Finishing effects frame was not presented.'; exit 1; fi
   echo '::notice::Presented a frame with finishing effects and depth of field where supported.'
-  if grep -q 'depth-masked sun flare frame presented' /tmp/sakuga-android-log.txt; then
+  # Point the orbit camera toward the afternoon sun using the real look control.
+  # The flare pass is only expected when sampled depth is supported.
+  if [[ $supported == 1 ]]; then
+    for attempt in 1 2; do
+      adb shell input swipe "$((width * 60 / 100))" "$((height * 65 / 100))" "$((width * 45 / 100))" "$((height * 65 / 100))" 1800
+    done
+    adb shell input swipe "$((width * 60 / 100))" "$((height * 70 / 100))" "$((width * 60 / 100))" "$((height * 12 / 100))" 2200
+    sun_frame=0
+    for i in $(seq 1 30); do
+      adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+      if grep -q 'depth-masked sun flare frame presented' /tmp/sakuga-android-log.txt; then sun_frame=1; break; fi
+      sleep 1
+    done
+    if [[ $sun_frame != 1 ]]; then echo '::error::Depth-masked sun flare frame was not presented.'; exit 1; fi
     echo '::notice::Presented a depth-masked sun flare frame.'
-  else
-    echo '::notice::Sun flare pass not observed (the sun may be off-screen or depth unavailable).'
   fi
   if grep -q 'material bloom mask supported=1' /tmp/sakuga-android-log.txt; then
     masked=0

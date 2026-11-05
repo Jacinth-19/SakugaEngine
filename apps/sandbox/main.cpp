@@ -637,7 +637,7 @@ void Sandbox::handleActions(float dt) {
     bool pad = input_.device().padConnected && !touch_.anyActive() && glm::length(look) > 0;
     if (window_.cursorCaptured() || pad || touch_.anyActive()) {
         float sens = pad ? 2.4f * dt : 0.0028f;
-        camera_.yaw -= look.x * sens; camera_.pitch = glm::clamp(camera_.pitch + look.y * sens * (pad ? -1.f : 1.f), -0.5f, 1.35f);
+        camera_.yaw -= look.x * sens; camera_.pitch = glm::clamp(camera_.pitch + look.y * sens * (pad ? -1.f : 1.f), -1.25f, 1.35f);
     }
     float scroll = input_.device().scroll.y;
     if (scroll != 0 && !(renderer_.uiEnabled() && ImGui::GetIO().WantCaptureMouse)) camera_.distance = glm::clamp(camera_.distance - scroll * 0.3f, 1.2f, 14.f);
