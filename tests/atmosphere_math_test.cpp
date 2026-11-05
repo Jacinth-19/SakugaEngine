@@ -2,6 +2,7 @@
 #include "post/AtmosphereMath.h"
 #include "post/DofMath.h"
 #include "post/OutlineMath.h"
+#include "post/SunFlareMath.h"
 #include "post/AerialMath.h"
 #include "post/PostSettings.h"
 #include <glm/gtc/matrix_transform.hpp>
@@ -30,6 +31,15 @@ int main() {
     CHECK_NEAR(nn.z, 1.f, 1e-6); CHECK_NEAR(glm::length(sk::outlineNormal({0,0,0}, {0,1,0})), 0.f, 1e-6);
     auto p = glm::perspective(glm::radians(55.f), 16.f/9.f, .1f, 120.f); p[1][1] *= -1.f;
     CHECK(sk::supportsAtmosphereProjection(p));
+    const auto sun = sk::projectSunFlare(glm::mat4(1.f), p, {0,0,-1}, 1.f);
+    CHECK(sun.visible); CHECK_NEAR(sun.uv.x, .5f, 1e-6); CHECK_NEAR(sun.uv.y, .5f, 1e-6); CHECK(sun.radius > 0);
+    CHECK(!sk::projectSunFlare(glm::mat4(1.f), p, {0,0,1}, 1.f).visible);
+    CHECK(!sk::projectSunFlare(glm::mat4(1.f), p, {10,0,-1}, 1.f).visible);
+    CHECK(!sk::projectSunFlare(glm::mat4(1.f), p, {0,0,0}, 1.f).visible);
+    CHECK(!sk::projectSunFlare(glm::mat4(1.f), p, {0,0,-1}, 0.f).visible);
+    const float depthSamples[] = {1.f, 1.f, .5f, .2f};
+    CHECK_NEAR(sk::clearDepthCoverage(depthSamples,4), .5f, 1e-6);
+    CHECK_NEAR(sk::clearDepthCoverage(nullptr,0), 0.f, 1e-6);
     CHECK(!sk::supportsAtmosphereProjection(glm::mat4(1.f)));
     auto invalid = p; invalid[0][0] = 0.f; CHECK(!sk::supportsAtmosphereProjection(invalid));
     invalid = p; invalid[2][0] = .15f; CHECK(!sk::supportsAtmosphereProjection(invalid)); // off-centre

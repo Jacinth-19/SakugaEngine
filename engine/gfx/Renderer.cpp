@@ -7,6 +7,7 @@
 #include "post/AtmosphereMath.h"
 #include "post/BloomSelection.h"
 #include "post/TimestampMath.h"
+#include "post/SunFlareMath.h"
 #include "core/Log.h"
 #ifndef __ANDROID__
 #include <GLFW/glfw3.h>
@@ -429,8 +430,9 @@ void Renderer::createPipelines(const std::string& dir) {
              pa = load(ctx_->msaa == VK_SAMPLE_COUNT_1_BIT ? "post_atmosphere_single.frag" : "post_atmosphere_ms.frag"),
              pdof = load(ctx_->msaa == VK_SAMPLE_COUNT_1_BIT ? "post_dof_single.frag" : "post_dof_ms.frag"),
              pfinish = load("post_finish.frag"),
-             pfinishDepth = load(ctx_->msaa == VK_SAMPLE_COUNT_1_BIT ? "post_finish_depth_single.frag" : "post_finish_depth_ms.frag");
-        postProcessing_.createPipelines(pv, pf, pd, pu, ph, pc, pa, pdof, pfinish, pfinishDepth, colorFormat_, finalFormat_);
+             pfinishDepth = load(ctx_->msaa == VK_SAMPLE_COUNT_1_BIT ? "post_finish_depth_single.frag" : "post_finish_depth_ms.frag"),
+             psun = load(ctx_->msaa == VK_SAMPLE_COUNT_1_BIT ? "post_sun_visibility_single.frag" : "post_sun_visibility_ms.frag");
+        postProcessing_.createPipelines(pv, pf, pd, pu, ph, pc, pa, pdof, pfinish, pfinishDepth, psun, colorFormat_, finalFormat_);
     }
     pipeLine_    = makePipeline(lnV, lnF, 2, VK_CULL_MODE_NONE,  true, false, ms, true, colorFormat_, false, VK_PRIMITIVE_TOPOLOGY_LINE_LIST, true);
 }
@@ -898,6 +900,9 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     const bool screenFog = usePostAtmosphere(in.post.atmosphere, in.post.enabled, sampleSceneDepth_, in.post.physicalAerial ? 1.f : L.fogDensity) && supportsAtmosphereProjection(in.proj);
     const bool dofOn = useDepthOfField(in.post.enabled, in.post.depthOfField, sampleSceneDepth_, supportsAtmosphereProjection(in.proj));
     const bool geometryInkOn = useGeometryInk(in.post, sampleSceneDepth_, supportsAtmosphereProjection(in.proj));
+    const auto sunProjection = projectSunFlare(in.view, in.proj, ld, L.sunSize);
+    const bool sunFlareOn = in.post.enabled && in.post.sunFlare > 0.f && sampleSceneDepth_ &&
+        supportsAtmosphereProjection(in.proj) && !envHDR_ && L.sunDisc > 0.f && L.starVisibility < .999f && ld.y >= -.03f && sunProjection.visible;
     // Avoid double fog: the post pass replaces the legacy per-surface fog when active.
     g.fogColor = glm::vec4(L.fogColor, screenFog ? 0.f : L.fogDensity);
     g.misc = glm::vec4(1.f, 0.f, L.wetPreviewTime, 1.f / (float)kShadowRes);
@@ -991,7 +996,7 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         }
         ca.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; ca.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.f}};
         da.imageView = msaaDepth_.view; da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; da.storeOp = (screenFog || dofOn || geometryInkOn) ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE; da.clearValue.depthStencil = {1.f, 0};
+        da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; da.storeOp = (screenFog || dofOn || geometryInkOn || sunFlareOn) ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE; da.clearValue.depthStencil = {1.f, 0};
         VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
         VkRenderingAttachmentInfo colorAttachments[2] = {ca, {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}};
         if (materialBloomSupported_) {
@@ -1045,9 +1050,10 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
     aerial.optical = glm::vec4(skyModel_.ozone, L.skyRayleigh, L.skyMie, 0.f);
     aerial.sunColorStrength = glm::vec4(L.color, glm::clamp(L.skyAtmosphere, 0.f, 2.f) * (1.f - glm::clamp(L.starVisibility, 0.f, 1.f)));
     aerial.altitudeKm = glm::clamp(in.cameraPos.y * .001f, 0.f, skyModel_.atmosphereHeightKm);
+    aerial.sunScreen = glm::vec4(sunProjection.uv, sunProjection.radius, glm::clamp(1.f - L.starVisibility, 0.f, 1.f));
     const bool detailTiming = postTimingPool_ && in.post.gpuDetailedProfiling;
     f.detailedTimingActive = postProcessing_.record(cmd, sceneColor_, msaaDepth_, bloomMask_, materialBloomSupported_, finalColor_, in.post,
-        screenFog, dofOn, geometryInkOn, in.proj, L.fogColor, L.fogDensity, in.time, lutSize_, aerial, detailTiming ? postTimingPool_ : VK_NULL_HANDLE,
+        screenFog, dofOn, geometryInkOn, sunFlareOn, in.proj, L.fogColor, L.fogDensity, in.time, lutSize_, aerial, detailTiming ? postTimingPool_ : VK_NULL_HANDLE,
         frameIndex_ * kFrameTimingQueries + 4);
     f.detailedTimingRecorded = detailTiming;
     if (postTimingPool_) vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, postTimingPool_, frameIndex_ * kFrameTimingQueries + 1);

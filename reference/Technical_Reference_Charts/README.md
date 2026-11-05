@@ -11,7 +11,7 @@ this directory, not to the engine, LAFAN1, external links, or other assets.
 | `01-emissive-selection.svg` | Reflected light versus emitted radiance | Inspect the selected HDR source before threshold and bloom. |
 | `02-transparency.svg` | Source-over alpha and opaque depth | Check layer ordering; the current fog/DoF path is not per-layer correct. |
 | `03-geometry-edges.svg` | Depth silhouettes and reconstructed-normal changes | Compare silhouette and normal-edge behaviour, not exact pixel values. |
-| `04-sun-occlusion.svg` | Visible versus occluded sun | A target for a future occlusion-aware flare; the current lens ghosts do not meet it. |
+| `04-sun-occlusion.svg` | Visible versus occluded sun | Check the separate depth-masked sun flare; bloom-derived ghosts remain unmasked. |
 
 They are illustrative, display-referred RGB diagrams: glow and colours are not calibrated HDR
 radiometry, physically exact images, or ground truth for a particular GPU or monitor. They do not

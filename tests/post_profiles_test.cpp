@@ -56,6 +56,8 @@ int main() {
     finish = {}; finish.colourLevels = 1; CHECK(!sk::planPost(finish, 16, 16).finish);
     finish.colourLevels = 2; CHECK(sk::planPost(finish, 16, 16).finish);
     finish = {}; finish.lensFlare = .2f; CHECK(!sk::planPost(finish, 16, 16).finish); // lens is HDR composite
+    auto noSunFlare = sk::applyPostProfile(sk::PostProfile::Celestial, [] { sk::PostSettings p; p.sunFlare = 1.f; return p; }());
+    CHECK_NEAR(noSunFlare.sunFlare, 0.f, 1e-6);
     auto cinematic = sk::applyPostProfile(sk::PostProfile::Cinematic, sk::PostSettings{});
     cinematic.bloom = false; CHECK(!sk::planPost(cinematic, 8, 8).halation);
     cinematic.bloom = true; cinematic.bloomIntensity = 0; CHECK(!sk::planPost(cinematic, 8, 8).halation);

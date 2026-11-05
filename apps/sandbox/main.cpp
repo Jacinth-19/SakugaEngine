@@ -1308,6 +1308,9 @@ void Sandbox::drawUI(float wallDt) {
         ImGui::SliderFloat("Halation (requires bloom)", &post_.halation, 0.f, .6f);
         ImGui::SliderFloat("Lens flare (requires bloom)", &post_.lensFlare, 0.f, .5f);
         ImGui::SliderFloat("Chromatic aberration (px)", &post_.chromatic, 0.f, 3.f);
+        ImGui::BeginDisabled(!renderer_.supportsPostAtmosphere());
+        ImGui::SliderFloat("Depth-masked sun flare", &post_.sunFlare, 0.f, 1.f);
+        ImGui::EndDisabled();
         ImGui::SliderFloat("Screen ink edges", &post_.ink, 0.f, 1.f);
         ImGui::BeginDisabled(!renderer_.supportsPostAtmosphere());
         ImGui::SliderFloat("Depth outline", &post_.depthInk, 0.f, 1.f);
@@ -1680,6 +1683,7 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         post_.ink = enable ? .2f : 0.f; post_.chromatic = enable ? .5f : 0.f;
         post_.painterly = enable ? .15f : 0.f;
         post_.lensFlare = enable ? .12f : 0.f;
+        post_.sunFlare = enable && renderer_.supportsPostAtmosphere() ? .15f : 0.f;
         post_.materialBloomMask = enable && renderer_.supportsMaterialBloomMask();
         post_.depthOfField = enable && renderer_.supportsPostAtmosphere() ? 2.f : 0.f;
         post_.depthInk = enable && renderer_.supportsPostAtmosphere() ? .3f : 0.f;
@@ -1750,6 +1754,9 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         ImGui::Combo("Bloom colour key##mobilepost", &post_.bloomSelection, "All bright\0Warm\0Cool\0Saturated\0");
         ImGui::SliderFloat("Halation##mobilepost", &post_.halation, 0.f, 1.f);
         ImGui::SliderFloat("Lens ghosts##mobilepost", &post_.lensFlare, 0.f, 1.f);
+        ImGui::BeginDisabled(!renderer_.supportsPostAtmosphere());
+        ImGui::SliderFloat("Sun flare##mobilepost", &post_.sunFlare, 0.f, 1.f);
+        ImGui::EndDisabled();
         ImGui::BeginDisabled(!renderer_.supportsPostAtmosphere());
         ImGui::Checkbox("Depth fog##mobilepost", &post_.atmosphere);
         ImGui::SliderFloat("Depth outline##mobilepost", &post_.depthInk, 0.f, 1.f);

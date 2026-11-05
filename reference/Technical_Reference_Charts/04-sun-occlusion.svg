@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
 <title id="title">Sun occlusion: technical reference</title><desc id="desc">The left panel shows a visible sun and an illustrative lens ghost. The right panel shows the sun behind a dark obstruction and no ghost.</desc>
 <defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#315782"/><stop offset="1" stop-color="#e5a46a"/></linearGradient></defs>
-<rect width="1200" height="680" fill="#111824"/><g font-family="sans-serif" fill="#eef3fa"><text x="54" y="64" font-size="31" font-weight="bold">04 / SUN OCCLUSION</text><text x="54" y="99" font-size="17" fill="#a8b7ca">Design target for a future sun-specific flare</text>
+<rect width="1200" height="680" fill="#111824"/><g font-family="sans-serif" fill="#eef3fa"><text x="54" y="64" font-size="31" font-weight="bold">04 / SUN OCCLUSION</text><text x="54" y="99" font-size="17" fill="#a8b7ca">Technical schematic for a depth-masked sun-specific flare</text>
 <rect x="54" y="140" width="520" height="390" rx="16" fill="url(#sky)"/><rect x="626" y="140" width="520" height="390" rx="16" fill="url(#sky)"/>
 <circle cx="214" cy="245" r="35" fill="#fff2ce"/><circle cx="441" cy="414" r="30" fill="#c9ebf9" opacity=".32"/><circle cx="441" cy="414" r="50" fill="none" stroke="#c9ebf9" opacity=".38" stroke-width="3"/>
 <circle cx="786" cy="245" r="35" fill="#fff2ce"/><path d="M740 200h96v150h-96z" fill="#202b39"/><text x="82" y="493" font-size="21">Visible sun → possible flare</text><text x="654" y="493" font-size="21">Opaque occluder → no sun flare</text>
-<text x="54" y="593" font-size="20">Occlusion should suppress the sun-specific source before lens ghosts are formed.</text><text x="54" y="631" font-size="16" fill="#a8b7ca">Current bloom-derived ghosts are not sun-specific or occlusion-tested.</text></g></svg>
+<text x="54" y="593" font-size="20">Occlusion should suppress the sun-specific source before lens ghosts are formed.</text><text x="54" y="631" font-size="16" fill="#a8b7ca">Separate bloom-derived ghosts remain artistic and are not occlusion-tested.</text></g></svg>

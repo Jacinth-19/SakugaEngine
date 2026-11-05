@@ -13,13 +13,14 @@ struct AerialInputs {
     glm::vec4 optical{1, 1, 1, 0}; // ozone, Rayleigh/Mie artistic weights
     glm::vec4 sunColorStrength{1, 1, 1, 0};
     float altitudeKm = 0;
+    glm::vec4 sunScreen{0, 0, 0, 0}; // uv, vertical angular radius, valid
 };
 class PostProcessing {
 public:
     static constexpr int kBloomLevels = 6;
     void init(Context& ctx);
     void createPipelines(VkShaderModule vs, VkShaderModule prefilter, VkShaderModule down, VkShaderModule up,
-                         VkShaderModule halation, VkShaderModule composite, VkShaderModule atmosphere, VkShaderModule dof, VkShaderModule finish, VkShaderModule finishDepth, VkFormat hdrFormat, VkFormat finalFormat);
+                         VkShaderModule halation, VkShaderModule composite, VkShaderModule atmosphere, VkShaderModule dof, VkShaderModule finish, VkShaderModule finishDepth, VkShaderModule sunVisibility, VkFormat hdrFormat, VkFormat finalFormat);
     void createTargets(uint32_t width, uint32_t height, VkFormat hdrFormat, VkFormat finalFormat, const Image& scene, const Image& depth, bool depthSupported, const Image& mask, bool maskSupported, const Texture& lut);
     void rebuildSets(const Image& scene, const Image& depth, bool depthSupported, const Image& mask, bool maskSupported, const Texture& lut);
     // Update after targets or the transmittance LUT are recreated, with all frames idle.
@@ -29,20 +30,21 @@ public:
     void shutdown();
     // scene must be COLOR_ATTACHMENT_OPTIMAL; final is overwritten and left COLOR_ATTACHMENT_OPTIMAL.
     PostTimingActive record(VkCommandBuffer cmd, const Image& scene, const Image& depth, const Image& mask, bool maskSupported, Image& final, const PostSettings& settings,
-                bool atmosphereOn, bool dofOn, bool geometryInkOn, const glm::mat4& projection, const glm::vec3& fogColor, float fogDensity, float time, int lutSize, const AerialInputs& aerial, VkQueryPool detailPool, uint32_t detailQueryBase);
+                bool atmosphereOn, bool dofOn, bool geometryInkOn, bool sunFlareOn, const glm::mat4& projection, const glm::vec3& fogColor, float fogDensity, float time, int lutSize, const AerialInputs& aerial, VkQueryPool detailPool, uint32_t detailQueryBase);
 private:
     VkPipeline makePipeline(VkShaderModule fs, VkShaderModule vs, VkFormat format, bool additive);
     Context* ctx_ = nullptr;
     uint32_t width_ = 0, height_ = 0;
-    Image bloom_[kBloomLevels]{}, halation_{}, atmosphere_{}, dof_{}, bloomDof_{}, display_{}; int bloomLevels_ = 0;
+    Image bloom_[kBloomLevels]{}, halation_{}, atmosphere_{}, dof_{}, bloomDof_{}, display_{}, sunVisibility_{}; int bloomLevels_ = 0;
     VkDescriptorSetLayout setLayout_ = VK_NULL_HANDLE; VkPipelineLayout layout_ = VK_NULL_HANDLE;
     VkDescriptorPool pool_ = VK_NULL_HANDLE; VkSampler sampler_ = VK_NULL_HANDLE, depthSampler_ = VK_NULL_HANDLE;
     VkDescriptorSet sceneSet_ = VK_NULL_HANDLE, bloomSet_[kBloomLevels]{}, compSet_ = VK_NULL_HANDLE, compNoHalationSet_ = VK_NULL_HANDLE;
     VkDescriptorSet atmosphereSet_ = VK_NULL_HANDLE, foggedSceneSet_ = VK_NULL_HANDLE, foggedCompSet_ = VK_NULL_HANDLE, foggedCompNoHalationSet_ = VK_NULL_HANDLE;
     VkDescriptorSet dofSet_ = VK_NULL_HANDLE, fogDofSet_ = VK_NULL_HANDLE, dofSceneSet_ = VK_NULL_HANDLE;
     VkDescriptorSet bloomDofSet_ = VK_NULL_HANDLE, dofSceneBloomSet_ = VK_NULL_HANDLE;
+    VkDescriptorSet sunSet_ = VK_NULL_HANDLE, sunFogSet_ = VK_NULL_HANDLE, sunDofSet_ = VK_NULL_HANDLE;
     VkDescriptorSet dofCompSet_ = VK_NULL_HANDLE, dofCompNoHalationSet_ = VK_NULL_HANDLE, finishSet_ = VK_NULL_HANDLE, finishDepthSet_ = VK_NULL_HANDLE;
-    VkPipeline atmospherePipe_ = VK_NULL_HANDLE, dofPipe_ = VK_NULL_HANDLE, finishPipe_ = VK_NULL_HANDLE, finishDepthPipe_ = VK_NULL_HANDLE;
+    VkPipeline atmospherePipe_ = VK_NULL_HANDLE, dofPipe_ = VK_NULL_HANDLE, finishPipe_ = VK_NULL_HANDLE, finishDepthPipe_ = VK_NULL_HANDLE, sunVisibilityPipe_ = VK_NULL_HANDLE;
     VkPipeline prefilter_ = VK_NULL_HANDLE, down_ = VK_NULL_HANDLE, up_ = VK_NULL_HANDLE, halationPipe_ = VK_NULL_HANDLE, composite_ = VK_NULL_HANDLE;
 };
 }

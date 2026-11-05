@@ -19,6 +19,7 @@ struct PostSettings {
     bool atmosphere = false;                      // opt-in screen-space depth fog when supported
     bool physicalAerial = false;                  // bounded single-scattering mode instead of artistic fog
     float halation = 0.f;                          // HDR red-biased bloom diffusion, 0 = off
+    float sunFlare = 0.f;                          // optional depth-masked procedural-sun ghosts
     float lensFlare = 0.f;                         // stylised HDR ghost reflections from bloom
     float chromatic = 0.f;                        // pixel displacement at screen edges
     float depthInk = 0.f, normalInk = 0.f;           // sampled depth silhouettes and depth-reconstructed normal edges
@@ -44,7 +45,7 @@ inline PostSettings applyPostProfile(PostProfile profile, PostSettings p) {
     p.bloom = true; p.bloomSelection = 0; p.bloomThreshold = 1.f; p.bloomKnee = .5f; p.bloomRadius = 1.f;
     p.tonemap = 1; p.vignetteSoftness = .65f;
     p.atmosphere = (profile == PostProfile::Atmospheric);
-    p.lensFlare = p.chromatic = p.ink = p.depthInk = p.normalInk = p.painterly = p.depthOfField = 0.f; p.colourLevels = 0;
+    p.sunFlare = p.lensFlare = p.chromatic = p.ink = p.depthInk = p.normalInk = p.painterly = p.depthOfField = 0.f; p.colourLevels = 0;
     switch (profile) {
     case PostProfile::Celestial:
         p.bloomIntensity=.20f; p.halation=0.f; p.saturation=1.08f; p.contrast=1.02f;
