@@ -659,9 +659,25 @@ if [[ -z $start_target ]]; then
 fi
 read -r start_x start_y < <(echo "$start_target" | sed -n 's/.*benchmark start target x=\([0-9]*\) y=\([0-9]*\).*/\1 \2/p')
 if [[ -z ${start_x:-} || -z ${start_y:-} ]]; then echo '::error::Benchmark window did not open'; exit 1; fi
-# ImGui needs a second frame for its hovered-window state after this window appears.
+# Confirm the start state before waiting; SwiftShader can drop a single touch
+# while rendering. Retry only until the benchmark reports that it started.
 sleep 5
-adb shell input tap "$start_x" "$start_y"
+started=0
+for attempt in $(seq 1 3); do
+  adb shell input tap "$start_x" "$start_y"
+  for i in $(seq 1 8); do
+    adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
+    if grep -q 'benchmark started' /tmp/sakuga-android-log.txt; then started=1; break; fi
+    sleep 1
+  done
+  if [[ $started == 1 ]]; then break; fi
+done
+if [[ $started != 1 ]]; then
+  adb exec-out screencap -p > apk/android-fail.png
+  while IFS= read -r line; do echo "::notice::$line"; done < <(grep -E 'benchmark|touch down|surface dimensions|quality' /tmp/sakuga-android-log.txt | tail -30 || true)
+  echo '::error::Benchmark start control did not respond'; exit 1
+fi
+echo '::notice::Benchmark start control responded.'
 completed=0
 for i in $(seq 1 100); do
   adb logcat -d -s SakugaPreview:I '*:S' > /tmp/sakuga-android-log.txt
