@@ -27,7 +27,6 @@ inline glm::dvec3 integrateSkySingleScattering(double altitudeKm, glm::dvec3 vie
     const glm::dvec3 betaR(.005802,.013558,.033100), betaO(.000650,.001881,.000085);
     constexpr double betaM = .003996;
     glm::dvec3 sum(0), viewT(1);
-    const auto groundSun = atmosphereTransmittance(0, sun.y, sunSteps, p);
     for (int i = 0; i < viewSteps; ++i) {
         const double t = (i+.5)*ds;
         const glm::dvec3 pos(view.x*t, r+view.y*t, view.z*t);
@@ -39,9 +38,7 @@ inline glm::dvec3 integrateSkySingleScattering(double altitudeKm, glm::dvec3 vie
         for (int k = 0; k < 3; ++k) {
             const double attenuation = std::exp(-extinction[k]*ds);
             const double source = betaR[k]*dr*pr*rayleighWeight + betaM*dm*pm*mieWeight;
-            const double bounce = p.groundAlbedo * std::max(sun.y, 0.0) * groundSun[k] *
-                (betaR[k]*dr*rayleighWeight + betaM*dm*mieWeight) * 0.5;
-            sum[k] += viewT[k]*std::sqrt(attenuation)*(solar[k]*source + bounce)*ds;
+            sum[k] += viewT[k]*std::sqrt(attenuation)*solar[k]*source*ds;
             viewT[k] *= attenuation;
         }
     }

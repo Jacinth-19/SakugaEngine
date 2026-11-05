@@ -264,23 +264,27 @@ void Renderer::updateSkyAtmosphere(AtmosphereParameters model) {
     const bool opticalChanged = model.planetRadiusKm != skyModel_.planetRadiusKm ||
         model.atmosphereHeightKm != skyModel_.atmosphereHeightKm || model.rayleighHeightKm != skyModel_.rayleighHeightKm ||
         model.mieHeightKm != skyModel_.mieHeightKm || model.ozone != skyModel_.ozone;
+    const bool groundChanged = model.groundAlbedo != skyModel_.groundAlbedo;
     skyModel_ = model;
-    if (!opticalChanged) return;
-    auto pixels = buildAtmosphereLut(model);
+    if (!opticalChanged && !groundChanged) return;
+    std::vector<uint8_t> pixels;
+    if (opticalChanged) pixels = buildAtmosphereLut(model);
     auto multi = buildMultipleScatteringLut(model);
     VK_OK(vkDeviceWaitIdle(ctx_->device));
-    Texture* old = skyTransmittance_;
+    Texture* old = opticalChanged ? skyTransmittance_ : nullptr;
     Texture* oldMultiple = multipleScattering_;
     multiplePixels_ = std::move(multi);
     multipleScattering_ = createTexture("sky_multiple", multiplePixels_.data(), kMultipleWidth, kMultipleHeight, false, false, false);
     skyMaterial_->tex[TEX_PARAM] = multipleScattering_;
-    skyTransmittance_ = createTexture("sky_transmittance", pixels.data(), kAtmosphereLutWidth, kAtmosphereLutHeight, false, false, false);
-    skyMaterial_->tex[TEX_BASE] = skyTransmittance_;
+    if (opticalChanged) {
+        skyTransmittance_ = createTexture("sky_transmittance", pixels.data(), kAtmosphereLutWidth, kAtmosphereLutHeight, false, false, false);
+        skyMaterial_->tex[TEX_BASE] = skyTransmittance_;
+    }
     flushMaterial(skyMaterial_);
     postProcessing_.setSkyTransmittance(*skyTransmittance_);
     postProcessing_.setSkyMultiple(*multipleScattering_);
     for (Texture* previous : {old, oldMultiple}) {
-        auto it = std::find_if(textures_.begin(), textures_.end(), [previous](const auto& t) { return t.get() == previous; });
+        auto it = std::find_if(textures_.begin(), textures_.end(), [previous](const auto& t) { return previous && t.get() == previous; });
         if (it != textures_.end()) {
             vkDestroySampler(ctx_->device, (*it)->sampler, nullptr);
             ctx_->destroyImage((*it)->image);
@@ -703,7 +707,7 @@ void Renderer::updateProceduralEnvironment(const LightingSettings& L, float alti
     const int w = 256, h = 128;
     std::vector<float> px((size_t)w * h * 4);
     glm::vec3 zenith = L.zenith, horizon = L.horizon;
-    // The sky and IBL use the same quantised single-scattering table. Upload only
+    // The sky and IBL use the same quantised scattering table. Upload only
     // when its model/sun/altitude parameters change; synchronize descriptor users.
     uint64_t viewHash = 1469598103934665603ull;
     auto mixView = [&](float v) { uint32_t bits; std::memcpy(&bits, &v, 4); viewHash = (viewHash ^ bits) * 1099511628211ull; };

@@ -1,5 +1,5 @@
 // Bounded single-scattering aerial perspective for opaque geometry, using the
-// same transmittance/model and approximate second-order LUT as the sky.
+// same transmittance/model and approximate multi-order LUT as the sky.
 const vec3 aerialBetaR = vec3(.005802,.013558,.033100);
 const vec3 aerialBetaO = vec3(.000650,.001881,.000085);
 const float aerialBetaM = .003996;

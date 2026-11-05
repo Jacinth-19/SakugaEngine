@@ -1,6 +1,6 @@
 #pragma once
-// Low-resolution, CPU-generated sky-view LUT for the existing single-scattering
-// approximation. Coordinates are relative solar azimuth and sqrt(view elevation).
+// Low-resolution, CPU-generated sky-view LUT for the approximate single- and
+// multi-order scattering model. Coordinates are relative solar azimuth and sqrt(view elevation).
 // It is NOT Hillaire's complete sky-view/multiple-scattering implementation.
 #include "sky/SkyScatteringMath.h"
 #include "sky/MultipleScatteringLut.h"
@@ -30,7 +30,7 @@ inline std::vector<uint8_t> buildSkyViewLut(double altitudeKm, double sunMu, dou
             glm::dvec3 view(horizontal * std::cos(phi), mu, horizontal * std::sin(phi));
             auto radiance = integrateSkySingleScattering(altitudeKm, view, sun, rayleighWeight, mieWeight, 8, 24, p);
             if (multiple && multiple->size() == size_t(kMultipleWidth*kMultipleHeight*4)) {
-                // Integrate the isotropic second-order source along the same view ray.
+                // Integrate the approximate isotropic multi-order source along the same view ray.
                 auto model=sanitizeAtmosphere(p);
                 double alt=std::clamp(altitudeKm,0.0,double(model.atmosphereHeightKm));
                 double r=model.planetRadiusKm+alt, top=model.planetRadiusKm+model.atmosphereHeightKm, rm=r*view.y;

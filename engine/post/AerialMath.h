@@ -1,5 +1,5 @@
 #pragma once
-// CPU reference for bounded aerial perspective over an opaque segment; optional approximate second-order source.
+// CPU reference for bounded aerial perspective over an opaque segment; optional approximate multi-order source.
 #include "sky/AtmosphereLut.h"
 #include "sky/MultipleScatteringLut.h"
 #include <glm/glm.hpp>
