@@ -141,6 +141,11 @@ public:
     // Headless (window == nullptr): renders to the offscreen target and reads it back into `capture`.
     bool renderFrame(const FrameInput& in, std::vector<uint8_t>* capture = nullptr);
     void resize(uint32_t w, uint32_t h);
+    // Scale applies to internal scene/post/UI targets, not to the presentation surface.
+    void setRenderScale(float scale);
+    float renderScale() const { return renderScale_; }
+    uint32_t displayWidth() const { return presenting() ? static_cast<uint32_t>(surfaceWidth_ > 0 ? surfaceWidth_ : 0) : width_; }
+    uint32_t displayHeight() const { return presenting() ? static_cast<uint32_t>(surfaceHeight_ > 0 ? surfaceHeight_ : 0) : height_; }
     uint32_t width() const { return width_; }
     uint32_t height() const { return height_; }
     float aspect() const { return (float)width_ / (float)height_; }
@@ -170,7 +175,8 @@ private:
 #ifdef __ANDROID__
     ANativeWindow* androidWindow_ = nullptr; // borrowed; lifetime is owned by the caller
 #endif
-    uint32_t width_ = 0, height_ = 0;
+    uint32_t width_ = 0, height_ = 0, swapWidth_ = 0, swapHeight_ = 0;
+    float renderScale_ = 1.f;
     int surfaceWidth_ = 0, surfaceHeight_ = 0;
     bool ui_ = false, uiVisible_ = true, uiFrameOpen_ = false;
     UiTheme uiTheme_;

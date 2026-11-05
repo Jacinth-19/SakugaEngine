@@ -190,3 +190,7 @@ find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
   add_test(NAME stage_lafan1_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/stage_lafan1_test.py)
 endif()
+
+add_executable(auto_quality_test ${CMAKE_CURRENT_SOURCE_DIR}/auto_quality_test.cpp)
+target_link_libraries(auto_quality_test PRIVATE sakuga_headless)
+add_test(NAME auto_quality_test COMMAND auto_quality_test)

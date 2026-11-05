@@ -4,6 +4,7 @@
 #include "gfx/Renderer.h"
 #include "gfx/ShadowFit.h"
 #include "gfx/SurfaceChoices.h"
+#include "platform/AutoQuality.h"
 #include "post/AtmosphereMath.h"
 #include "post/BloomSelection.h"
 #include "post/TimestampMath.h"
@@ -312,7 +313,9 @@ void Renderer::createSwapchain() {
     if (ext.width == 0xFFFFFFFFu) ext = {(uint32_t)fw, (uint32_t)fh};
     ext.width = std::clamp(ext.width, caps.minImageExtent.width, caps.maxImageExtent.width);
     ext.height = std::clamp(ext.height, caps.minImageExtent.height, caps.maxImageExtent.height);
-    width_ = ext.width; height_ = ext.height;
+    swapWidth_ = ext.width; swapHeight_ = ext.height;
+    const auto internal = scaledExtent(ext.width, ext.height, renderScale_);
+    width_ = internal.width; height_ = internal.height;
     uint32_t count = caps.minImageCount + 1;
     if (caps.maxImageCount && count > caps.maxImageCount) count = caps.maxImageCount;
     VkSwapchainCreateInfoKHR ci{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
@@ -320,7 +323,7 @@ void Renderer::createSwapchain() {
     ci.imageExtent = ext; ci.imageArrayLayers = 1; ci.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 #ifdef __ANDROID__
     ci.preTransform = static_cast<VkSurfaceTransformFlagBitsKHR>(preferredSurfaceTransform(caps.supportedTransforms, caps.currentTransform));
-    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface dimensions window=%dx%d swap=%ux%u transform=%u supported=%u selected=%u", fw, fh, ext.width, ext.height, caps.currentTransform, caps.supportedTransforms, ci.preTransform);
+    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "surface dimensions window=%dx%d swap=%ux%u internal=%ux%u transform=%u supported=%u selected=%u", fw, fh, ext.width, ext.height, width_, height_, caps.currentTransform, caps.supportedTransforms, ci.preTransform);
 #else
     ci.preTransform = caps.currentTransform;
 #endif
@@ -365,6 +368,12 @@ void Renderer::destroyTargets() {
     ctx_->destroyImage(msaaColor_); ctx_->destroyImage(msaaDepth_); ctx_->destroyImage(sceneColor_); ctx_->destroyImage(finalColor_); ctx_->destroyImage(bloomMask_); ctx_->destroyImage(msaaBloomMask_); ctx_->destroyBuffer(readback_);
 }
 
+void Renderer::setRenderScale(float scale) {
+    scale = safeRenderScale(scale);
+    if (scale == renderScale_) return;
+    renderScale_ = scale;
+    if (presenting()) needResize_ = true;
+}
 void Renderer::resize(uint32_t w, uint32_t h) {
     if (!presenting()) {                     // headless: just rebuild targets
         vkDeviceWaitIdle(ctx_->device); destroyTargets(); width_ = w; height_ = h; createTargets(); return;
@@ -624,9 +633,12 @@ void Renderer::beginUI(float deltaTime) {
     (void)deltaTime;
     ImGui_ImplGlfw_NewFrame();
 #else
-    ImGui::GetIO().DisplaySize = ImVec2((float)width_, (float)height_);
+    ImGui::GetIO().DisplaySize = ImVec2((float)displayWidth(), (float)displayHeight());
     ImGui::GetIO().DeltaTime = std::max(deltaTime, 1e-6f);
 #endif
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.DisplaySize.x > 0 && io.DisplaySize.y > 0)
+        io.DisplayFramebufferScale = ImVec2(width_ / io.DisplaySize.x, height_ / io.DisplaySize.y);
     ImGui::NewFrame();
     uiFrameOpen_ = true;
 }
@@ -848,6 +860,9 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         if (fw == 0 || fh == 0) { if (uiFrameOpen_) { ImGui::EndFrame(); uiFrameOpen_ = false; } return false; }   // minimised
         if (needResize_ || fw != surfaceWidth_ || fh != surfaceHeight_) {
             vkDeviceWaitIdle(dev); destroySwapchain(); destroyTargets(); createSwapchain(); createTargets(); needResize_ = false;
+            // UI was built for the old extent. Drop this frame rather than render stale coordinates.
+            if (uiFrameOpen_) { ImGui::EndFrame(); uiFrameOpen_ = false; }
+            return false;
         }
         VkResult r = vkAcquireNextImageKHR(dev, swapchain_, UINT64_MAX, f.imageAvailable, VK_NULL_HANDLE, &imgIdx);
         if (r == VK_ERROR_OUT_OF_DATE_KHR) { needResize_ = true; if (uiFrameOpen_) { ImGui::EndFrame(); uiFrameOpen_ = false; } return false; }
@@ -1089,8 +1104,10 @@ bool Renderer::renderFrame(const FrameInput& in, std::vector<uint8_t>* capture) 
         VkImage sw = swapImages_[imgIdx];
         ctx_->barrier(cmd, sw, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         VkImageBlit b{}; b.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; b.srcOffsets[1] = {(int32_t)width_, (int32_t)height_, 1};
-        b.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; b.dstOffsets[1] = {(int32_t)width_, (int32_t)height_, 1};
-        vkCmdBlitImage(cmd, finalColor_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, sw, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b, VK_FILTER_NEAREST);
+        b.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; b.dstOffsets[1] = {(int32_t)swapWidth_, (int32_t)swapHeight_, 1};
+        VkFormatProperties finalProps{}; vkGetPhysicalDeviceFormatProperties(ctx_->phys, finalFormat_, &finalProps);
+        VkFilter filter = (finalProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+        vkCmdBlitImage(cmd, finalColor_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, sw, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b, filter);
         ctx_->barrier(cmd, sw, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     }
     VK_OK(vkEndCommandBuffer(cmd));

@@ -13,6 +13,7 @@
 #include "gfx/Renderer.h"
 #include "platform/Input.h"
 #include "platform/SysInfo.h"
+#include "platform/AutoQuality.h"
 #include "platform/Window.h"
 #include "platform/TouchControls.h"
 #include "platform/FrameTiming.h"
@@ -61,7 +62,10 @@ struct Options {
     int recordEvery = 2;
     int showcase = -1, debugMode = 0;   // -1 = the Motion lab
     float timeOfDay = 15.f, todSpeed = 0.5f; bool todAuto = false, npr = false, navDebug = false, agentDebug = false, mmDebug = false, npcs = true, hands = true, lookAt = true, springs = true, postOff = false;
-    bool fitCascade = true, bodyMask = true, pointShadows = true, performance = false; float cloud = 0.66f, exposure = 1.f;
+    bool fitCascade = true, bodyMask = true, pointShadows = true, performance = false, explicitPointShadows = false;
+    int quality = -1; // -1 auto, 0 performance, 1 balanced, 2 high
+    float renderScale = 0.f; // 0 auto; otherwise a manual render scale
+    float cloud = 0.66f, exposure = 1.f;
     float wet = 0.f, cameraYaw = glm::pi<float>(), cameraPitch = 0.16f, cameraDist = 3.6f, lightAz = 40.f, lightEl = 38.f;
     float fixedDt = 1.f / 60.f;
     float splitOffset = 0.f; bool split = false;
@@ -97,9 +101,16 @@ static Options parseArgs(int argc, char** argv) {
         else if (a == "--validation") o.validation = true;
         else if (a == "--performance") {
             // An opt-in lighter starting point; later width/height flags can override it.
-            o.performance = true; o.width = 1280; o.height = 720;
-            o.npcs = false; o.springs = false; o.pointShadows = false;
+            o.performance = true; o.quality = 0; o.width = 1280; o.height = 720;
+            o.npcs = false; o.springs = false; o.pointShadows = false; o.explicitPointShadows = true;
         }
+        else if (a == "--quality") {
+            std::string v = next();
+            if (v == "auto") o.quality = -1; else if (v == "performance") o.quality = 0;
+            else if (v == "balanced") o.quality = 1; else if (v == "high") o.quality = 2;
+            else { std::fprintf(stderr, "Unknown quality preset: %s\n", v.c_str()); std::exit(1); }
+        }
+        else if (a == "--render-scale") { o.renderScale = safeRenderScale(std::strtof(next(), nullptr)); }
         else if (a == "--no-ui") o.ui = false;
         else if (a == "--no-outline") o.outlines = false;
         else if (a == "--no-mm") o.mm = false;
@@ -136,7 +147,7 @@ static Options parseArgs(int argc, char** argv) {
         else if (a == "--cloud") o.cloud = (float)std::atof(next());
         else if (a == "--lut") o.lut = next();
         else if (a == "--no-body-mask") o.bodyMask = false;
-        else if (a == "--no-point-shadows") o.pointShadows = false;
+        else if (a == "--no-point-shadows") { o.pointShadows = false; o.explicitPointShadows = true; }
         else if (a == "--no-fit-cascade") o.fitCascade = false;
         else if (a == "--posture-spine") o.postureSpine = std::stof(next());
         else if (a == "--posture-chest") o.postureChest = std::stof(next());
@@ -163,7 +174,7 @@ static Options parseArgs(int argc, char** argv) {
         else if (a == "--play-clip") o.playClip = next();
         else if (a == "--help") {
             std::printf("sandbox [--headless] [--screenshot out.png] [--frames N] [--width W --height H] [--showcase 0..4 (default 4 = Motion lab)]\n"
-                        "        [--performance] [--debug-mode 0..13] [--wet 0..1] [--camera yawDeg,pitchDeg,dist] [--light azDeg,elDeg]\n"
+                        "        [--performance] [--quality auto|performance|balanced|high] [--render-scale 0.5..1] [--debug-mode 0..13] [--wet 0..1] [--camera yawDeg,pitchDeg,dist] [--light azDeg,elDeg]\n"
                         "        [--script \"t:x,y[,sprint];...\"] [--record dir --record-every N] [--no-ui] [--no-outline] [--no-mm]\n"
                         "        [--skeleton] [--trajectory] [--split pxOffset] [--tonemap] [--validation]\n"
                         "        [--motion-dir DIR]... [--mm-clips N] [--mm-categories all|bitmask] [--no-mm-context] [--no-mm-cache] [--play-clip clipName]\n"
@@ -254,6 +265,9 @@ private:
 
     Options opt_; std::string root_, shaderDir_;
     Context ctx_; Renderer renderer_; Window window_; InputSystem input_; StyleTextures style_;
+    QualityTier startupQuality_ = QualityTier::High;
+    void configureQuality();
+    void drawQualityControls();
 #ifdef __ANDROID__
     ANativeWindow* mobileWindow_ = nullptr;
     MobilePointerRouter mobilePointers_;
@@ -309,16 +323,58 @@ private:
     bool screenshotRequested_ = false;
 };
 
+void Sandbox::configureQuality() {
+    DeviceKind kind = DeviceKind::Unknown;
+    switch (ctx_.props.deviceType) {
+        case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: kind = DeviceKind::Integrated; break;
+        case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: kind = DeviceKind::Discrete; break;
+        case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: kind = DeviceKind::Virtual; break;
+        case VK_PHYSICAL_DEVICE_TYPE_CPU: kind = DeviceKind::Cpu; break;
+        default: break;
+    }
+#ifdef __ANDROID__
+    constexpr bool android = true;
+#else
+    constexpr bool android = false;
+#endif
+    startupQuality_ = opt_.quality < 0 ? autoQuality(kind, android) : static_cast<QualityTier>(opt_.quality);
+    const auto settings = qualityDefaults(startupQuality_);
+    // Headless screenshot/test dimensions remain exactly as requested.
+    if (!opt_.headless) {
+        if (opt_.renderScale <= 0.f) opt_.renderScale = settings.renderScale;
+        renderer_.setRenderScale(opt_.renderScale);
+        const uint32_t supported = ctx_.props.limits.framebufferColorSampleCounts & ctx_.props.limits.framebufferDepthSampleCounts;
+        const uint32_t samples = cappedSampleCount(supported, settings.maxSamples);
+        if (samples) ctx_.msaa = static_cast<VkSampleCountFlagBits>(samples);
+        if (!opt_.explicitPointShadows) opt_.pointShadows = settings.pointShadows;
+    }
+    SK_LOG("quality: %s (%s), scale %.2f, MSAA x%u, GPU %s", qualityName(startupQuality_), opt_.quality < 0 ? "automatic" : "manual", opt_.headless ? 1.f : opt_.renderScale, (unsigned)ctx_.msaa, ctx_.props.deviceName);
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "quality %s scale=%.2f msaa=%u GPU=%s", qualityName(startupQuality_), opt_.renderScale, (unsigned)ctx_.msaa, ctx_.props.deviceName);
+#endif
+}
+void Sandbox::drawQualityControls() {
+    ImGui::Text("Startup: %s (%s), MSAA x%u", qualityName(startupQuality_), opt_.quality < 0 ? "auto" : "manual", (unsigned)ctx_.msaa);
+    ImGui::Text("Render: %u x %u / display: %u x %u", renderer_.width(), renderer_.height(), renderer_.displayWidth(), renderer_.displayHeight());
+    float scale = renderer_.renderScale();
+    if (ImGui::SliderFloat("Render scale", &scale, .5f, 1.f, "%.2f")) {
+        opt_.renderScale = scale; renderer_.setRenderScale(scale);
+    }
+    ImGui::TextDisabled("Hardware-based starting point, not a benchmark. Scale changes rebuild targets; UI is also scaled.");
+}
+
 bool Sandbox::init() {
     bool windowed = !opt_.headless;
 #ifdef __ANDROID__
     if (!mobileWindow_ || !ctx_.initAndroid(mobileWindow_, mobileError_)) return false;
+    configureQuality();
     if (!renderer_.initAndroid(ctx_, mobileWindow_, ANativeWindow_getWidth(mobileWindow_), ANativeWindow_getHeight(mobileWindow_), shaderDir_)) return false;
 #else
     if (windowed) {
         if (!window_.create((int)opt_.width, (int)opt_.height, "Sakuga Engine - Sandbox")) return false;
     }
     if (!ctx_.init(windowed, opt_.validation)) return false;
+    configureQuality();
     if (!renderer_.init(ctx_, windowed ? window_.handle() : nullptr, opt_.width, opt_.height, shaderDir_)) return false;
 #endif
     loadUiTheme();
@@ -332,12 +388,11 @@ bool Sandbox::init() {
     tod_ = opt_.timeOfDay; todSpeed_ = opt_.todSpeed; todAuto_ = opt_.todAuto; cloud_ = opt_.cloud; userExposure_ = opt_.exposure; nprFull_ = opt_.npr;
     for (auto& p : skyProfiles_) {
         p.cloudCover = std::clamp(opt_.cloud, 0.f, 1.f);
-#ifdef __ANDROID__
-        p.integratedScattering = false; // conservative default; opt in from the sky panel
-#endif
+        if (!opt_.headless) p.integratedScattering = qualityDefaults(startupQuality_).integratedSky;
     }
     loadSkyProfiles();
     navDebug_ = opt_.navDebug; agentDebug_ = opt_.agentDebug; mmDebug_ = opt_.mmDebug; post_.enabled = !opt_.postOff;
+    if (!opt_.headless) post_.bloom = qualityDefaults(startupQuality_).bloom;
     if (opt_.performance) post_.bloom = false;
     time_ = opt_.timeStart;
     hdriSun_ = opt_.hdriSun; lutStrength_ = opt_.lutStrength;
@@ -1141,8 +1196,8 @@ void Sandbox::benchmarkFrame(float wallDt) {
 void Sandbox::drawBenchmarkUI() {
     if (!showBenchmark_) return;
 #ifdef __ANDROID__
-    ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .03f, renderer_.height() * .06f), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .58f, renderer_.height() * .84f), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * .03f, ImGui::GetIO().DisplaySize.y * .06f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x * .58f, ImGui::GetIO().DisplaySize.y * .84f), ImGuiCond_Always);
 #else
     ImGui::SetNextWindowSize(ImVec2(490, 420), ImGuiCond_FirstUseEver);
 #endif
@@ -1270,6 +1325,7 @@ void Sandbox::drawUI(float wallDt) {
 #endif
         ImGui::Text("Framebuffer: %d x %d | FPS: %.1f | frame: %.2f ms", fw, fh, ImGui::GetIO().Framerate, ImGui::GetIO().Framerate > 0 ? 1000.f / ImGui::GetIO().Framerate : 0.f);
         ImGui::Text("Renderer CPU: %.2f ms | Draws: %u | Triangles: %u", renderer_.stats.cpuMs, renderer_.stats.drawCalls, renderer_.stats.triangles);
+        if (!opt_.headless) drawQualityControls();
         ImGui::TextDisabled("GPU sky and post timings are available in their panels when supported; storage medium is not detected.");
     }
     if (ImGui::CollapsingHeader("Showcase", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1563,7 +1619,7 @@ bool Sandbox::initMobile(ANativeWindow* window, std::string& error) {
     if (vrm_->mmDb->clipNames.size() != 77) { error = "The complete 77-clip motion library could not be loaded"; return false; }
     // Conservative starting values, editable in the mobile panel and the full sandbox UI.
     post_.bloom = false; light_.pointShadows = false; showUI_ = false; showFps_ = false;
-    touch_.enabled = true; touch_.setScreen((float)renderer_.width(), (float)renderer_.height());
+    touch_.enabled = true; touch_.setScreen((float)renderer_.displayWidth(), (float)renderer_.displayHeight());
     return true;
 }
 static int mobileClipIndex(const Entity* e) {
@@ -1582,7 +1638,7 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         mobileNpcsPendingFrame_ = !lab_.npcs.empty();
         __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "sandbox npcs loaded %zu", lab_.npcs.size());
     }
-    touch_.setScreen((float)renderer_.width(), (float)renderer_.height());
+    touch_.setScreen((float)renderer_.displayWidth(), (float)renderer_.displayHeight());
     DeviceState dev; touch_.apply(dev);
     input_.update(dev); handleActions(dt);
     const glm::vec3 previousPos = vrm_ ? vrm_->pos : glm::vec3(0);
@@ -1594,8 +1650,8 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     if (frame_ > 0) { fps_ = frameTiming_.update(wallDt); benchmarkFrame(wallDt); }
     drawUI(wallDt);
     const float density = opt_.uiFontSize / 14.f;
-    ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .65f, 10.f * density), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .34f, renderer_.height() * .58f), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(renderer_.displayWidth() * .65f, 10.f * density), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(renderer_.displayWidth() * .34f, renderer_.displayHeight() * .58f), ImGuiCond_Always);
     ImGui::Begin("SAKUGA / MOBILE", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
     if (ImGui::Button((tod_ >= 19.f || tod_ < 5.f) ? "DAY" : "NIGHT")) {
         todEnabled_ = true; tod_ = (tod_ >= 19.f || tod_ < 5.f) ? 15.f : 22.f;
@@ -1607,7 +1663,7 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     ImGui::SameLine(); if (ImGui::Button("BENCH")) { showBenchmark_ = true; __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark button pressed"); }
     if (frame_ >= 5 && !mobileBenchmarkTargetLogged_) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
-        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark target x=%d y=%d visible=%d screen=%ux%u", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f), (int)ImGui::IsItemVisible(), renderer_.width(), renderer_.height());
+        __android_log_print(ANDROID_LOG_INFO, "SakugaPreview", "benchmark target x=%d y=%d visible=%d screen=%ux%u", (int)((a.x+b.x)*.5f), (int)((a.y+b.y)*.5f), (int)ImGui::IsItemVisible(), renderer_.displayWidth(), renderer_.displayHeight());
         mobileBenchmarkTargetLogged_ = true;
     }
     ImGui::SameLine();
@@ -1713,15 +1769,15 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
     }
     ImGui::End();
     if (mobileSkyPanel_) {
-        ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .03f, renderer_.height() * .08f), ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .56f, renderer_.height() * .80f), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2(renderer_.displayWidth() * .03f, renderer_.displayHeight() * .08f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(renderer_.displayWidth() * .56f, renderer_.displayHeight() * .80f), ImGuiCond_Always);
         ImGui::Begin("Sky controls", &mobileSkyPanel_, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
         drawSkyProfileControls(true);
         ImGui::End();
     }
     if (mobilePostPanel_) {
-        ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .03f, renderer_.height() * .08f), ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .56f, renderer_.height() * .80f), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2(renderer_.displayWidth() * .03f, renderer_.displayHeight() * .08f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(renderer_.displayWidth() * .56f, renderer_.displayHeight() * .80f), ImGuiCond_Always);
         ImGui::Begin("Post controls", &mobilePostPanel_, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
         ImGui::BeginDisabled(!renderer_.supportsPostTiming());
         if (ImGui::Checkbox("Detailed GPU timings", &post_.gpuDetailedProfiling))
@@ -1741,6 +1797,7 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         }
         if (post_.gpuDetailedProfiling) for (uint32_t i = 0; i < kPostTimingStages; ++i) if (renderer_.stats.gpuPostStages[i] >= 0.f)
             ImGui::TextDisabled("%s %.2f ms", kPostTimingNames[i], renderer_.stats.gpuPostStages[i]);
+        if (ImGui::TreeNode("Performance / resolution")) { drawQualityControls(); ImGui::TreePop(); }
         ImGui::Checkbox("Post enabled", &post_.enabled);
         ImGui::Checkbox("Bloom##mobilepost", &post_.bloom);
         ImGui::SliderFloat("Bloom intensity##mobilepost", &post_.bloomIntensity, 0.f, 1.5f);
@@ -1782,8 +1839,8 @@ int Sandbox::frameMobile(float dt, float wallDt, float x, float y, int clip) {
         constexpr int perPage = 6;
         const int pages = std::max(1, ((int)names.size() + perPage - 1) / perPage);
         mobileClipPage_ = std::clamp(mobileClipPage_, 0, pages - 1);
-        ImGui::SetNextWindowPos(ImVec2(renderer_.width() * .03f, renderer_.height() * .08f), ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(renderer_.width() * .56f, renderer_.height() * .80f), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2(renderer_.displayWidth() * .03f, renderer_.displayHeight() * .08f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(renderer_.displayWidth() * .56f, renderer_.displayHeight() * .80f), ImGuiCond_Always);
         ImGui::Begin("Animations", &mobileClipBrowser_, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
         if (ImGui::Button("FIRST")) mobileClipPage_ = 0; ImGui::SameLine();
         if (ImGui::Button("PREV")) mobileClipPage_ = std::max(0, mobileClipPage_ - 1); ImGui::SameLine();
@@ -1962,6 +2019,7 @@ void Sandbox::restoreMobile(const MobileSnapshot& s) {
     }
     setShowcase(s.showcase);
     opt_ = s.options; camera_ = s.camera; light_ = s.light; post_ = s.post;
+    if (opt_.renderScale > 0.f) renderer_.setRenderScale(opt_.renderScale);
     uiTheme_ = s.theme; std::snprintf(themeName_, sizeof themeName_, "%s", s.themeName.c_str());
     renderer_.setUiTheme(uiTheme_); ImGui::LoadIniSettingsFromMemory(s.ini.c_str(), s.ini.size());
     showThemeEditor_ = s.showTheme; showImGuiDemo_ = s.showDemo;

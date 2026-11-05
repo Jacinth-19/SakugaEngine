@@ -43,6 +43,20 @@ if [[ $renderer_result == presented ]]; then
     echo '::error::The Vulkan sandbox did not load all 77 motion clips.'; exit 1
   fi
   echo '::notice::Engine Vulkan scene presented a frame with all 77 motion clips on the Android emulator.'
+  if ! grep -q 'quality Performance scale=0.75 msaa=1' /tmp/sakuga-android-log.txt; then
+    echo '::error::Automatic mobile performance profile was not selected.'; exit 1
+  fi
+  python3 - <<'PYCODE'
+import re
+log = open('/tmp/sakuga-android-log.txt').read()
+m = re.search(r'surface dimensions window=\d+x\d+ swap=(\d+)x(\d+) internal=(\d+)x(\d+)', log)
+if not m:
+    raise SystemExit('::error::Scaled renderer dimensions were not logged')
+sw, sh, rw, rh = map(int, m.groups())
+if abs(rw - sw * .75) > 1 or abs(rh - sh * .75) > 1:
+    raise SystemExit('::error::Internal dimensions do not match 75% render scale')
+print(f'::notice::Automatic performance profile rendered at {rw}x{rh} for {sw}x{sh} presentation.')
+PYCODE
 elif [[ $renderer_result == unavailable ]]; then
   renderer_line=$(grep -F 'renderer unavailable:' /tmp/sakuga-android-log.txt | tail -1)
   echo "::error::The emulator fell back to Canvas; this check requires a sandbox Vulkan frame: $renderer_line"; exit 1
